@@ -152,7 +152,10 @@ extension ChargingDiagnostic {
             // state, and these reuse the existing localised keys verbatim.
             if batteryFullyCharged == true {
                 self.summary = String(localized: "Battery full, not charging", bundle: _coreLocalizedBundle)
-                self.detail = String(localized: "Charger and cable are fine. The Mac will draw up to \(n)W when it needs to.", bundle: _coreLocalizedBundle)
+                // Quote the charger ceiling, not the currently negotiated
+                // (deliberately low) contract: with a full battery the low
+                // figure would read as the most this setup can ever deliver.
+                self.detail = String(localized: "Charger and cable are fine. The Mac will draw up to \(chargerMaxW)W when it needs to.", bundle: _coreLocalizedBundle)
             } else if batteryIsCharging == false {
                 self.summary = String(localized: "Plugged in, charging on hold", bundle: _coreLocalizedBundle)
                 self.detail = String(localized: "Charger and cable are fine. macOS has paused charging for now, usually a battery charge limit or Optimized Battery Charging. The Mac still draws power from the charger.", bundle: _coreLocalizedBundle)

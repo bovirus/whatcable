@@ -238,7 +238,29 @@ struct ChargingDiagnosticTests {
         // The bottleneck stays .macLimit; only the copy reflects battery state.
         #expect(diag!.isWarning == false)
         #expect(diag!.summary == "Battery full, not charging")
-        #expect(diag!.detail == "Charger and cable are fine. The Mac will draw up to 30W when it needs to.")
+        // The detail quotes the charger ceiling (100W), not the negotiated
+        // 30W: with a full battery the low contract is temporary, and quoting
+        // it would read as the most this charger can ever deliver.
+        #expect(diag!.detail == "Charger and cable are fine. The Mac will draw up to 100W when it needs to.")
+    }
+
+    @Test("macLimit with battery full AND charging on hold prefers 'Battery full'")
+    func macLimitFullBatteryBeatsChargeHold() {
+        // Both battery-state signals set: full wins, mirroring the `.fine`
+        // arm's ordering. Pins the branch order so a swap fails this test.
+        let diag = ChargingDiagnostic(
+            port: port,
+            sources: [usbPD(maxW: 100, winningW: 30)],
+            identities: [],
+            adapter: AdapterInfo(watts: 100, isCharging: nil, source: "AC"),
+            batteryFullyCharged: true,
+            batteryIsCharging: false
+        )
+        guard case .macLimit = diag?.bottleneck else {
+            Issue.record("expected .macLimit, got \(String(describing: diag?.bottleneck))")
+            return
+        }
+        #expect(diag!.summary == "Battery full, not charging")
     }
 
     @Test("macLimit with charging on hold reports 'charging on hold', not 'Charging at XW'")
@@ -272,7 +294,8 @@ struct ChargingDiagnosticTests {
         let diag = ChargingDiagnostic(
             port: port,
             sources: [usbPD(maxW: 100, winningW: 30)],
-            identities: []
+            identities: [],
+            batteryIsCharging: true
         )
         guard case .macLimit(let n, let chargerW, _) = diag?.bottleneck else {
             Issue.record("expected .macLimit, got \(String(describing: diag?.bottleneck))")
@@ -281,6 +304,23 @@ struct ChargingDiagnosticTests {
         #expect(n == 30)
         #expect(chargerW == 100)
         #expect(diag!.isWarning == false)
+        #expect(diag!.summary == "Charging at 30W (charger can do up to 100W)")
+        #expect(diag!.detail == "Both the charger and cable can do more, but the Mac is currently asking for less. This is normal once the battery is mostly full, or when the system is idle.")
+    }
+
+    @Test("macLimit with unknown battery state keeps the 'Charging at XW' summary")
+    func macLimitWithUnknownBatteryStateReportsNegotiatedWatts() {
+        // Both battery-state signals nil (callers that never pass them):
+        // behaviour is unchanged from before the battery-state branching.
+        let diag = ChargingDiagnostic(
+            port: port,
+            sources: [usbPD(maxW: 100, winningW: 30)],
+            identities: []
+        )
+        guard case .macLimit = diag?.bottleneck else {
+            Issue.record("expected .macLimit, got \(String(describing: diag?.bottleneck))")
+            return
+        }
         #expect(diag!.summary == "Charging at 30W (charger can do up to 100W)")
     }
 

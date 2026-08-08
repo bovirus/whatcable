@@ -95,6 +95,12 @@ research/customer-probes/*/*.json
 !research/customer-probes/m3pro_macos27.0_l/38_usb_device_tree.json
 !research/customer-probes/m3pro_macos27.0_m/29_usb4_router_interfaces.json
 !research/customer-probes/m3pro_macos27.0_m/38_usb_device_tree.json
+# probe 37 (tb_tunnel_port_map) for the same two folders: the PCIe-bridge-depth
+# structural tunnel join replays from this probe, and without it tracked the
+# join half of ChainAttributionProbeSweepTests sweeps zero folders
+# on a fresh clone or a worktree.
+!research/customer-probes/m3pro_macos27.0_l/37_tb_tunnel_port_map.json
+!research/customer-probes/m3pro_macos27.0_m/37_tb_tunnel_port_map.json
 
 # Python bytecode (from research/build scripts like inspect-probe.py)
 __pycache__/

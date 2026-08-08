@@ -119,6 +119,7 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
             let uid: Int64?
             let entryID: UInt64
             let parentEntryID: UInt64  // 0 if no Thunderbolt-switch parent
+            let acioRootName: String?  // only set on a host root (parentEntryID == 0)
         }
 
         var raw: [RawEntry] = []
@@ -173,15 +174,18 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
                 // Walk up to the nearest Thunderbolt switch ancestor (skipping
                 // adapter / port intermediaries). On Apple Silicon, downstream
                 // switches sit below their parent switch in the IOService
-                // plane, so this gives us the parent linkage for free.
-                let parentEntryID = parentSwitchEntryID(of: service)
+                // plane, so this gives us the parent linkage for free. For a
+                // host root (no switch ancestor), the same walk also surfaces
+                // the acioN root name (port-scoping join, see `switchAncestry`).
+                let ancestry = switchAncestry(of: service)
 
                 raw.append(RawEntry(
                     service: service,
                     className: className,
                     uid: uid,
                     entryID: entryID,
-                    parentEntryID: parentEntryID
+                    parentEntryID: ancestry.parentEntryID,
+                    acioRootName: ancestry.acioRootName
                 ))
             }
         }
@@ -230,7 +234,8 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
                 read: read,
                 className: entry.className,
                 ports: ports,
-                parentSwitchUID: parentUID
+                parentSwitchUID: parentUID,
+                acioRootName: entry.acioRootName
             ) {
                 rebuilt.append(model)
                 registerInterest(for: entry.service, entryID: entry.entryID)
@@ -293,17 +298,31 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
         return ports
     }
 
-    /// Walk up the IOService plane and return the registry entry ID of the
-    /// nearest ancestor whose class is an IOIOThunderboltSwitch. Returns `0`
-    /// if no such ancestor is found. The walker manages all IOKit handle
-    /// lifetimes internally so callers don't have to track ownership.
+    /// The two things a single upward walk from a switch's registry entry
+    /// can establish. `parentEntryID` is `0` when no Thunderbolt-switch
+    /// ancestor was found (a host root). `acioRootName` is only ever
+    /// non-nil in that same case: a downstream switch's walk always stops
+    /// at its parent switch first, well short of `acioN`.
+    private struct AncestryResult {
+        let parentEntryID: UInt64
+        let acioRootName: String?
+    }
+
+    /// Walk up the IOService plane. Returns the registry entry ID of the
+    /// nearest ancestor whose class is an IOIOThunderboltSwitch (`0` if none
+    /// found), and, only when none was found (this switch is a host root),
+    /// the `acioN` Thunderbolt HAL root name the walk passed through (the
+    /// port-scoping half of the apciec<->acio join, mirroring `USBWatcher
+    /// .tunnelBridgeAncestry`'s walk to `apciecN` on the USB tunnel side).
+    /// The walker manages all IOKit handle lifetimes internally so callers
+    /// don't have to track ownership.
     ///
     /// Returning the entry ID (a stable 64-bit identifier per registry
     /// object) rather than the raw service handle avoids a class of bug
     /// where two `io_service_t` values for the same registry object
     /// compare unequal because IOKit can hand back distinct mach-port
     /// handles for the same underlying entry.
-    private func parentSwitchEntryID(of service: io_service_t) -> UInt64 {
+    private func switchAncestry(of service: io_service_t) -> AncestryResult {
         var current = service
         IOObjectRetain(current)
         defer { IOObjectRelease(current) }
@@ -311,7 +330,7 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
         for _ in 0..<32 {
             var parent: io_service_t = 0
             guard IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent) == KERN_SUCCESS else {
-                return 0
+                return AncestryResult(parentEntryID: 0, acioRootName: nil)
             }
             // Move ownership into `current` for the next iteration / cleanup.
             IOObjectRelease(current)
@@ -327,13 +346,25 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
                 if name.hasPrefix("IOIOThunderboltSwitch") || name.hasPrefix("IOThunderboltSwitch") {
                     var entryID: UInt64 = 0
                     if IORegistryEntryGetRegistryEntryID(current, &entryID) == KERN_SUCCESS {
-                        return entryID
+                        return AncestryResult(parentEntryID: entryID, acioRootName: nil)
                     }
-                    return 0
+                    return AncestryResult(parentEntryID: 0, acioRootName: nil)
+                }
+            }
+
+            // No switch ancestor yet: check for the acioN root (strict
+            // "acio" + digits, `RegistryRootNaming`). Only reachable for a
+            // host root, since any downstream switch's walk already
+            // returned above at its parent switch.
+            var nameBuf = [CChar](repeating: 0, count: 128)
+            if IORegistryEntryGetName(current, &nameBuf) == KERN_SUCCESS {
+                let name = String(cString: nameBuf)
+                if RegistryRootNaming.isRootName(name, prefix: "acio") {
+                    return AncestryResult(parentEntryID: 0, acioRootName: name)
                 }
             }
         }
-        return 0
+        return AncestryResult(parentEntryID: 0, acioRootName: nil)
     }
 
     /// Subscribe to property changes on a switch service. Apple's IOKit

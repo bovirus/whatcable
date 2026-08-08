@@ -71,15 +71,85 @@ public enum TunnelledDeviceGrouping {
     ///   that does not opt in gets no front-port devices, never a laptop false
     ///   positive. The `isBehindInternalHub` flag itself stays pure structural
     ///   truth; this is the one place the desktop product policy is applied.
+    /// The tunnelled devices belonging to THIS port by structure, not by the
+    /// single-active-port heuristic `group(...)` below falls back to: those
+    /// whose `tunnelRootName` matches the port's own `apciecN` root, derived
+    /// from its Thunderbolt host root switch's `acioRootName` (the
+    /// corpus-verified apciec<->acio index pairing,
+    /// `research/usb-chain-attribution-identifiers.md`). This is the
+    /// port-scoping join `ChainDeviceAttribution`'s structural tunnel pass
+    /// needs as its `expectedTunnelRootName`, and it is also how a device
+    /// with a valid `tunnelRootName` is fed into `ConnectedDeviceTree.rows`'s
+    /// `tunnelledDevices` parameter so it nests in the SAME tree as the
+    /// port's other devices, instead of the flat/single-port fallback below.
+    ///
+    /// Returns `[]` when the port has no Thunderbolt host root, the host
+    /// root's `acioRootName` was never captured (older macOS, or the acio
+    /// ancestor walk's bound was exceeded), or no device's `tunnelRootName`
+    /// matches it. All three fail closed to "claims nothing", leaving the
+    /// device to the single-active-port fallback in `group(...)`, which is
+    /// the ONLY path for a device with no structural root data at all
+    /// (`tunnelRootName == nil`): this function can never structurally claim
+    /// such a device, by construction (`$0.tunnelRootName == apciecName`
+    /// requires a non-nil match).
+    public static func structurallyScopedTunnelledDevices(
+        for port: AppleHPMInterface,
+        in devices: [USBDevice],
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> [USBDevice] {
+        guard let socketID = ThunderboltTopology.socketID(for: port),
+              let hostRoot = ThunderboltTopology.hostRoot(forSocketID: socketID, in: thunderboltSwitches),
+              let acioName = hostRoot.acioRootName,
+              let apciecName = ThunderboltTopology.apciecRootName(fromAcioRootName: acioName)
+        else { return [] }
+        return devices.filter { $0.isThunderboltTunnelled && $0.tunnelRootName == apciecName }
+    }
+
+    /// The `usbTunnelSwitchUIDs` argument `ChainDeviceAttribution.resolve`
+    /// wants for this port: the switch UIDs of the USB-carrying tunnels this
+    /// port's fabric actually reports. Shared here (rather than duplicated at
+    /// each call site) because both the CLI (`TextFormatter`) and the app
+    /// (`ContentView`) need to compute the exact same set for the exact same
+    /// port.
+    public static func usbTunnelSwitchUIDs(
+        for port: AppleHPMInterface,
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> Set<Int64> {
+        guard let socketID = ThunderboltTopology.socketID(for: port),
+              let hostRoot = ThunderboltTopology.hostRoot(forSocketID: socketID, in: thunderboltSwitches)
+        else { return [] }
+        return ThunderboltTopology.usbTunnelTerminalSwitchUIDs(from: hostRoot, in: thunderboltSwitches)
+    }
+
+    /// This port's own `apciecN` root name, when derivable: the
+    /// `expectedTunnelRootName` argument `ChainDeviceAttribution.resolve`
+    /// wants. `nil` under the same conditions
+    /// `structurallyScopedTunnelledDevices` fails closed on.
+    public static func expectedTunnelRootName(
+        for port: AppleHPMInterface,
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> String? {
+        guard let socketID = ThunderboltTopology.socketID(for: port),
+              let hostRoot = ThunderboltTopology.hostRoot(forSocketID: socketID, in: thunderboltSwitches),
+              let acioName = hostRoot.acioRootName
+        else { return nil }
+        return ThunderboltTopology.apciecRootName(fromAcioRootName: acioName)
+    }
+
     public static func group(
         devices: [USBDevice],
         ports: [AppleHPMInterface],
         thunderboltSwitches: [IOThunderboltSwitch],
-        isDesktopMac: Bool = false
+        isDesktopMac: Bool = false,
+        // Device ids already placed by `structurallyScopedTunnelledDevices`
+        // for SOME port (across every port, unioned by the caller). Excluded
+        // here so a structurally-scoped device renders exactly once: nested
+        // in its port's tree, never ALSO in this flat/single-port fallback.
+        structurallyScoped: Set<UInt64> = []
     ) -> Result {
         // Hubs are kept (see the type doc): they are the branch points the tree
         // renderer needs to nest each device under the hub it hangs off.
-        let tunnelled = devices.filter { $0.isThunderboltTunnelled }
+        let tunnelled = devices.filter { $0.isThunderboltTunnelled && !structurallyScoped.contains($0.id) }
         // Front-port / internal-hub devices: those the parent walk flagged as
         // behind the Mac's internal hub. Desktop-only: empty on laptops (see
         // isDesktopMac). The tunnelled exclusion is defensive; isBehindInternalHub

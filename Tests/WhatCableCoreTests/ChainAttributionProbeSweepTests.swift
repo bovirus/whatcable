@@ -244,6 +244,96 @@ struct ChainAttributionProbeSweepTests {
         return nil
     }
 
+    // MARK: - Probe 37: PCIe bridge depth for tunnelled devices
+    //
+    // The `m3pro_macos27.0_l`/`_m` copies of
+    // `research/customer-probes/*/37_tb_tunnel_port_map.json` are tracked in
+    // git (`.gitignore` negation, alongside their probe-29/38 siblings), so
+    // this half of the sweep runs on a fresh clone or a worktree too, not
+    // just the primary folder after a `/whatcable-process-probe` ingest.
+    // Every OTHER folder's probe 37 stays untracked, so `probe37BridgeDepths`
+    // still returns an empty map for them there; the caller treats that as
+    // "leave every device's structural fields nil", exactly the same honest
+    // degrade the live `USBWatcher` walk produces when its own bound is
+    // exceeded.
+    //
+    // Independent parser: probe 37's own C source
+    // (`probes/test-kit/37_tb_tunnel_port_map.c`) prints the same
+    // `IORegistryEntryGetPath` strings `USBWatcher.tunnelBridgeAncestry` reads
+    // live, but this re-derives the count from the printed path text rather
+    // than sharing any code with `USBWatcher`.
+    private static func probe37BridgeDepths(_ text: String) -> [UInt32: (depth: Int, root: String)] {
+        guard let section = text.range(of: "--- Tunnelled USB devices"),
+              let hpmSection = text.range(of: "=== HPM UUID map", range: section.upperBound..<text.endIndex)
+        else { return [:] }
+        let body = text[section.upperBound..<hpmSection.lowerBound]
+
+        var result: [UInt32: (depth: Int, root: String)] = [:]
+        var pendingLoc: UInt32?
+        for rawLine in body.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("locationID="), let paren = line.firstIndex(of: "(") {
+                let hexPart = line[line.index(after: paren)...].prefix { $0 != ")" }
+                pendingLoc = UInt32(hexPart.dropFirst(2), radix: 16) // "0x..." -> drop "0x"
+                continue
+            }
+            guard line.hasPrefix("IOService:"), let loc = pendingLoc else { continue }
+            pendingLoc = nil
+            var bridgeCount = 0
+            var rootName: String?
+            for segment in line.split(separator: "/") {
+                let name = segment.split(separator: "@").first.map(String.init) ?? String(segment)
+                if name == "pci-bridge" { bridgeCount += 1 }
+                if name.hasPrefix("apciec") { rootName = name }
+            }
+            if let rootName {
+                result[loc] = (bridgeCount, rootName)
+            }
+        }
+        return result
+    }
+
+    /// The switch UIDs a production caller would pass as `usbTunnelSwitchUIDs`:
+    /// every chain switch sitting at a depth some device's own
+    /// `tunnelBridgeDepth / 2` names. This is test SETUP for the real
+    /// function under test (preparing its inputs the way the doc comment on
+    /// `ChainDeviceAttribution.resolve` says a caller should), not part of
+    /// the independent re-derivation `structuralMarks` does separately below.
+    private static func usbTunnelSwitchUIDs(chainNodes: [IOThunderboltSwitchNode], devices: [USBDevice]) -> Set<Int64> {
+        let candidateDepths = Set(devices.compactMap { device -> Int? in
+            guard device.isThunderboltTunnelled,
+                  let bd = device.tunnelBridgeDepth, bd >= 2, bd % 2 == 0
+            else { return nil }
+            return bd / 2
+        })
+        return Set(chainNodes.filter { candidateDepths.contains($0.sw.depth) }.map { $0.sw.id })
+    }
+
+    /// Rebuilds a device list with `isThunderboltTunnelled` / `tunnelBridgeDepth`
+    /// / `tunnelRootName` filled in from the probe-37 map, matched by
+    /// `locationID`. Devices with no entry in the map (everything probe 37
+    /// didn't report as tunnelled) pass through unchanged.
+    private static func applyBridgeDepths(
+        _ devices: [USBDevice],
+        _ depths: [UInt32: (depth: Int, root: String)]
+    ) -> [USBDevice] {
+        guard !depths.isEmpty else { return devices }
+        return devices.map { device in
+            guard let entry = depths[device.locationID] else { return device }
+            return USBDevice(
+                id: device.id, locationID: device.locationID,
+                vendorID: device.vendorID, productID: device.productID,
+                vendorName: device.vendorName, productName: device.productName,
+                serialNumber: device.serialNumber, usbVersion: device.usbVersion,
+                speedRaw: device.speedRaw, busPowerMA: device.busPowerMA, currentMA: device.currentMA,
+                busIndex: device.busIndex, controllerPortName: device.controllerPortName,
+                isThunderboltTunnelled: true,
+                tunnelBridgeDepth: entry.depth, tunnelRootName: entry.root,
+                deviceClass: device.deviceClass, rawProperties: device.rawProperties
+            )
+        }
+    }
+
     // MARK: - Independent re-derivations
 
     private static func normalise(_ s: String) -> String {
@@ -430,7 +520,77 @@ struct ChainAttributionProbeSweepTests {
             if soft.count == 1, let id = soft.first?.sw.id { softMatches.append((device, id)) }
         }
 
+        // Structural tunnel pass, independent re-derivation: a
+        // tunnelled device's `tunnelBridgeDepth` divided by two is the TB
+        // DROM depth of the switch that owns its tunnel, looked up directly,
+        // no name involved. Shares no code with `ChainDeviceAttribution`
+        // beyond `USBDeviceNode.buildTree`, which is plain tree
+        // infrastructure, not an attribution decision.
+        //
+        // Restricted to CONFIRMED USB-tunnel-bearing depths, independently
+        // derived from the same probe-37 bridge-depth evidence devices
+        // already carry (not from calling any production helper): the depths
+        // any device's own `tunnelBridgeDepth / 2` actually names. This
+        // mirrors production's `usbTunnelSwitchUIDs` restriction (only
+        // switches THIS port's fabric confirms carry a USB tunnel), then
+        // gates PER DEPTH within that set (only depths with exactly one such
+        // switch resolve), not per whole chain: the #493 reporter's own
+        // ground-truth machine has a depth-2 sibling (OWC, no USB tunnel)
+        // next to the LaCie (which has one), and a whole-chain gate, or one
+        // that counted every switch at a depth rather than only
+        // confirmed-tunnelled ones, would wrongly refuse the LaCie too.
+        let candidateDepths = Set(devices.compactMap { device -> Int? in
+            guard device.isThunderboltTunnelled,
+                  let bd = device.tunnelBridgeDepth, bd >= 2, bd % 2 == 0
+            else { return nil }
+            return bd / 2
+        })
+        var depthCounts: [Int: [Int64]] = [:]
+        for node in chain where candidateDepths.contains(node.sw.depth) {
+            depthCounts[node.sw.depth, default: []].append(node.sw.id)
+        }
+        var switchByDepth: [Int: Int64] = [:]
+        for (depth, ids) in depthCounts where ids.count == 1 { switchByDepth[depth] = ids[0] }
+
+        // Root-name internal consistency, mirroring production's fallback
+        // when `expectedTunnelRootName` is unknown (which this sweep never
+        // supplies, since it has no acioRootName data to derive it from):
+        // every candidate must agree on `tunnelRootName`, or the whole
+        // structural pass is refused.
+        let candidateRoots = Set(devices.compactMap { device -> String? in
+            guard device.isThunderboltTunnelled,
+                  let bd = device.tunnelBridgeDepth, bd >= 2, bd % 2 == 0,
+                  switchByDepth[bd / 2] != nil
+            else { return nil }
+            return device.tunnelRootName
+        })
+        let rootsAreConsistent = candidateRoots.count <= 1
+
+        var exactByDevice: [UInt64: Int64] = [:]
+        for match in exactMatches { exactByDevice[match.device.id] = match.switchID }
+
+        var structuralResult: [UInt64: Int64] = [:]
+        if rootsAreConsistent {
+            for device in devices {
+                guard device.isThunderboltTunnelled,
+                      let bridgeDepth = device.tunnelBridgeDepth,
+                      bridgeDepth >= 2, bridgeDepth % 2 == 0,
+                      let switchID = switchByDepth[bridgeDepth / 2]
+                else { continue }
+                // Precedence safety: a device's own exact-name match
+                // disagreeing with the structural switch wins; structural is
+                // skipped for that device (mirrors production's
+                // `structurallyConflicted` exclusion).
+                if let namedSwitch = exactByDevice[device.id], namedSwitch != switchID { continue }
+                structuralResult[device.id] = switchID
+            }
+        }
+
+        // Structural wins outright over name matching (when it does not
+        // conflict with a device's own name match, per the precedence-safety
+        // check above), mirroring production's precedence.
         var result = marks(exactMatches)
+        result.merge(structuralResult) { _, structural in structural }
         let afterExact = ownership(result)
         var refused = 0
         for (id, switchID) in marks(softMatches) {
@@ -496,6 +656,13 @@ struct ChainAttributionProbeSweepTests {
         var multiDeviceAllAnchored = 0
         var placedEndpoints = 0
         var pins: [String: String] = [:]
+        // Only the m3pro_macos27.0_l/_m probe-37 pair is tracked, so these
+        // are non-zero on a fresh clone or a worktree but still well below
+        // what a fully-ingested primary folder sees. That is a known,
+        // printed gap, not a silent one; see the non-vacuity check after the
+        // loop.
+        var foldersWithProbe37 = 0
+        var structurallyPlacedDevices = 0
 
         for folder in Self.folders() {
             guard let text29 = Self.probeText(folder, "29_usb4_router_interfaces.json"),
@@ -503,8 +670,22 @@ struct ChainAttributionProbeSweepTests {
             else { continue }
             let raws = Self.rawSwitches(text29)
             let allChains = Self.chains(raws)
-            let devices = Self.usbDevices(text38)
+            var devices = Self.usbDevices(text38)
             guard !allChains.isEmpty, !devices.isEmpty else { continue }
+
+            // Fold in probe 37's PCIe bridge depths, when the raw
+            // probe is on disk. `applyBridgeDepths` is a no-op (returns
+            // `devices` unchanged) when the file is absent, so the rest of
+            // this sweep's assertions run identically with or without it;
+            // only the ground-truth checks below and the structural-mark
+            // count depend on it being present.
+            if let text37 = Self.probeText(folder, "37_tb_tunnel_port_map.json") {
+                let depths = Self.probe37BridgeDepths(text37)
+                if !depths.isEmpty {
+                    foldersWithProbe37 += 1
+                    devices = Self.applyBridgeDepths(devices, depths)
+                }
+            }
             withProbes += 1
             guard allChains.count == 1 else { skippedMultiChain += 1; continue }
             let chain = allChains[0]
@@ -517,7 +698,10 @@ struct ChainAttributionProbeSweepTests {
 
             let forest = USBDeviceNode.buildTree(from: devices)
             let flat = USBDeviceNode.flatten(forest)
-            let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest)
+            let result = ChainDeviceAttribution.resolve(
+                chain: chain, forest: forest,
+                usbTunnelSwitchUIDs: Self.usbTunnelSwitchUIDs(chainNodes: chainNodes, devices: devices)
+            )
 
             var parentOf: [UInt64: UInt64] = [:]
             for node in flat {
@@ -533,6 +717,7 @@ struct ChainAttributionProbeSweepTests {
             }
             absorbedTotal += result.absorbed.count
             marks += result.regionRoots.count
+            structurallyPlacedDevices += devices.filter { $0.isThunderboltTunnelled && $0.tunnelBridgeDepth != nil }.count
 
             // 1. Every owner is a real chain device on THIS port, and every
             // marked or owned id is a real device.
@@ -726,6 +911,39 @@ struct ChainAttributionProbeSweepTests {
                         "m5_macos26.5.1_p: the Ethernet adapter is in the dock, not the \(name)")
                 }
             }
+
+            // Structural-join ground truth: issue #493's own reporter, two independent
+            // captures on the same daisy chain (Mac -> CalDigit dock -> LaCie
+            // 1big -> Studio Display). Only runs when probe 37 is on disk (see
+            // `foldersWithProbe37`). Devices behind the Studio Display whose
+            // product name is a bare "USB2 Hub" / "USB3 Gen2 Hub" (naming
+            // nothing about the display) is exactly the shape name matching
+            // cannot place and the structural join exists for.
+            if folder == "m3pro_macos27.0_l" || folder == "m3pro_macos27.0_m",
+               devices.contains(where: { $0.tunnelBridgeDepth != nil }) {
+                let laCieSwitch = chainNodes.first { $0.sw.modelName.contains("1big Dock") }
+                let displaySwitch = chainNodes.first { $0.sw.modelName == "Studio Display" }
+                #expect(laCieSwitch != nil, "\(folder): fixture assumption failed, no LaCie switch in the fabric")
+                #expect(displaySwitch != nil, "\(folder): fixture assumption failed, no Studio Display switch in the fabric")
+
+                let unnamedDisplayHub = devices.first {
+                    $0.tunnelBridgeDepth != nil && ($0.productName == "USB2 Hub" || $0.productName == "USB3 Gen2 Hub")
+                }
+                if let unnamedDisplayHub, let displaySwitch {
+                    pins["\(folder) structural"] = "unnamed hub owner=\(result.regionOwner[unnamedDisplayHub.id].map(String.init) ?? "nil")"
+                    #expect(result.regionOwner[unnamedDisplayHub.id] == displaySwitch.sw.id,
+                        "\(folder): '\(unnamedDisplayHub.productName ?? "?")' names nothing about the Studio Display, so only the structural join can place it there")
+                }
+                if let laCieSwitch {
+                    let laCieDevices = devices.filter {
+                        $0.tunnelBridgeDepth != nil && $0.productName?.hasPrefix("1big Dock") == true
+                    }
+                    for device in laCieDevices {
+                        #expect(result.regionOwner[device.id] == laCieSwitch.sw.id,
+                            "\(folder): '\(device.productName ?? "?")' should structurally join the LaCie switch")
+                    }
+                }
+            }
         }
 
         // Floors, only meaningful when the corpus is on disk. No probe-29 file
@@ -750,6 +968,8 @@ struct ChainAttributionProbeSweepTests {
               marks: \(marks) (vendor-derived: \(vendorMarks)), absorbed: \(absorbedTotal), \
             endpoints placed: \(placedEndpoints)
               conflict guard fired on \(conflictGuardFired) hub(s), affiliate marks refused: \(affiliateMarksRefused)
+              Structural join: folders with probe 37 on disk: \(foldersWithProbe37), \
+            devices carrying a bridge depth: \(structurallyPlacedDevices)
               pins: \(pins)
             """)
         guard swept >= 40 else {
@@ -782,6 +1002,21 @@ struct ChainAttributionProbeSweepTests {
         // non-zero the shape has arrived in real data and the sweep starts
         // covering it.
         #expect(skippedMultiChain < withProbes, "every folder was skipped; the sweep is vacuous")
+
+        // Only meaningful where probe 37 is on disk. It is not a
+        // tracked fixture, so a fresh clone or a worktree sees 0 here and
+        // this block is skipped entirely: a known, printed gap (see the log
+        // line above), not a silent pass dressed as coverage. Where it DOES
+        // run (the primary folder, after ingest), it must find something,
+        // or the probe-37 wiring above is dead code that happens to compile.
+        if foldersWithProbe37 > 0 {
+            #expect(structurallyPlacedDevices >= 1,
+                "probe 37 was on disk for \(foldersWithProbe37) folder(s) but no device ever carried a bridge depth")
+            #expect(pins.keys.contains { $0.hasSuffix("structural") },
+                "probe 37 was on disk but the m3pro_macos27.0_l/_m ground-truth pin never ran")
+        } else {
+            print("[chain attribution sweep] structural join: probe 37 not on disk anywhere in the corpus copy; structural-join half of the sweep skipped")
+        }
     }
 
     // MARK: - Regression: issue #493

@@ -87,33 +87,68 @@ public enum ConnectedDeviceTree {
         case endpointsOnly
     }
 
+    /// - Parameters:
+    ///   - devices: USB devices already attributed to this port by the
+    ///     ordinary (non-tunnel) join, as before.
+    ///   - tunnelledDevices: tunnelled USB devices STRUCTURALLY scoped to
+    ///     this specific port (`TunnelledDeviceGrouping
+    ///     .structurallyScopedTunnelledDevices(for:in:thunderboltSwitches:)`),
+    ///     merged into the SAME forest as `devices` so a tunnelled device
+    ///     nests under its chain device in this port's tree instead of
+    ///     rendering in a separate flat section. Empty by default so every
+    ///     existing caller is unaffected until it opts in. A device with no
+    ///     structural root data at all never appears here (the scoping
+    ///     helper can't place it); it keeps flowing through
+    ///     `TunnelledDeviceGrouping.group`'s single-active-port fallback,
+    ///     unchanged.
     public static func rows(
         devices: [USBDevice],
+        tunnelledDevices: [USBDevice] = [],
         port: AppleHPMInterface,
         thunderboltSwitches: [IOThunderboltSwitch],
         displayPorts: [IOPortTransportStateDisplayPort],
         hubs: HubDisplay = .all
     ) -> [Row] {
+        // Merged once, at the top: every path below (the no-Thunderbolt
+        // fallback included, though `tunnelledDevices` should be empty there
+        // by construction) reads `allDevices`, never the bare `devices`
+        // parameter, so a tunnelled device can never be silently dropped by
+        // a path that forgot about it.
+        let allDevices = tunnelledDevices.isEmpty ? devices : devices + tunnelledDevices
+
         guard let hostRoot = thunderboltHostRoot(port: port, switches: thunderboltSwitches)
         else {
             // No Thunderbolt device downstream: the plain USB tree, unchanged.
             // Directly-attached monitors (USB-C DisplayPort Alt Mode, no TB
             // tunnel) keep their existing display banner; without a root to
             // hang them under, a bare display row here would just repeat it.
-            return deviceRowsGroupedByBus(devices, hubs: hubs)
+            return deviceRowsGroupedByBus(allDevices, hubs: hubs)
         }
 
         let chain = ThunderboltTopology.tree(from: hostRoot, in: thunderboltSwitches)
         let chainNodes = ThunderboltTopology.flatten(chain)
-        guard !chainNodes.isEmpty else { return deviceRowsGroupedByBus(devices, hubs: hubs) }
+        guard !chainNodes.isEmpty else { return deviceRowsGroupedByBus(allDevices, hubs: hubs) }
 
         let displays = displayRows(
             displayPorts: displayPorts,
             hostRoot: hostRoot,
             switches: thunderboltSwitches
         )
-        let forest = USBDeviceNode.buildTree(from: devices)
-        let attribution = ChainDeviceAttribution.resolve(chain: chain, forest: forest)
+        let forest = USBDeviceNode.buildTree(from: allDevices)
+        // The structural tunnel join's two safety inputs:
+        // which switches this port's OWN fabric confirms carry a USB tunnel
+        // (the shared, strict derivation: cross-cable, downstream terminal,
+        // and the terminal's OWN adapter is a USB type, not just `kind`), and
+        // this port's own apciecN root name, so a device whose tunnelRootName
+        // names a different port fails closed rather than being trusted just
+        // because it ended up in this call's `devices`.
+        let usbTunnelSwitchUIDs = ThunderboltTopology.usbTunnelTerminalSwitchUIDs(from: hostRoot, in: thunderboltSwitches)
+        let expectedTunnelRootName = hostRoot.acioRootName.flatMap(ThunderboltTopology.apciecRootName(fromAcioRootName:))
+        let attribution = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: usbTunnelSwitchUIDs,
+            expectedTunnelRootName: expectedTunnelRootName
+        )
 
         // The gate. One chain device and nothing attributed means there is
         // nothing for the chain layout to say that the existing one doesn't, so
@@ -135,7 +170,7 @@ public enum ConnectedDeviceTree {
             // carrying `device` across. Dropping it here would make the
             // expandable detail work everywhere except behind a dock, which is
             // where the device tree is longest and the detail is most wanted.
-            rows.append(contentsOf: deviceRowsGroupedByBus(devices, hubs: hubs).map {
+            rows.append(contentsOf: deviceRowsGroupedByBus(allDevices, hubs: hubs).map {
                 Row(label: $0.label, depth: $0.depth + 1, device: $0.device)
             })
             return rows

@@ -82,9 +82,27 @@ public struct ChainDeviceAttribution: Equatable {
     ///     `ThunderboltTopology.tree(from:in:)` returns it.
     ///   - forest: the USB device forest for the same port, as
     ///     `USBDeviceNode.buildTree(from:)` returns it.
+    ///   - usbTunnelSwitchUIDs: the switch UIDs of the USB-carrying tunnels
+    ///     THIS port's fabric actually reports (`ThunderboltTopology
+    ///     .tunnels(from:in:).filter { $0.kind == .usb }
+    ///     .compactMap(\.terminalSwitchUID)`). The structural tunnel join
+    ///     below only ever considers switches in this set: an empty set
+    ///     (no hop-table data, or the caller didn't compute it) means the
+    ///     structural pass places nothing, which is the correct fail-closed
+    ///     default, not a silent behaviour change.
+    ///   - expectedTunnelRootName: this port's own `apciecN` root name (from
+    ///     its host root switch's `acioRootName`, converted by
+    ///     `ThunderboltTopology.apciecRootName(fromAcioRootName:)`), used to
+    ///     refuse a tunnelled device whose `tunnelRootName` names a
+    ///     DIFFERENT port. `nil` when the caller could not derive it (older
+    ///     capture, or the acio walk's bound was exceeded); the structural
+    ///     pass still runs then, but falls back to an internal-consistency
+    ///     check (see below).
     public static func resolve(
         chain: [IOThunderboltSwitchNode],
-        forest: [USBDeviceNode]
+        forest: [USBDeviceNode],
+        usbTunnelSwitchUIDs: Set<Int64> = [],
+        expectedTunnelRootName: String? = nil
     ) -> ChainDeviceAttribution {
         let chainNodes = ThunderboltTopology.flatten(chain)
         let allNodes = USBDeviceNode.flatten(forest)
@@ -95,6 +113,50 @@ public struct ChainDeviceAttribution: Equatable {
         for node in allNodes { nodeByID[node.device.id] = node }
         for node in allNodes {
             for child in node.children { parentOf[child.device.id] = node.device.id }
+        }
+
+        // Numeric identity (#493/PR 500): a chain device's Thunderbolt DROM
+        // carries a NUMERIC vendor/model pair (`Device Vendor ID`, `Device
+        // Model ID`) alongside its name, and a native USB endpoint's own
+        // `idVendor`/`idProduct` match those numbers EXACTLY for a
+        // single-function accessory. Hoisted up here (it used to live
+        // further down, inside the name-matching section) because the
+        // structural tunnel join below needs it too, for the same
+        // precedence-safety reason the name match does: a device whose OWN
+        // numeric identity disagrees with its structurally-derived switch is
+        // not safe to place structurally either.
+        //
+        // Two defensive rules, both found by review (#493 round 5):
+        //
+        // 1. Zero is refused explicitly, even though `IOThunderboltSwitch`
+        //    already normalises a non-positive/out-of-range DROM value to
+        //    `nil` at parse time (see `IOThunderboltLink.swift`). Belt and
+        //    suspenders: `USBDevice.vendorID`/`productID` default to 0 on a
+        //    failed descriptor read (`USBWatcher.swift`), and a fixture or a
+        //    future caller could still construct an `IOThunderboltSwitch`
+        //    with `dromVendorID`/`dromModelID` of 0 directly, bypassing that
+        //    normalisation. Without this guard, two unrelated devices that
+        //    BOTH failed their descriptor read would "exactly match" each
+        //    other on 0/0, and reproducing that promoted an unrelated hub.
+        //
+        // 2. The match set is checked for AMBIGUITY, not just existence,
+        //    mirroring the file's existing duplicate-name rule ("two chain
+        //    devices with the same model name match neither", `exact[...]`
+        //    below). Two chain devices sharing an identical DROM VID+PID
+        //    pair (two identical daisy-chained docks, the same product
+        //    twice) both match, and picking "whichever comes first" silently
+        //    cross-attributes one region into the other. More than one match
+        //    is refused outright, exactly like the name-based case: no
+        //    numeric identity is safer than a wrong one.
+        func numericIdentity(of device: USBDevice) -> IOThunderboltSwitchNode? {
+            guard device.vendorID != 0, device.productID != 0 else { return nil }
+            let matches = chainNodes.filter {
+                guard let dvid = $0.sw.dromVendorID, dvid != 0,
+                      let dmid = $0.sw.dromModelID, dmid != 0
+                else { return false }
+                return dvid == Int(device.vendorID) && dmid == Int(device.productID)
+            }
+            return matches.count == 1 ? matches.first : nil
         }
 
         // 1. Anchors: a USB product name that matches a chain device's model
@@ -137,6 +199,151 @@ public struct ChainDeviceAttribution: Equatable {
             if soft.count == 1, let id = soft.first?.sw.id { affiliates[node.device.id] = id }
         }
 
+        // 1b. Structural tunnel join, ahead of every OTHER name-based signal
+        // below (the affiliate pass, vendor continuity) but SUBORDINATE to a
+        // device's own exact-name or numeric identity (checked just below):
+        // two strong, independent signals disagreeing means one of them is
+        // wrong and this function cannot tell which, so the device fails
+        // closed to whichever of the two is the WEAKER inference to trust
+        // blindly, which is the structural one (see the precedence-safety
+        // note below).
+        //
+        // A tunnelled USB device (`isThunderboltTunnelled`) carries
+        // `tunnelBridgeDepth`: the count of PCIe bridge hops between its
+        // `AppleUSBXHCITR` controller and the port's `apciecN` root. On Apple
+        // Silicon that count is always twice the TB DROM `Depth` of the
+        // switch whose own USB tunnel the device rides
+        // (`research/usb-chain-attribution-identifiers.md`, confirmed on the
+        // #493 reporter's own two captures and re-checked across ~40 further
+        // corpus folders during the follow-up investigation: a LaCie 1big at
+        // DROM depth 2 sits 4 bridge hops from its port's `apciec2` root, a
+        // Studio Display chained behind it at depth 3 sits 6 hops from the
+        // SAME root). Dividing by two turns the raw count into a `sw.depth`
+        // to look up directly against this port's chain, no name required:
+        // this catches devices a name match cannot, like a Studio Display's
+        // internal "USB2 Hub" and "USB3 Gen2 Hub" personas, which carry no
+        // name hinting at the display at all.
+        //
+        // THREE gates, all of which must pass, in order:
+        //
+        // 1. **Only switches this port's fabric confirms carry a USB
+        //    tunnel** (`usbTunnelSwitchUIDs`, derived by the caller from
+        //    `ThunderboltTopology.tunnels(...).filter { $0.kind == .usb }`).
+        //    Gated per DEPTH within that set, not per whole chain: a target
+        //    depth only resolves when exactly one CONFIRMED-tunnelled switch
+        //    sits there. This is deliberately narrower than "the whole chain
+        //    is linear" would be, and the difference is real, not
+        //    theoretical: the #493 reporter's own ground-truth machine has
+        //    the CalDigit dock fan out to TWO depth-2 siblings, an OWC
+        //    Express 1M2 (PCIe tunnel only, no USB tunnel of its own) and the
+        //    LaCie 1big (tunnel bridge depth 4). A whole-chain gate, or a
+        //    gate that counted every switch at a depth rather than only
+        //    confirmed USB-tunnel ones, would refuse the LaCie's structural
+        //    join purely because the OWC happens to share its depth, even
+        //    though the OWC contributes zero conflicting bridge-depth
+        //    evidence: nothing ever computes a target depth of 2 from the
+        //    OWC, because it has no `AppleUSBXHCITR` controller to walk.
+        //    Restricting to `usbTunnelSwitchUIDs` resolves LaCie's devices
+        //    (and the Studio Display's, depth 3, chained behind it) while OWC
+        //    is excluded from `depthCounts` entirely, which is the correct
+        //    "cannot own anything" outcome for a device with no USB tunnel.
+        //    Two GENUINELY USB-tunnelled switches sharing one depth is the
+        //    actually-unproven case (zero corpus examples: 10 ports have
+        //    more than one tunnelled controller, all 10 at distinct depths),
+        //    and per-depth gating refuses exactly that, and only that.
+        // 2. **The device's `tunnelRootName` belongs to THIS port.** When
+        //    `expectedTunnelRootName` is known, an exact string match is
+        //    required: a mismatch means this device's tunnel controller sits
+        //    under a DIFFERENT physical port's `apciecN` root, a cross-port
+        //    mixup, and it is refused outright regardless of how well the
+        //    depth arithmetic lines up. When `expectedTunnelRootName` is
+        //    `nil` (the caller could not derive it), this function falls
+        //    back to an INTERNAL consistency check across every candidate in
+        //    THIS resolve() call: if they disagree on `tunnelRootName`
+        //    amongst themselves, that is itself evidence of a cross-port
+        //    mixup upstream (devices from two different ports ended up in
+        //    the same `forest`), and every one of them is refused; if they
+        //    agree (or none report a root at all, e.g. replaying probe data
+        //    that only captured up to the old terminator), the pass
+        //    proceeds as before.
+        // 3. **Precedence safety.** A device whose own exact-name match
+        //    (`exact[id]`) or numeric identity (`numericIdentity(of:)`)
+        //    resolves to a DIFFERENT chain device than the structural depth
+        //    lookup is left OUT of the structural pass entirely: the
+        //    name/numeric placement is kept (unaffected; it flows through
+        //    `exact` into the marks/claimTarget pipeline below exactly as it
+        //    always has), but this device is also recorded in
+        //    `structurallyConflicted` so it is EXCLUDED from `absorbed` at
+        //    the end, even though it still has a normal exact-name match: a
+        //    device that is simultaneously tunnelled at a depth pointing one
+        //    way and named toward another has produced two signals that
+        //    cannot both be right, and confidently hiding it as "IS the
+        //    chain device" would be presumptuous evidence-reading. It still
+        //    renders as its own row, nested at wherever the name/numeric
+        //    match placed it.
+        var depthCounts: [Int: [Int64]] = [:]
+        for node in chainNodes where usbTunnelSwitchUIDs.contains(node.sw.id) {
+            depthCounts[node.sw.depth, default: []].append(node.sw.id)
+        }
+        var switchIDByDepth: [Int: Int64] = [:]
+        for (depth, ids) in depthCounts where ids.count == 1 { switchIDByDepth[depth] = ids[0] }
+
+        // Raw candidates: every tunnelled device whose bridge depth resolves
+        // to an unambiguous switch, BEFORE the root-name and
+        // precedence-safety gates. Built first (rather than folded into one
+        // loop) because the root-name internal-consistency fallback needs to
+        // see every candidate's `tunnelRootName` before deciding whether ANY
+        // of them can be trusted.
+        struct StructuralCandidate { let id: UInt64; let switchID: Int64; let rootName: String? }
+        var rawCandidates: [StructuralCandidate] = []
+        for node in allNodes {
+            guard node.device.isThunderboltTunnelled,
+                  let bridgeDepth = node.device.tunnelBridgeDepth,
+                  bridgeDepth >= 2, bridgeDepth.isMultiple(of: 2),
+                  let switchID = switchIDByDepth[bridgeDepth / 2]
+            else { continue }
+            rawCandidates.append(StructuralCandidate(id: node.device.id, switchID: switchID, rootName: node.device.tunnelRootName))
+        }
+
+        let rootIsTrusted: (String?) -> Bool
+        if let expectedTunnelRootName {
+            rootIsTrusted = { $0 == expectedTunnelRootName }
+        } else {
+            let distinctRoots = Set(rawCandidates.compactMap(\.rootName))
+            rootIsTrusted = distinctRoots.count > 1 ? { _ in false } : { _ in true }
+        }
+
+        var structuralOwner: [UInt64: Int64] = [:]
+        var structuralRoots: [UInt64: Int64] = [:]
+        var structurallyConflicted: Set<UInt64> = []
+        // `rawCandidates` preserves `allNodes`'s pre-order (`USBDeviceNode
+        // .flatten`), so a device's parent is always processed before it,
+        // which lets the region-root check below read
+        // `structuralOwner[parentID]` immediately rather than needing a
+        // second pass.
+        for candidate in rawCandidates {
+            guard rootIsTrusted(candidate.rootName) else { continue }
+            guard let node = nodeByID[candidate.id] else { continue }
+            if let namedSwitch = exact[candidate.id], namedSwitch != candidate.switchID {
+                structurallyConflicted.insert(candidate.id)
+                continue
+            }
+            if let numericSwitch = numericIdentity(of: node.device)?.sw.id, numericSwitch != candidate.switchID {
+                structurallyConflicted.insert(candidate.id)
+                continue
+            }
+            structuralOwner[candidate.id] = candidate.switchID
+            // Region root only at the boundary of the structural group: if
+            // the nearest USB-tree parent already carries the SAME owner,
+            // inheritance already covers this device and marking it again
+            // would render its subtree twice (the same redundant-mark
+            // hazard step 5 below guards against for the name-based passes).
+            let parentSharesOwner = parentOf[candidate.id].flatMap { structuralOwner[$0] } == candidate.switchID
+            if !parentSharesOwner {
+                structuralRoots[candidate.id] = candidate.switchID
+            }
+        }
+
         // 2. Region roots, in two passes: exact matches settle ownership, then
         // affiliate matches may only fill the gaps left over.
         //
@@ -165,60 +372,20 @@ public struct ChainDeviceAttribution: Equatable {
         // claiming device's own hub. Blocking needs POSITIVE evidence the hub
         // belongs to someone else.
         //
-        // Numeric identity first, strings only as a last resort. A chain
-        // device's Thunderbolt DROM carries a NUMERIC vendor/model pair
-        // (`Device Vendor ID`, `Device Model ID`) alongside its name, and a
-        // native USB endpoint's own `idVendor`/`idProduct` match those numbers
-        // EXACTLY for a single-function accessory: the OWC Express 1M2 is
-        // `0x174c`/`0x2465` on both the USB side and the DROM side, on all
-        // three corpus machines that have it, with zero false VID+PID
-        // collisions corpus-wide (22 exact matches, 51 VID-only matches
-        // checked separately below). A number pair is a far stronger join
-        // than a product-name string, which can coincide by accident or by a
-        // generic word ("Hub"). Strings are still needed for two reasons:
-        // some devices carry no exact numeric match at all (a hub chip's PID
-        // is its own, not the dock's), and one corpus quirk means a VID
-        // MISMATCH does not prove a different vendor (see `numericIdentity`
-        // below), so numeric evidence is trusted only when it POSITIVELY
-        // matches, never as a negative signal on its own.
+        // Numeric identity first, strings only as a last resort:
+        // `numericIdentity(of:)`, defined above (hoisted so the structural
+        // tunnel join further down can use it too), looks up the chain device
+        // (if any) whose DROM (Device Vendor ID, Device Model ID) exactly
+        // equals a USB device's own (idVendor, idProduct). A number pair is a
+        // far stronger join than a product-name string, which can coincide by
+        // accident or by a generic word ("Hub"). Strings are still needed for
+        // two reasons: some devices carry no exact numeric match at all (a
+        // hub chip's PID is its own, not the dock's), and one corpus quirk
+        // means a VID MISMATCH does not prove a different vendor (see
+        // `numericIdentity`'s doc comment above), so numeric evidence is
+        // trusted only when it POSITIVELY matches, never as a negative signal
+        // on its own.
         //
-        // `numericIdentity(of:)` looks up the chain device (if any) whose DROM
-        // (Device Vendor ID, Device Model ID) exactly equals a USB device's
-        // own (idVendor, idProduct).
-        //
-        // Two defensive rules, both found by review (#493 round 5):
-        //
-        // 1. Zero is refused explicitly, even though `IOThunderboltSwitch`
-        //    already normalises a non-positive/out-of-range DROM value to
-        //    `nil` at parse time (see `IOThunderboltLink.swift`). Belt and
-        //    suspenders: `USBDevice.vendorID`/`productID` default to 0 on a
-        //    failed descriptor read (`USBWatcher.swift`), and a fixture or a
-        //    future caller could still construct an `IOThunderboltSwitch`
-        //    with `dromVendorID`/`dromModelID` of 0 directly, bypassing that
-        //    normalisation. Without this guard, two unrelated devices that
-        //    BOTH failed their descriptor read would "exactly match" each
-        //    other on 0/0, and reproducing that promoted an unrelated hub.
-        //
-        // 2. The match set is checked for AMBIGUITY, not just existence,
-        //    mirroring the file's existing duplicate-name rule ("two chain
-        //    devices with the same model name match neither", `exact[...]`
-        //    above). Two chain devices sharing an identical DROM VID+PID
-        //    pair (two identical daisy-chained docks, the same product
-        //    twice) both match, and picking "whichever comes first" silently
-        //    cross-attributes one region into the other. More than one match
-        //    is refused outright, exactly like the name-based case: no
-        //    numeric identity is safer than a wrong one.
-        func numericIdentity(of device: USBDevice) -> IOThunderboltSwitchNode? {
-            guard device.vendorID != 0, device.productID != 0 else { return nil }
-            let matches = chainNodes.filter {
-                guard let dvid = $0.sw.dromVendorID, dvid != 0,
-                      let dmid = $0.sw.dromModelID, dmid != 0
-                else { return false }
-                return dvid == Int(device.vendorID) && dmid == Int(device.productID)
-            }
-            return matches.count == 1 ? matches.first : nil
-        }
-
         // Set of chain devices whose DROM vendor id equals `vid`, applying
         // the same zero-guard as `numericIdentity`. Used by tier (c) below,
         // kept separate so its own ambiguity rule (see there) reads clearly.
@@ -398,6 +565,13 @@ public struct ChainDeviceAttribution: Equatable {
 
         var regionRoots = marks(from: exact)
 
+        // Structural marks win outright over name matching (step 0's
+        // precedence rule): merged in here, before the first inheritance
+        // pass, so `regionOwner` reflects them immediately and the affiliate
+        // pass below (which only fills gaps `regionOwner` leaves open) can
+        // never contradict one.
+        regionRoots.merge(structuralRoots) { _, structural in structural }
+
         // 3. Inherit down the forest. A deeper mark overrides a shallower one,
         // which is exactly how a chained dock's subtree separates from the
         // display's while nested inside it.
@@ -523,10 +697,35 @@ public struct ChainDeviceAttribution: Equatable {
             }
         }
 
+        // 6. Absorbed: the final identity decision for each exact-name
+        // match, not the raw `exact` dictionary. Two differences from a bare
+        // `Set(exact.keys)`:
+        //
+        // - `claimTarget` is re-run here (its numeric-identity correction is
+        //   already baked into `regionOwner`/`regionRoots` via `marks(from:
+        //   exact)` above; re-deriving it is what makes this the FINAL
+        //   decision rather than the raw name match, even though today it
+        //   always succeeds when `nodeByID[deviceID]` exists, which it does
+        //   for every key in `exact` by construction).
+        // - A device flagged `structurallyConflicted` above (its own
+        //   structural depth evidence disagreed with this SAME exact match)
+        //   is explicitly excluded: its name/numeric placement is kept
+        //   (unaffected, it was never removed from `exact` or from
+        //   `marks(from: exact)`), but it is not collapsed into the chain
+        //   row as though there were no doubt about its identity. See the
+        //   precedence-safety note on the structural pass above.
+        var absorbed: Set<UInt64> = []
+        for (deviceID, switchID) in exact {
+            guard !structurallyConflicted.contains(deviceID),
+                  claimTarget(deviceID, claimedBy: switchID) != nil
+            else { continue }
+            absorbed.insert(deviceID)
+        }
+
         return ChainDeviceAttribution(
             regionOwner: regionOwner,
             regionRoots: regionRoots,
-            absorbed: Set(exact.keys),
+            absorbed: absorbed,
             allAnchored: allAnchored
         )
     }

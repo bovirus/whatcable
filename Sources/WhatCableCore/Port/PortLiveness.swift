@@ -33,14 +33,28 @@ import Foundation
 /// - Parameter chargerAttached: whether an external charger is attached to the
 ///   Mac. Used only to corroborate a MagSafe `connectionActive`. Defaults to
 ///   `false` so callers that can't supply it keep the prior behaviour.
+/// - Parameter hasStructurallyScopedTunnelledDevices: whether a tunnelled USB
+///   device has been structurally joined to THIS port (`TunnelledDeviceGrouping
+///   .structurallyScopedTunnelledDevices`), i.e. reached the Mac over a
+///   Thunderbolt tunnel whose root names this exact port. Such devices never
+///   appear in `matchingDevices` (that is the native, non-tunnel join;
+///   `AppleHPMInterface.matchingDevices` explicitly excludes anything
+///   `isThunderboltTunnelled`), so without this a port whose ONLY connected
+///   devices are behind a dock or display reads as empty and "Hide empty
+///   ports" removes it, along with every device nested under it: a port
+///   carrying attributed devices is not empty. Defaults to `false` so callers
+///   that can't supply it (or genuinely have no such devices) keep the prior
+///   behaviour.
 public func isPortLive(
     port: AppleHPMInterface,
     powerSources: [PowerSource],
     identities: [USBPDSOP],
     matchingDevices: [USBDevice],
-    chargerAttached: Bool = false
+    chargerAttached: Bool = false,
+    hasStructurallyScopedTunnelledDevices: Bool = false
 ) -> Bool {
     if !matchingDevices.isEmpty { return true }
+    if hasStructurallyScopedTunnelledDevices { return true }
     if !identities.isEmpty { return true }
 
     let isMagSafe = port.portTypeDescription?.hasPrefix("MagSafe") == true

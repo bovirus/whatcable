@@ -334,4 +334,136 @@ struct RegistryParsingTests {
         let map = HPMPortUUIDMap.from(ports: [port])
         #expect(map.isEmpty, "No positional guessing: empty map when UUIDs absent")
     }
+
+    // MARK: - PCIe bridge depth for tunnelled devices
+
+    /// Builds a bare `USBAncestor` for the bridge-walk tests: only
+    /// `className` and `serviceName` matter to `tunnelBridgeAncestry`, so
+    /// every other field is a harmless default.
+    private func ancestor(className: String = "IOPP", serviceName: String?) -> USBWatcher.USBAncestor {
+        USBWatcher.USBAncestor(
+            className: className,
+            locationID: nil,
+            usbIOPortPath: nil,
+            usbPortType: nil,
+            conformsToUSBHostDevice: false,
+            serviceName: serviceName
+        )
+    }
+
+    /// The ground-truth shape (`research/customer-probes/m3pro_macos27.0_l`,
+    /// issue #493's own reporter): the LaCie 1big sits 4 `pci-bridge` hops
+    /// from `apciec2`. Path (child to parent, matching `collectAncestors`'
+    /// order): AppleUSBXHCITR, IOPP, pci-bridge@2, IOPP, pci-bridge@0, IOPP,
+    /// pci-bridge@1, IOPP, pci-bridge@0, IOPP, pcic2-bridge@0 (NOT counted:
+    /// different name), AppleT8122PCIeC, apciec2.
+    @Test("tunnelBridgeAncestry counts pci-bridge hops to the apciecN root (LaCie 1big shape)")
+    func tunnelBridgeAncestryCountsLaCieShape() {
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSBXHCITR", serviceName: "AppleUSBXHCITR"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            // A DIFFERENT name ("pcic2-bridge", not "pci-bridge") sits once
+            // per apciec root and is deliberately NOT counted: it's a fixed
+            // structural element, not a variable measure of chain depth.
+            ancestor(serviceName: "pcic2-bridge"),
+            ancestor(serviceName: "AppleT8122PCIeC"),
+            ancestor(serviceName: "apciec2"),
+        ]
+        let result = USBWatcher.tunnelBridgeAncestry(ancestors, from: 0)
+        #expect(result?.bridgeDepth == 4)
+        #expect(result?.rootName == "apciec2")
+    }
+
+    /// The Studio Display shape from the SAME machine, chained one level
+    /// deeper (TB DROM `Depth` 3 vs the LaCie's 2): 6 `pci-bridge` hops, not
+    /// 4. This is the second ground-truth data point that pins the
+    /// "count doubles per depth level" relationship the Core-side join
+    /// (`ChainDeviceAttribution`) depends on.
+    @Test("tunnelBridgeAncestry counts pci-bridge hops to the apciecN root (Studio Display shape, one level deeper)")
+    func tunnelBridgeAncestryCountsStudioDisplayShape() {
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSBXHCITR", serviceName: "AppleUSBXHCITR"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pcic2-bridge"),
+            ancestor(serviceName: "AppleT8122PCIeC"),
+            ancestor(serviceName: "apciec2"),
+        ]
+        let result = USBWatcher.tunnelBridgeAncestry(ancestors, from: 0)
+        #expect(result?.bridgeDepth == 6)
+        #expect(result?.rootName == "apciec2")
+    }
+
+    @Test("tunnelBridgeAncestry returns nil when the apciecN root is never reached")
+    func tunnelBridgeAncestryNilWithoutRoot() {
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSBXHCITR", serviceName: "AppleUSBXHCITR"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            // Walk ends here: no apciecN root, e.g. replaying probe data that
+            // stopped collecting at the old terminator.
+        ]
+        #expect(USBWatcher.tunnelBridgeAncestry(ancestors, from: 0) == nil)
+    }
+
+    @Test("classifyAncestry surfaces tunnelBridgeDepth and tunnelRootName for a tunnelled device")
+    func classifyAncestrySurfacesTunnelBridgeDepth() {
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSBXHCITR", serviceName: "AppleUSBXHCITR"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "IOPP"),
+            ancestor(serviceName: "pci-bridge"),
+            ancestor(serviceName: "apciec0"),
+        ]
+        let classification = USBWatcher.classifyAncestry(ancestors)
+        #expect(classification.tunnelled == true)
+        #expect(classification.tunnelBridgeDepth == 2)
+        #expect(classification.tunnelRootName == "apciec0")
+    }
+
+    @Test("classifyAncestry leaves tunnelBridgeDepth nil for a non-tunnelled device")
+    func classifyAncestryNilBridgeDepthWhenNotTunnelled() {
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleT8112USBXHCI", serviceName: "AppleT8112USBXHCI"),
+        ]
+        let classification = USBWatcher.classifyAncestry(ancestors)
+        #expect(classification.tunnelled == false)
+        #expect(classification.tunnelBridgeDepth == nil)
+        #expect(classification.tunnelRootName == nil)
+    }
+
+    @Test("classifyAncestry leaves tunnelBridgeDepth nil for a dock-controller tunnel (no PCIe bridge chain of this kind)")
+    func classifyAncestryNilBridgeDepthForDockController() {
+        // The TB3-dock-own-controller branch (isThunderboltDockController)
+        // flags tunnelled=true but has no AppleUSBXHCITR/apciecN chain: the
+        // third-party controller IS the tunnel decoder, so there is nothing
+        // to walk.
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSBXHCIFL1100", serviceName: "AppleUSBXHCIFL1100"),
+        ]
+        let classification = USBWatcher.classifyAncestry(ancestors)
+        #expect(classification.tunnelled == true)
+        #expect(classification.tunnelBridgeDepth == nil)
+        #expect(classification.tunnelRootName == nil)
+    }
 }

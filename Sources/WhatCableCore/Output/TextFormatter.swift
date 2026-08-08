@@ -42,13 +42,34 @@ public enum TextFormatter {
             PowerSource.hasLiveChargingContract(in: filterSources(port, all: sources)) ? port.portKey : nil
         })
         // Devices behind a Thunderbolt dock or display match no physical port
-        // (issue #274). Group them once: nest under the one connected
-        // Thunderbolt port when unambiguous, else render flat at the end.
+        // (issue #274). Two paths, not one:
+        //
+        // - Structural: a device whose `tunnelRootName` names THIS port's own
+        //   `apciecN` root joins that port's tree directly (via
+        //   `ConnectedDeviceTree.rows`'s `tunnelledDevices` parameter below),
+        //   nested under its chain device exactly like a native device.
+        // - Fallback: `TunnelledDeviceGrouping.group`, unchanged in its own
+        //   logic, but now told which devices the structural path already
+        //   claimed (`structurallyScoped`) so it never renders them again.
+        //   This is still the ONLY path for a device with no structural root
+        //   data at all: the single-active-port heuristic, nested when
+        //   unambiguous, else a flat section at the end.
+        var structurallyScopedByPort: [String: [USBDevice]] = [:]
+        var structurallyScopedIDs: Set<UInt64> = []
+        for port in ports {
+            let scoped = TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
+                for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
+            )
+            guard !scoped.isEmpty else { continue }
+            structurallyScopedByPort[port.serviceName] = scoped
+            structurallyScopedIDs.formUnion(scoped.map(\.id))
+        }
         let tunnelled = TunnelledDeviceGrouping.group(
             devices: usbDevices,
             ports: ports,
             thunderboltSwitches: thunderboltSwitches,
-            isDesktopMac: isDesktopMac
+            isDesktopMac: isDesktopMac,
+            structurallyScoped: structurallyScopedIDs
         )
         for (i, port) in ports.enumerated() {
             if i > 0 { out += "\n" }
@@ -74,6 +95,7 @@ public enum TextFormatter {
                 batteryFullyCharged: batteryFullyCharged,
                 batteryIsCharging: batteryIsCharging,
                 usbDevices: port.matchingDevices(from: usbDevices),
+                structuralTunnelledDevices: structurallyScopedByPort[port.serviceName] ?? [],
                 displayPorts: displayPorts.filter { $0.canonicallyMatches(port: port) },
                 anotherPortActivelyCharging: port.portKey.map { key in chargingPortKeys.contains { $0 != key } } ?? false
             )
@@ -208,6 +230,12 @@ public enum TextFormatter {
         batteryFullyCharged: Bool? = nil,
         batteryIsCharging: Bool? = nil,
         usbDevices: [USBDevice] = [],
+        // Tunnelled devices structurally scoped to THIS port (the
+        // follow-up): merged into the SAME "Connected devices" tree as
+        // `usbDevices` via `ConnectedDeviceTree.rows`, not rendered as a
+        // separate section. See `TunnelledDeviceGrouping
+        // .structurallyScopedTunnelledDevices`.
+        structuralTunnelledDevices: [USBDevice] = [],
         displayPorts: [IOPortTransportStateDisplayPort] = [],
         anotherPortActivelyCharging: Bool = false
     ) -> String {
@@ -327,6 +355,7 @@ public enum TextFormatter {
         // exactly as before.
         let connectedRows = ConnectedDeviceTree.rows(
             devices: usbDevices,
+            tunnelledDevices: structuralTunnelledDevices,
             port: port,
             thunderboltSwitches: thunderboltSwitches,
             displayPorts: displayPorts

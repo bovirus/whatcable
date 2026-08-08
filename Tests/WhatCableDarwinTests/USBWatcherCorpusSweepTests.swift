@@ -259,7 +259,15 @@ struct USBWatcherCorpusSweepTests {
                 locationID: a.locationID,
                 usbIOPortPath: a.usbIOPort,
                 usbPortType: conforms ? a.usbPortType : nil,
-                conformsToUSBHostDevice: conforms
+                conformsToUSBHostDevice: conforms,
+                // Probe 38 stops gathering at the same terminator the OLD
+                // walk used, so it never captured the PCIe bridge chain
+                // above a tunnelled AppleUSBXHCITR (a later change added that walk
+                // to the LIVE collector only). `tunnelBridgeAncestry` reads
+                // nil here exactly as it would on a genuinely-truncated
+                // replay: no bridge depth, which is the honest answer for
+                // this input.
+                serviceName: nil
             )
         }
     }

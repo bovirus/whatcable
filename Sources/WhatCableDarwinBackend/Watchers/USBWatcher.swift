@@ -158,7 +158,7 @@ public final class USBWatcher: ObservableObject {
             raw[k] = stringify(v)
         }
 
-        let (busIdx, portName, tunnelled, behindInternalHub) = controllerInfo(
+        let (busIdx, portName, tunnelled, behindInternalHub, tunnelBridgeDepth, tunnelRootName) = controllerInfo(
             for: service,
             fallback: locationID,
             ownUSBPortType: (dict["USBPortType"] as? NSNumber)?.intValue,
@@ -201,6 +201,8 @@ public final class USBWatcher: ObservableObject {
             controllerPortName: portName,
             isThunderboltTunnelled: tunnelled,
             isBehindInternalHub: behindInternalHub,
+            tunnelBridgeDepth: tunnelBridgeDepth,
+            tunnelRootName: tunnelRootName,
             deviceClass: deviceClass,
             ioClassName: ioClassName,
             billboard: billboard,
@@ -232,6 +234,14 @@ public final class USBWatcher: ObservableObject {
         /// embedded-branch plumbing rule: a hub with NO conforming ancestor
         /// sits directly on the controller's root ports.
         let conformsToUSBHostDevice: Bool
+        /// The ancestor's plain IOService-plane name (`IORegistryEntryGetName`),
+        /// distinct from `className` (the driver class). Only meaningful above
+        /// a tunnelled `AppleUSBXHCITR` controller, where the walk continues
+        /// past the normal terminator to find the PCIe bridge chain up to the
+        /// `apciecN` root: PCIe bridge nodes are named plain
+        /// `"pci-bridge"`, and the root is named `"apciecN"` (the index baked
+        /// into the name itself, no `@` suffix). nil only when the read fails.
+        let serviceName: String?
     }
 
     /// The decisions `controllerInfo` derives from the parent walk.
@@ -257,6 +267,19 @@ public final class USBWatcher: ObservableObject {
         /// via the no-port-node native path (issue #348) or behind an
         /// Apple-embedded board controller (discussion #417).
         let behindInternalHub: Bool
+        /// Count of `"pci-bridge"`-named ancestors between the tunnelled
+        /// `AppleUSBXHCITR` controller and its `apciecN` PCIe-C host bridge
+        /// root, walked past the normal terminator. `nil` when the
+        /// device is not tunnelled, or the walk never reached an `apciecN`
+        /// root within the bound. Verified against ground-truth fixtures
+        /// (`research/usb-chain-attribution-identifiers.md`): this count is
+        /// always even on Apple Silicon and equals twice the TB DROM `Depth`
+        /// of the switch that owns the tunnel (`ChainDeviceAttribution` does
+        /// that division; this layer only captures the raw count).
+        let tunnelBridgeDepth: Int?
+        /// The `apciecN` root name (e.g. `"apciec2"`) the bridge walk ended
+        /// at, or `nil` when not tunnelled or the root was not found.
+        let tunnelRootName: String?
     }
 
     /// Classifies a USB device from its IOService-plane ancestor chain,
@@ -328,7 +351,17 @@ public final class USBWatcher: ObservableObject {
         // sitting directly on the controller's root ports.
         var hasHubAncestor = false
 
-        for ancestor in ancestors {
+        // Index of the terminating `AppleUSBXHCITR` ancestor, when found. Used
+        // after the loop to walk the remainder of `ancestors` (which, for the
+        // native-tunnel case only, `collectAncestors` keeps gathering past the
+        // usual terminator) and count the PCIe bridge chain up to `apciecN`
+        // . `nil` for every other case, including the dock-controller
+        // tunnel branch below, which has no PCIe bridge chain of this kind:
+        // the third-party controller IS the tunnel decoder there, not a hop
+        // on the way to one.
+        var xhciTunnelIndex: Int?
+
+        for (index, ancestor) in ancestors.enumerated() {
             if ancestor.conformsToUSBHostDevice { hasHubAncestor = true }
             if portName == nil, let portPath = ancestor.usbIOPortPath {
                 if let name = Self.portName(fromUSBIOPortPath: portPath) {
@@ -365,6 +398,7 @@ public final class USBWatcher: ObservableObject {
             // physical port.
             if ancestor.className.hasPrefix("AppleUSBXHCITR") {
                 tunnelled = true
+                xhciTunnelIndex = index
                 if let loc = ancestor.locationID { bus = Self.busIndex(fromLocationID: loc) }
                 break
             }
@@ -467,14 +501,68 @@ public final class USBWatcher: ObservableObject {
             underInternalHub: passedInternalHub
         )
 
+        // PCIe bridge depth: only for the native tunnel case, and
+        // only when `collectAncestors` actually gathered the extra ancestors
+        // above the `AppleUSBXHCITR` terminator (the live walk does this; a
+        // caller replaying from probe data that stopped at the terminator,
+        // like the older `USBWatcherCorpusSweepTests` fixtures, simply gets
+        // nil here, which is the correct honest answer for that input).
+        let tunnelAncestry = xhciTunnelIndex.flatMap { Self.tunnelBridgeAncestry(ancestors, from: $0) }
+
         return AncestryClassification(
             busIndex: bus,
             portName: portName,
             tunnelled: tunnelled,
             reachedNativeController: reachedNativeController,
             reachedEmbeddedController: reachedEmbeddedController,
-            behindInternalHub: behindInternalHub
+            behindInternalHub: behindInternalHub,
+            tunnelBridgeDepth: tunnelAncestry?.bridgeDepth,
+            tunnelRootName: tunnelAncestry?.rootName
         )
+    }
+
+    /// Counts the `"pci-bridge"`-named ancestors between the tunnelled
+    /// `AppleUSBXHCITR` controller (at `xhciIndex` in `ancestors`) and the
+    /// `apciecN` PCIe-C host bridge root, stopping at the first ancestor whose
+    /// name starts with `"apciec"`.
+    ///
+    /// Verified against `research/customer-probes/m3pro_macos27.0_l`
+    /// and `_m` (issue #493's own reporter, ground truth): the LaCie 1big's
+    /// tunnel controller sits 4 `pci-bridge` hops from `apciec2` (TB DROM
+    /// `Depth` 2), the Studio Display chained behind it sits 6 hops from the
+    /// SAME `apciec2` root (TB DROM `Depth` 3). Both figures reproduced
+    /// identically across the reporter's two independent captures, and the
+    /// count-doubles-per-depth-level pattern held across ~40 further
+    /// Apple Silicon corpus folders re-checked during the follow-up
+    /// investigation (`research/usb-chain-attribution-identifiers.md`).
+    /// `ChainDeviceAttribution` is what turns this raw count into a switch;
+    /// this layer only captures it.
+    ///
+    /// Pure: no IOKit, so it is unit-testable and corpus-replayable from
+    /// parsed ancestor lists.
+    ///
+    /// Bounded by `ancestors.count` (itself bounded by `collectAncestors`'s
+    /// iteration cap), so a malformed or cyclic registry cannot hang this.
+    nonisolated static func tunnelBridgeAncestry(
+        _ ancestors: [USBAncestor],
+        from xhciIndex: Int
+    ) -> (bridgeDepth: Int, rootName: String)? {
+        var count = 0
+        var index = xhciIndex + 1
+        while index < ancestors.count {
+            let name = ancestors[index].serviceName
+            // Strict "apciec" + digits (`RegistryRootNaming`), matching the
+            // live collector's own stop condition above.
+            if let name, RegistryRootNaming.isRootName(name, prefix: "apciec") {
+                return (count, name)
+            }
+            if name == "pci-bridge" { count += 1 }
+            index += 1
+        }
+        // Ran out of ancestors without finding the apciec root: the live
+        // collector's extra bound was exceeded, or (replaying from data that
+        // only captured up to the terminator) there is nothing past it.
+        return nil
     }
 
     /// True when `className` is an Apple-embedded third-party USB host
@@ -512,17 +600,33 @@ public final class USBWatcher: ObservableObject {
     /// never decides: all classification logic lives in the pure function so
     /// the corpus sweep can run the real thing.
     ///
-    /// The 20-hop bound mirrors the old in-line walk: the real depth from a
-    /// USB device to its host controller is small (2-4 hops directly attached;
-    /// a few more behind chained hubs), so 20 is far beyond anything observed
-    /// and just acts as a backstop against a malformed or cyclic registry.
+    /// The 20-hop bound to the host controller mirrors the old in-line walk:
+    /// the real depth from a USB device to its host controller is small (2-4
+    /// hops directly attached; a few more behind chained hubs), so 20 is far
+    /// beyond anything observed and just acts as a backstop against a
+    /// malformed or cyclic registry.
+    ///
+    /// For the tunnelled case (`AppleUSBXHCITR`), the walk does NOT stop
+    /// there: it keeps going, up to `extraTunnelHopBound` further hops, to
+    /// reach the `apciecN` PCIe-C host bridge root and capture the PCIe
+    /// bridge chain in between (`tunnelBridgeAncestry`). Ground
+    /// truth (`research/customer-probes/m3pro_macos27.0_l`) needed up to 15
+    /// hops from `AppleUSBXHCITR` to `apciec2`; `extraTunnelHopBound` leaves
+    /// headroom above that. Every other terminator (native, embedded, dock)
+    /// still stops immediately, unchanged: nothing above them is read, live
+    /// or replayed.
     private static func collectAncestors(of service: io_service_t) -> [USBAncestor] {
+        let hostControllerBound = 20
+        let extraTunnelHopBound = 20
         var ancestors: [USBAncestor] = []
         var current = service
         IOObjectRetain(current)
         defer { IOObjectRelease(current) }
 
-        for _ in 0..<20 {
+        var pastTunnelController = false
+        var hops = 0
+        while hops < hostControllerBound + extraTunnelHopBound {
+            hops += 1
             var parent: io_service_t = 0
             guard IORegistryEntryGetParentEntry(current, kIOServicePlane, &parent) == KERN_SUCCESS else {
                 break
@@ -534,6 +638,11 @@ public final class USBWatcher: ObservableObject {
             let className = IOObjectGetClass(current, &classBuf) == KERN_SUCCESS
                 ? String(cString: classBuf)
                 : ""
+
+            var nameBuf = [CChar](repeating: 0, count: 128)
+            let serviceName = IORegistryEntryGetName(current, &nameBuf) == KERN_SUCCESS
+                ? String(cString: nameBuf)
+                : nil
 
             let locationID = (IORegistryEntryCreateCFProperty(
                 current, "locationID" as CFString, kCFAllocatorDefault, 0
@@ -562,11 +671,30 @@ public final class USBWatcher: ObservableObject {
                 locationID: locationID,
                 usbIOPortPath: usbIOPortPath,
                 usbPortType: usbPortType,
-                conformsToUSBHostDevice: conforms
+                conformsToUSBHostDevice: conforms,
+                serviceName: serviceName
             ))
 
-            // Stop at the host controller, like the old in-line walk did:
-            // nothing above it is read, live or replayed.
+            let isTunnelController = className.hasPrefix("AppleUSBXHCITR")
+            if isTunnelController {
+                // Don't stop here: keep walking (bounded above) to reach the
+                // apciecN root and capture the PCIe bridge chain.
+                pastTunnelController = true
+                continue
+            }
+            if pastTunnelController {
+                // Past the tunnel controller: stop once the apciecN root is
+                // reached. `tunnelBridgeAncestry` reads this same name. Strict
+                // "apciec" + digits match (`RegistryRootNaming`), not a loose
+                // prefix: a loose check would also stop on an unrelated
+                // sibling name that happens to start with the same letters,
+                // corrupting the port-scoping comparison this name feeds
+                // (review finding).
+                if let serviceName, RegistryRootNaming.isRootName(serviceName, prefix: "apciec") { break }
+                continue
+            }
+            // The normal terminators (native, embedded, dock): stop
+            // immediately, like the old in-line walk did.
             if Self.isWalkTerminator(className) { break }
         }
         return ancestors
@@ -581,7 +709,7 @@ public final class USBWatcher: ObservableObject {
         fallback locationID: UInt32,
         ownUSBPortType: Int?,
         deviceClass: UInt8?
-    ) -> (Int?, String?, Bool, Bool) {
+    ) -> (Int?, String?, Bool, Bool, Int?, String?) {
         let classification = Self.classifyAncestry(
             Self.collectAncestors(of: service),
             ownUSBPortType: ownUSBPortType,
@@ -590,7 +718,14 @@ public final class USBWatcher: ObservableObject {
         // Fallback: the device's own locationID upper byte mirrors its
         // controller's locationID upper byte on Apple Silicon.
         let bus = classification.busIndex ?? Self.busIndex(fromLocationID: locationID)
-        return (bus, classification.portName, classification.tunnelled, classification.behindInternalHub)
+        return (
+            bus,
+            classification.portName,
+            classification.tunnelled,
+            classification.behindInternalHub,
+            classification.tunnelBridgeDepth,
+            classification.tunnelRootName
+        )
     }
 
     /// `USBPortType` value Apple reports for a port that is internal to the Mac

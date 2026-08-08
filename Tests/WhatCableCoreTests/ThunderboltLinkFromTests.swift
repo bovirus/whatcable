@@ -468,4 +468,46 @@ struct ThunderboltLinkFromTests {
         let port = IOThunderboltPort.from(read: { ["Adapter Type": NSNumber(value: 1)][$0] })
         #expect(port == nil)
     }
+
+    // MARK: - acioRootName passthrough (port-scoping join)
+
+    @Test("acioRootName passes through IOThunderboltSwitch.from unchanged")
+    func acioRootNamePassesThrough() {
+        let dict: [String: Any] = ["Vendor ID": NSNumber(value: 0x8086)]
+        let model = IOThunderboltSwitch.from(
+            uid: 1,
+            read: { dict[$0] },
+            className: "IOThunderboltSwitchType5",
+            ports: [],
+            acioRootName: "acio2"
+        )
+        #expect(model?.acioRootName == "acio2")
+    }
+
+    @Test("acioRootName defaults to nil")
+    func acioRootNameDefaultsNil() {
+        let dict: [String: Any] = ["Vendor ID": NSNumber(value: 0x8086)]
+        let model = IOThunderboltSwitch.from(uid: 1, read: { dict[$0] }, className: "IOThunderboltSwitchType5", ports: [])
+        #expect(model?.acioRootName == nil)
+    }
+
+    // MARK: - apciecRootName(fromAcioRootName:) (port-scoping join)
+
+    @Test("apciecRootName maps acioN to apciecN by matching index")
+    func apciecRootNameMapsMatchingIndex() {
+        // Ground truth: research/customer-probes/m3pro_macos27.0_l -- the
+        // host root under acio2 owns the chain carrying the LaCie 1big and
+        // Studio Display, both of which report tunnelRootName == "apciec2".
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio2") == "apciec2")
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio0") == "apciec0")
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio14") == "apciec14")
+    }
+
+    @Test("apciecRootName rejects a name that is not strictly acio + digits")
+    func apciecRootNameRejectsLooseNames() {
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acioDebug") == nil)
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio") == nil)
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "notacio2") == nil)
+        #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio2x") == nil)
+    }
 }

@@ -141,8 +141,30 @@ struct ContentView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
             }
+            // Structural: a tunnelled device whose `tunnelRootName` names a
+            // specific port's own `apciecN` root joins that port's tree
+            // directly (fed to `PortCard`'s `structuralTunnelledDevices`
+            // below), instead of the single-active-port fallback. Computed
+            // BEFORE `visiblePorts` (moved up from below "Hide empty ports"
+            // review finding): a port whose only connected devices are
+            // structurally-scoped tunnelled ones carries nothing in
+            // `matchingDevices` (that join explicitly excludes anything
+            // `isThunderboltTunnelled`), so without feeding this into
+            // `isPortLive` the port reads as empty and "Hide empty ports"
+            // removed the whole card, tree and all: a dock full of devices
+            // vanished. Extracted to a free function (not a bare `for` loop
+            // here) because a result-builder body cannot contain control-flow
+            // statements outside `ForEach`/`if`/`switch`.
+            let structuralScoping = Self.structurallyScopedTunnelledDevices(
+                ports: portWatcher.ports,
+                devices: deviceWatcher.devices,
+                thunderboltSwitches: tbWatcher.switches
+            )
+            let structurallyScopedByPort = structuralScoping.byPort
             let visiblePorts = settings.hideEmptyPorts
-                ? portWatcher.ports.filter { isPortLive($0) }
+                ? portWatcher.ports.filter {
+                    isPortLive($0, structurallyScopedDevices: structurallyScopedByPort[$0.serviceName] ?? [])
+                }
                 : portWatcher.ports
             // Native HDMI / built-in display ports come from a parallel source.
             // They only exist when a display is plugged in (the IOKit transport
@@ -157,14 +179,32 @@ struct ContentView: View {
             // only thing to show when every port is filtered out: without this
             // a Mac mini with a drive only in a front port and "hide empty
             // ports" on would read "nothing connected".
+            //
+            // `structurallyScoped` excludes a device from this flat fallback
+            // ONLY when its own port actually made it into `visiblePorts`:
+            // belt-and-braces alongside the `isPortLive` fix above. With that
+            // fix, a structurally-scoped device's port is never hidden, so
+            // this is expected to always be the full set; if a future change
+            // ever lets the two drift apart again, a device whose port got
+            // hidden anyway still renders here instead of vanishing entirely.
+            let visiblePortNames = Set(visiblePorts.map(\.serviceName))
+            let structurallyScopedIDs = structuralScoping.allIDs
+            let structurallyScopedIDsOnVisiblePorts = Set(
+                structurallyScopedByPort
+                    .filter { visiblePortNames.contains($0.key) }
+                    .values
+                    .flatMap { $0.map(\.id) }
+            )
             let tunnelledGroup = TunnelledDeviceGrouping.group(
                 devices: deviceWatcher.devices,
                 ports: portWatcher.ports,
                 thunderboltSwitches: tbWatcher.switches,
-                isDesktopMac: isDesktopMac
+                isDesktopMac: isDesktopMac,
+                structurallyScoped: structurallyScopedIDsOnVisiblePorts
             )
             let hasOffPortUSBContent = !tunnelledGroup.devices.isEmpty
                 || !tunnelledGroup.internalHubDevices.isEmpty
+                || !structurallyScopedIDs.isEmpty
             if visiblePorts.isEmpty && builtInDisplayPorts.isEmpty && !hasOffPortUSBContent {
                 if portWatcher.ports.isEmpty {
                     noPortsState
@@ -210,6 +250,7 @@ struct ContentView: View {
                                 port: port,
                                 devices: matchingDevices(for: port),
                                 tunnelledDevices: port.serviceName == tunnelledGroup.hostPortServiceName ? tunnelledGroup.devices : [],
+                                structuralTunnelledDevices: structurallyScopedByPort[port.serviceName] ?? [],
                                 powerSources: portSources,
                                 identities: pdWatcher.identities(for: port),
                                 thunderboltSwitches: tbWatcher.switches,
@@ -410,13 +451,14 @@ struct ContentView: View {
 
     /// Live-signal check delegating to the pure helper in `WhatCableCore`,
     /// so the same rules apply to both the GUI and any test harness.
-    private func isPortLive(_ port: AppleHPMInterface) -> Bool {
+    private func isPortLive(_ port: AppleHPMInterface, structurallyScopedDevices: [USBDevice] = []) -> Bool {
         WhatCableCore.isPortLive(
             port: port,
             powerSources: powerWatcher.sources(for: port),
             identities: pdWatcher.identities(for: port),
             matchingDevices: matchingDevices(for: port),
-            chargerAttached: chargerAttached
+            chargerAttached: chargerAttached,
+            hasStructurallyScopedTunnelledDevices: !structurallyScopedDevices.isEmpty
         )
     }
 
@@ -450,6 +492,28 @@ struct ContentView: View {
     /// reported.
     private func matchingDevices(for port: AppleHPMInterface) -> [USBDevice] {
         port.matchingDevices(from: deviceWatcher.devices)
+    }
+
+    /// Per-port structural tunnel scoping, extracted out
+    /// of `body` because a SwiftUI result-builder body cannot contain a bare
+    /// `for` loop (only `ForEach`/`if`/`switch` are allowed as control flow).
+    /// Pure: no IOKit, no view state, so it is unit-testable on its own.
+    static func structurallyScopedTunnelledDevices(
+        ports: [AppleHPMInterface],
+        devices: [USBDevice],
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> (byPort: [String: [USBDevice]], allIDs: Set<UInt64>) {
+        var byPort: [String: [USBDevice]] = [:]
+        var allIDs: Set<UInt64> = []
+        for port in ports {
+            let scoped = TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
+                for: port, in: devices, thunderboltSwitches: thunderboltSwitches
+            )
+            guard !scoped.isEmpty else { continue }
+            byPort[port.serviceName] = scoped
+            allIDs.formUnion(scoped.map(\.id))
+        }
+        return (byPort, allIDs)
     }
 }
 
@@ -705,10 +769,17 @@ struct PortCard: View {
     let port: AppleHPMInterface
     let devices: [USBDevice]
     /// USB devices reached over a Thunderbolt tunnel that belong behind this
-    /// port's dock or display (issue #274). Non-empty only on the one port a
-    /// single connected Thunderbolt device is on; rendered as its own
-    /// "Connected over Thunderbolt" subsection. Empty otherwise.
+    /// port's dock or display (issue #274), for devices with NO structural
+    /// root data at all (the single-active-port fallback). Non-empty only on
+    /// the one port a single connected Thunderbolt device is on; rendered as
+    /// its own "Connected over Thunderbolt" subsection. Empty otherwise.
     var tunnelledDevices: [USBDevice] = []
+    /// Tunnelled devices STRUCTURALLY scoped to this specific port (the
+    /// follow-up): merged into the same "Connected devices" tree as
+    /// `devices`, nested under their chain device, rather than rendered as
+    /// a separate section. See `TunnelledDeviceGrouping
+    /// .structurallyScopedTunnelledDevices`.
+    var structuralTunnelledDevices: [USBDevice] = []
     let powerSources: [PowerSource]
     let identities: [USBPDSOP]
     let thunderboltSwitches: [IOThunderboltSwitch]
@@ -1005,6 +1076,7 @@ struct PortCard: View {
 
             let connectedRows = ConnectedDeviceTree.rows(
                 devices: devices,
+                tunnelledDevices: structuralTunnelledDevices,
                 port: port,
                 thunderboltSwitches: thunderboltSwitches,
                 displayPorts: displayPorts,
@@ -1020,6 +1092,7 @@ struct PortCard: View {
                 let shownIDs = Set(connectedRows.compactMap { $0.device?.id })
                 let allRows = ConnectedDeviceTree.rows(
                     devices: devices,
+                    tunnelledDevices: structuralTunnelledDevices,
                     port: port,
                     thunderboltSwitches: thunderboltSwitches,
                     displayPorts: displayPorts,

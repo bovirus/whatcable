@@ -44,6 +44,21 @@ public struct USBDevice: Identifiable, Hashable {
     /// result is empty on a laptop. Read that result, not this flag directly, to
     /// stay laptop-safe.
     public let isBehindInternalHub: Bool
+    /// Count of `"pci-bridge"`-named ancestors between this device's
+    /// tunnelled `AppleUSBXHCITR` controller and its `apciecN` PCIe-C host
+    /// bridge root. Raw registry truth, captured only for
+    /// `isThunderboltTunnelled` devices; `nil` for everything else, and `nil`
+    /// when the walk didn't reach an `apciecN` root within its bound.
+    /// `ChainDeviceAttribution` divides this by two to get the TB DROM
+    /// `Depth` of the switch that owns the tunnel and joins the device to it
+    /// structurally, in preference to name matching. See
+    /// `research/usb-chain-attribution-identifiers.md` for the corpus
+    /// evidence behind the formula.
+    public let tunnelBridgeDepth: Int?
+    /// The `apciecN` PCIe-C host bridge root name (e.g. `"apciec2"`) the
+    /// bridge walk ended at. `nil` under the same conditions as
+    /// `tunnelBridgeDepth`.
+    public let tunnelRootName: String?
     /// USB device base class (`bDeviceClass`). `0x11` is the Billboard Device
     /// Class. `nil` when the property is absent.
     public let deviceClass: UInt8?
@@ -73,6 +88,8 @@ public struct USBDevice: Identifiable, Hashable {
         controllerPortName: String? = nil,
         isThunderboltTunnelled: Bool = false,
         isBehindInternalHub: Bool = false,
+        tunnelBridgeDepth: Int? = nil,
+        tunnelRootName: String? = nil,
         deviceClass: UInt8? = nil,
         ioClassName: String? = nil,
         billboard: BillboardCapability? = nil,
@@ -93,6 +110,8 @@ public struct USBDevice: Identifiable, Hashable {
         self.controllerPortName = controllerPortName
         self.isThunderboltTunnelled = isThunderboltTunnelled
         self.isBehindInternalHub = isBehindInternalHub
+        self.tunnelBridgeDepth = tunnelBridgeDepth
+        self.tunnelRootName = tunnelRootName
         self.deviceClass = deviceClass
         self.ioClassName = ioClassName
         self.billboard = billboard

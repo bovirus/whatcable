@@ -438,6 +438,103 @@ struct TunnelPathTests {
         #expect(tunnels[4].terminalAdapterPortNumber == nil, "Lane-only group: no protocol adapter to report")
     }
 
+    // MARK: - usbTunnelTerminalSwitchUIDs (review round, strict derivation)
+    //
+    // `TunnelPath.kind == .usb` alone is not a safe filter for "this switch
+    // terminates a USB tunnel": kind is classified from ANY classifiable
+    // member of the UUID group, while `terminalSwitchUID` is independently
+    // the DEEPEST member, so the two can point at different adapters. These
+    // two fixtures pin the failure mode a loose `.filter { $0.kind == .usb }
+    // .compactMap(\.terminalSwitchUID)` derivation would get wrong, and that
+    // `usbTunnelTerminalSwitchUIDs` gets right.
+
+    @Test("A .usb-classified path whose DEEPEST member is lane-only contributes nothing")
+    func usbClassifiedPathWithLaneOnlyTerminalContributesNothing() throws {
+        let uuid = "11111111-0000-0000-0000-000000000001"
+        let root = sw(
+            id: 100, depth: 0,
+            ports: [lanePort(portNumber: 1, hopTable: [hopEntry(pathUUID: uuid)])]
+        )
+        // dockA's USB3 adapter is what classifies the whole group as `.usb`
+        // (the shallowest classifiable member).
+        let dockA = sw(
+            id: 200, depth: 1, upstreamPortNumber: 1,
+            ports: [
+                lanePort(portNumber: 2, hopTable: [hopEntry(pathUUID: uuid)]),
+                protocolPort(portNumber: 5, adapterType: .usb3Down, hopTable: [hopEntry(pathUUID: uuid)]),
+            ],
+            parentSwitchUID: 100
+        )
+        // dockB is the DEEPEST member (the terminal), but only a lane
+        // pass-through carries this UUID there, not a USB adapter: a
+        // real corpus shape for a device chained behind a USB hub whose
+        // own onward link happens to share the tunnel's path UUID.
+        let dockB = sw(
+            id: 300, depth: 2, upstreamPortNumber: 1,
+            ports: [lanePort(portNumber: 1, hopTable: [hopEntry(pathUUID: uuid)])],
+            parentSwitchUID: 200
+        )
+        let switches = [root, dockA, dockB]
+
+        let tunnels = ThunderboltTopology.tunnels(from: root, in: switches)
+        let tunnel = try #require(tunnels.first)
+        // Confirms the SHAPE this test depends on: kind says .usb, but the
+        // terminal (dockB, the deepest member) carries no classifiable
+        // adapter at all.
+        #expect(tunnel.kind == .usb)
+        #expect(tunnel.terminalSwitchUID == 300)
+        #expect(tunnel.terminalAdapterType == nil, "dockB's only member is lane-only: no USB adapter to report")
+
+        let result = ThunderboltTopology.usbTunnelTerminalSwitchUIDs(from: root, in: switches)
+        #expect(result.isEmpty, "kind == .usb is not enough: the terminal itself must carry a USB adapter")
+    }
+
+    @Test("A single-switch USB UUID group (device-internal routing) contributes nothing")
+    func singleSwitchUSBGroupContributesNothing() throws {
+        let uuid = "22222222-0000-0000-0000-000000000002"
+        let root = sw(id: 100, depth: 0, ports: [lanePort(portNumber: 1)])
+        // Both members of this UUID sit on the SAME switch (dock's own two
+        // USB adapters sharing an internal routing UUID): never crosses a
+        // cable, so distinctSwitchCount is 1, even though kind classifies
+        // .usb and the terminal is genuinely a USB adapter type.
+        let dock = sw(
+            id: 200, depth: 1, upstreamPortNumber: 1,
+            ports: [
+                lanePort(portNumber: 2),
+                protocolPort(portNumber: 5, adapterType: .usb3Down, hopTable: [hopEntry(pathUUID: uuid)]),
+                protocolPort(portNumber: 6, adapterType: .usb3Up, hopTable: [hopEntry(pathUUID: uuid)]),
+            ],
+            parentSwitchUID: 100
+        )
+        let switches = [root, dock]
+
+        let tunnels = ThunderboltTopology.tunnels(from: root, in: switches)
+        let tunnel = try #require(tunnels.first)
+        #expect(tunnel.kind == .usb)
+        #expect(tunnel.distinctSwitchCount == 1, "both members are on the same switch: device-internal routing")
+
+        let result = ThunderboltTopology.usbTunnelTerminalSwitchUIDs(from: root, in: switches)
+        #expect(result.isEmpty, "a UUID confined to one switch never crossed a cable, so it is not a tunnel")
+    }
+
+    @Test("The ground-truth shape (LaCie/Studio Display) still resolves under the strict derivation")
+    func groundTruthShapeStillResolves() {
+        // Sanity check that the stricter derivation does not regress the
+        // real case it exists to serve: a genuine cross-cable USB tunnel
+        // whose terminal IS its own USB adapter.
+        let uuid = "33333333-0000-0000-0000-000000000003"
+        let root = sw(id: 100, depth: 0, ports: [lanePort(portNumber: 1, hopTable: [hopEntry(pathUUID: uuid)])])
+        let laCie = sw(
+            id: 200, depth: 1, upstreamPortNumber: 1,
+            ports: [protocolPort(portNumber: 5, adapterType: .usb3Down, hopTable: [hopEntry(pathUUID: uuid)])],
+            parentSwitchUID: 100
+        )
+        let switches = [root, laCie]
+
+        let result = ThunderboltTopology.usbTunnelTerminalSwitchUIDs(from: root, in: switches)
+        #expect(result == [200])
+    }
+
     // MARK: - A3: distinctSwitchCount (cross-cable = spans >= 2 switches)
 
     @Test("UUID that only ever appears on ONE downstream switch: distinctSwitchCount 1, even though the terminal is depth > 0")

@@ -273,6 +273,27 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
     /// `deviceID` above, and for the same non-positive/out-of-range-is-nil
     /// normalisation.
     public let dromModelID: Int?
+    /// The `acioN` Thunderbolt HAL root name (e.g. `"acio2"`) this HOST ROOT
+    /// switch sits under, captured by walking the IOService plane past the
+    /// point where no further Thunderbolt-switch ancestor exists. `nil` for
+    /// every downstream (non-host-root) switch, whose ancestor walk always
+    /// stops at its parent switch first, and `nil` for a host root when the
+    /// walk's bound was exceeded before reaching `acioN` (should not happen
+    /// in practice: the corpus never needed more than a few hops).
+    ///
+    /// This is the port-scoping half of the apciec<->acio join
+    /// (`research/usb-chain-attribution-identifiers.md`): Apple Silicon
+    /// exposes each Thunderbolt port as two sibling roots sharing one index N,
+    /// `apciecN` (the PCIe tunnel, captured on `USBDevice.tunnelRootName`) and
+    /// `acioN` (the Thunderbolt HAL, captured here). `ThunderboltTopology
+    /// .apciecRootName(fromAcioRootName:)` converts one to the other so a
+    /// tunnelled device's own `tunnelRootName` can be checked against the
+    /// port whose host root this is. Verified end to end on
+    /// `research/customer-probes/m3pro_macos27.0_l`: the host root under
+    /// `acio2` (UID `0x5acfe0e539a3992`) is the one whose downstream chain
+    /// carries the LaCie 1big and Studio Display, both reporting
+    /// `tunnelRootName == "apciec2"`.
+    public let acioRootName: String?
 
     public init(
         id: Int64,
@@ -297,7 +318,8 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
         drom: Data? = nil,
         minRequiredTMUMode: Int? = nil,
         dromVendorID: Int? = nil,
-        dromModelID: Int? = nil
+        dromModelID: Int? = nil,
+        acioRootName: String? = nil
     ) {
         self.id = id
         self.className = className
@@ -322,6 +344,7 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
         self.minRequiredTMUMode = minRequiredTMUMode
         self.dromVendorID = dromVendorID
         self.dromModelID = dromModelID
+        self.acioRootName = acioRootName
     }
 
     /// Build a `IOThunderboltSwitch` from a raw IOKit property dictionary
@@ -338,7 +361,8 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
         read: (String) -> Any?,
         className: String,
         ports: [IOThunderboltPort],
-        parentSwitchUID: Int64? = nil
+        parentSwitchUID: Int64? = nil,
+        acioRootName: String? = nil
     ) -> IOThunderboltSwitch? {
         guard let vendorIDNum = read("Vendor ID") as? NSNumber else { return nil }
 
@@ -407,7 +431,8 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
             // `Device Model ID = 9317 (0x2465)`, exactly matching that same
             // machine's USB endpoint `idVendor`/`idProduct`.
             dromVendorID: validDROMNumber("Device Vendor ID"),
-            dromModelID: validDROMNumber("Device Model ID")
+            dromModelID: validDROMNumber("Device Model ID"),
+            acioRootName: acioRootName
         )
     }
 

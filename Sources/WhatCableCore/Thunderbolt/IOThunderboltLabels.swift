@@ -111,6 +111,83 @@ public enum ThunderboltTopology {
         return socketID(fromServiceName: port.serviceName)
     }
 
+    /// Convert a host-root switch's `acioN` Thunderbolt HAL root name (e.g.
+    /// `"acio2"`) to the sibling `apciecN` PCIe tunnel root name a tunnelled
+    /// USB device reports as its own `tunnelRootName` (e.g. `"apciec2"`):
+    /// same index, different prefix. `nil` when `acioName` isn't a strict
+    /// `"acio" + digits` name.
+    ///
+    /// This is the apciec<->acio port-scoping join
+    /// (`research/usb-chain-attribution-identifiers.md`): Apple Silicon
+    /// exposes each Thunderbolt port as two sibling registry roots sharing
+    /// one index N. `ChainDeviceAttribution` uses this to validate that a
+    /// tunnelled device's `tunnelRootName` actually belongs to the port
+    /// being resolved, not a different port's root that slipped in.
+    public static func apciecRootName(fromAcioRootName acioName: String) -> String? {
+        let prefix = "acio"
+        guard acioName.hasPrefix(prefix) else { return nil }
+        let digits = acioName.dropFirst(prefix.count)
+        guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        return "apciec\(digits)"
+    }
+
+    /// The switch UIDs of the USB-carrying tunnels THIS host root's fabric
+    /// confirms: the input `ChainDeviceAttribution.resolve`'s structural
+    /// tunnel join wants as `usbTunnelSwitchUIDs`, and the ONE shared place
+    /// that derivation lives (both `TunnelledDeviceGrouping` and
+    /// `ConnectedDeviceTree` call this rather than each filtering
+    /// `tunnels(...)` themselves, which had drifted into two different, both
+    /// too-loose, derivations).
+    ///
+    /// `TunnelPath.kind == .usb` alone is NOT enough (review finding): kind is
+    /// classified from ANY classifiable adapter in the path's UUID group
+    /// (deliberately, so a real cross-cable tunnel is still recognised when
+    /// the host root's own adapter is a bare lane; see `TunnelPath.swift`'s
+    /// file header), while `terminalSwitchUID` is independently "the deepest
+    /// switch carrying this UUID". Those two facts can point at different
+    /// adapters: a `.usb` classified path whose DEEPEST member happens to be
+    /// a lane-only pass-through would report a `terminalSwitchUID` that never
+    /// itself carries a USB adapter, and DROM depth is exactly the value the
+    /// structural join divides `tunnelBridgeDepth` by two to match, so a
+    /// wrong terminal switch here is a wrong depth match downstream.
+    ///
+    /// Three requirements, matching the project's own tunnel-attribution
+    /// research (`research/thunderbolt-fabric.md`, "Cross-cable = kind known
+    /// + terminal depth > 0 + path UUID spans >= 2 distinct switches"):
+    ///
+    /// 1. `distinctSwitchCount >= 2`: a UUID recurring on only ONE switch's
+    ///    own ports is that device's internal routing, never a tunnel
+    ///    (documented corpus counterexample in `TunnelPath.swift`'s header).
+    /// 2. The terminal switch is DOWNSTREAM (its `depth > 0`, i.e. not the
+    ///    host root itself): a tunnel terminates at a device, never at the
+    ///    Mac's own controller.
+    /// 3. The terminal switch's OWN adapter carrying this UUID is actually a
+    ///    USB adapter type (`.usb3Down`/`.usb3Up`/`.usbGenTDown`/
+    ///    `.usbGenTUp`), read straight from `terminalAdapterType`, not
+    ///    re-derived from `kind`. This is the fix for the lane-only-terminal
+    ///    case above: `kind` can say `.usb` from a shallower member while the
+    ///    terminal itself is something else entirely.
+    public static func usbTunnelTerminalSwitchUIDs(
+        from hostRoot: IOThunderboltSwitch,
+        in switches: [IOThunderboltSwitch]
+    ) -> Set<Int64> {
+        var depthByID: [Int64: Int] = [:]
+        for sw in switches { depthByID[sw.id] = sw.depth }
+        let usbAdapterTypes: Set<AdapterType> = [.usb3Down, .usb3Up, .usbGenTDown, .usbGenTUp]
+
+        return Set(
+            tunnels(from: hostRoot, in: switches).compactMap { tunnel -> Int64? in
+                guard tunnel.distinctSwitchCount >= 2,
+                      let terminalType = tunnel.terminalAdapterType,
+                      usbAdapterTypes.contains(terminalType),
+                      let uid = tunnel.terminalSwitchUID,
+                      let depth = depthByID[uid], depth > 0
+                else { return nil }
+                return uid
+            }
+        )
+    }
+
     /// Return the chain of downstream switches reachable from a host root,
     /// in depth order (root → device). Walks the `parentSwitchUID` graph.
     /// Returns just the root if there's nothing downstream.

@@ -97,6 +97,39 @@ struct ChainDeviceAttributionTests {
         ChainDeviceAttribution.resolve(chain: chain, forest: USBDeviceNode.buildTree(from: devices))
     }
 
+    /// A tunnelled USB device: carries `isThunderboltTunnelled` and
+    /// `tunnelBridgeDepth`, with no product name by default, since the whole
+    /// point of the structural join is placing devices a name cannot (a
+    /// Studio Display's internal "USB2 Hub" persona names nothing about the
+    /// display).
+    private func tunnelledDevice(
+        id: UInt64,
+        locationID: UInt32,
+        bridgeDepth: Int,
+        product: String? = nil,
+        isHub: Bool,
+        tunnelRootName: String? = "apciec2"
+    ) -> USBDevice {
+        USBDevice(
+            id: id,
+            locationID: locationID,
+            vendorID: 0x05AC,
+            productID: 0x1234,
+            vendorName: nil,
+            productName: product,
+            serialNumber: nil,
+            usbVersion: nil,
+            speedRaw: 3,
+            busPowerMA: nil,
+            currentMA: nil,
+            isThunderboltTunnelled: true,
+            tunnelBridgeDepth: bridgeDepth,
+            tunnelRootName: tunnelRootName,
+            deviceClass: isHub ? 0x09 : 0x00,
+            rawProperties: [:]
+        )
+    }
+
     // MARK: - The name match
 
     @Test("A device named exactly like a chain device IS that device, so it is absorbed")
@@ -1065,5 +1098,245 @@ struct ChainDeviceAttributionTests {
         // claim is grouped and recorded under 300, not the name match's 200.
         #expect(result.regionRoots[1] == 300,
             "The hub promotes under Y (300), the numerically corrected switch id, not X (200), the name match")
+    }
+
+    // MARK: - Structural tunnel join
+
+    /// The ground-truth shape (`research/customer-probes/m3pro_macos27.0_l`,
+    /// issue #493's own reporter): Mac -> CalDigit dock (depth 1, no USB
+    /// tunnel of its own) -> LaCie 1big (depth 2, tunnel bridge depth 4) ->
+    /// Studio Display (depth 3, chained behind the LaCie, tunnel bridge
+    /// depth 6).
+    private func laCieStudioDisplayChain() -> [IOThunderboltSwitchNode] {
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let dock = chainSwitch(id: 200, parent: 100, vendor: "CalDigit, Inc.", model: "Thunderbolt 4 Pro Dock", depth: 1)
+        let laCie = chainSwitch(id: 300, parent: 200, vendor: "LaCie", model: "1big Dock v2", depth: 2)
+        let display = chainSwitch(id: 400, parent: 300, vendor: "Apple Inc.", model: "Studio Display", depth: 3)
+        return ThunderboltTopology.tree(from: root, in: [root, dock, laCie, display])
+    }
+
+    /// The reporter's REAL fabric shape: LaCie (300) and the OWC Express 1M2
+    /// (250, PCIe tunnel only, no USB tunnel of its own) are depth-2
+    /// siblings under the CalDigit dock. `usbTunnelSwitchUIDs` in these
+    /// tests reflects that: only 300 and 400 (the Studio Display, chained
+    /// behind the LaCie) are ever passed as USB-tunnel-bearing, mirroring
+    /// what `ThunderboltTopology.tunnels(...).filter { $0.kind == .usb }`
+    /// would report for this fabric. 250 is never in that set, which is what
+    /// makes the per-depth gate resolve 300 despite the depth collision.
+    private func laCieOwcSiblingChain() -> [IOThunderboltSwitchNode] {
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let dock = chainSwitch(id: 200, parent: 100, vendor: "CalDigit, Inc.", model: "Thunderbolt 4 Pro Dock", depth: 1)
+        let laCie = chainSwitch(id: 300, parent: 200, vendor: "LaCie", model: "1big Dock v2", depth: 2)
+        let owc = chainSwitch(id: 250, parent: 200, vendor: "OWC", model: "Express 1M2", depth: 2)
+        let display = chainSwitch(id: 400, parent: 300, vendor: "Apple Inc.", model: "Studio Display", depth: 3)
+        return ThunderboltTopology.tree(from: root, in: [root, dock, laCie, owc, display])
+    }
+
+    @Test("Structural tunnel join places devices by PCIe bridge depth, no name required")
+    func structuralJoinPlacesDevicesByBridgeDepth() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            // LaCie's own USB2 hub persona: bridge depth 4 -> DROM depth 2 -> LaCie (300).
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: "1big Dock", isHub: false),
+            // Studio Display's internal hub personas name NOTHING about the
+            // display ("USB2 Hub", "USB3 Gen2 Hub"): this is exactly the case
+            // a name match cannot place, and structural join can.
+            tunnelledDevice(id: 2, locationID: 0x0311_0000, bridgeDepth: 6, product: "USB2 Hub", isHub: true),
+            tunnelledDevice(id: 3, locationID: 0x0311_1000, bridgeDepth: 6, product: nil, isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionOwner[1] == 300, "bridge depth 4 -> DROM depth 2 -> the LaCie switch")
+        #expect(result.regionOwner[2] == 400, "bridge depth 6 -> DROM depth 3 -> the Studio Display switch")
+        #expect(result.regionOwner[3] == 400, "a device nested inside a structurally-placed hub inherits its owner")
+    }
+
+    @Test("Structural join resolves a depth even when a PCIe-only sibling shares it, only the confirmed USB-tunnel switch counts")
+    func structuralJoinIgnoresNonUSBTunnelSiblingAtSameDepth() {
+        // The reporter's actual fabric: OWC (PCIe-only) and LaCie (USB
+        // tunnel) are BOTH depth-2 siblings. A whole-chain "no two switches
+        // share a depth" gate would refuse this; restricting depthCounts to
+        // `usbTunnelSwitchUIDs` (which excludes the OWC) resolves it.
+        let chain = laCieOwcSiblingChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: nil, isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionOwner[1] == 300, "the OWC sibling at the same depth does not block the LaCie's join")
+    }
+
+    @Test("Structural join marks only the boundary device of a nested group, like the name-based pass does")
+    func structuralJoinCollapsesRedundantNestedMarks() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, isHub: true),
+            tunnelledDevice(id: 2, locationID: 0x0310_1000, bridgeDepth: 4, isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionRoots[1] == 300, "the outer device roots the structural region")
+        #expect(result.regionRoots[2] == nil, "the nested device adds no mark: inheritance already covers it")
+        #expect(result.regionOwner[2] == 300, "ownership is unaffected, only the redundant mark is gone")
+    }
+
+    @Test("A genuine structural/name disagreement fails closed: name placement is kept, but the device is not absorbed")
+    func structuralConflictWithNameMatchFailsClosed() {
+        // A GENUINE disagreement: the device's own product name matches the
+        // Studio Display exactly (name says 400), but its bridge depth
+        // resolves to the LaCie (structural says 300). Two strong signals
+        // that cannot both be right. Policy: keep the name placement, refuse
+        // the structural override, and do not treat this device as the
+        // chain device's own identity endpoint.
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: "Studio Display", isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionOwner[1] == 400, "the exact name match is kept: structural does not override it")
+        #expect(!result.absorbed.contains(1), "a device with disagreeing evidence is not collapsed into the chain row")
+    }
+
+    @Test("A tunnelled device with no bridge depth falls back to name matching")
+    func tunnelledDeviceWithoutBridgeDepthFallsBackToNameMatch() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            USBDevice(
+                id: 1, locationID: 0x0310_0000, vendorID: 0x05AC, productID: 0x1234,
+                vendorName: nil, productName: "1big Dock v2", serialNumber: nil,
+                usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
+                isThunderboltTunnelled: true, tunnelBridgeDepth: nil, tunnelRootName: nil,
+                deviceClass: 0x00, rawProperties: [:]
+            ),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionOwner[1] == 300, "no bridge depth: falls back to the exact name match")
+    }
+
+    @Test("An odd bridge depth never resolves structurally")
+    func oddBridgeDepthNeverResolves() {
+        // `bridgeDepth.isMultiple(of: 2)` guards this: an odd count cannot
+        // be divided into a DROM depth at all (the Intel-topology shape,
+        // where the doubles-per-depth relationship does not hold).
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 5, product: nil, isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec2"
+        )
+        #expect(result.regionOwner[1] == nil, "an odd bridge depth is not a valid DROM-depth-times-two value")
+    }
+
+    @Test("Equal-depth chain fails closed: structural join places nothing, name matching still runs")
+    func equalDepthChainFailsClosed() {
+        // Two GENUINELY USB-tunnel-bearing switches at the SAME DROM depth:
+        // the unproven case (research/usb-chain-attribution-identifiers.md
+        // records zero corpus examples of this). The whole port's
+        // structural pass must fail closed rather than guess which sibling
+        // a bridge-depth-2 device belongs to.
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let dockA = chainSwitch(id: 200, parent: 100, vendor: "Vendor A", model: "Dock A", depth: 1)
+        let dockB = chainSwitch(id: 201, parent: 100, vendor: "Vendor B", model: "Dock B", depth: 1)
+        let chain = ThunderboltTopology.tree(from: root, in: [root, dockA, dockB])
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 2, product: nil, isHub: false),
+            // Name matching is untouched by the equal-depth gate: a device
+            // naming one of the two docks exactly still resolves normally.
+            tunnelledDevice(id: 2, locationID: 0x0311_0000, bridgeDepth: 2, product: "Dock A", isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [200, 201], expectedTunnelRootName: "apciec0"
+        )
+        #expect(result.regionOwner[1] == nil, "structural evidence is refused when two CONFIRMED USB-tunnel switches share a depth")
+        #expect(result.regionOwner[2] == 200, "name matching is unaffected by the structural gate")
+    }
+
+    @Test("An empty usbTunnelSwitchUIDs set (no hop-table data) places nothing structurally")
+    func emptyUSBTunnelSwitchUIDsPlacesNothing() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: nil, isHub: false),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        // The default: no usbTunnelSwitchUIDs, no expectedTunnelRootName.
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest)
+        #expect(result.regionOwner[1] == nil, "no confirmed USB-tunnel switches: the structural pass is a no-op, not a guess")
+    }
+
+    @Test("A tunnelRootName that names a DIFFERENT port fails closed")
+    func rootMismatchFailsClosed() {
+        let chain = laCieStudioDisplayChain()
+        // apciec2 belongs to a DIFFERENT physical port from the one this
+        // resolve() call is scoped to (apciec1): a cross-port mixup, e.g.
+        // from a wiring bug that fed the wrong port's devices in.
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: nil, isHub: false, tunnelRootName: "apciec2"),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400], expectedTunnelRootName: "apciec1"
+        )
+        #expect(result.regionOwner[1] == nil, "a device whose tunnelRootName names a different port is refused, however clean the depth arithmetic is")
+    }
+
+    @Test("Without a known expected root, internally CONSISTENT candidates still resolve")
+    func consistentRootsResolveWithoutExpectedRoot() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: nil, isHub: false, tunnelRootName: "apciec2"),
+            tunnelledDevice(id: 2, locationID: 0x0311_0000, bridgeDepth: 6, product: nil, isHub: false, tunnelRootName: "apciec2"),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        // expectedTunnelRootName is nil: falls back to the internal
+        // consistency check. Both candidates agree on "apciec2", so both
+        // resolve.
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400]
+        )
+        #expect(result.regionOwner[1] == 300)
+        #expect(result.regionOwner[2] == 400)
+    }
+
+    @Test("Without a known expected root, DISAGREEING candidates all fail closed")
+    func disagreeingRootsFailClosedWithoutExpectedRoot() {
+        let chain = laCieStudioDisplayChain()
+        let devices = [
+            tunnelledDevice(id: 1, locationID: 0x0310_0000, bridgeDepth: 4, product: nil, isHub: false, tunnelRootName: "apciec2"),
+            // A different root than device 1: internally inconsistent,
+            // which is itself evidence of a cross-port mixup upstream (two
+            // different ports' devices ended up in the same resolve() call).
+            tunnelledDevice(id: 2, locationID: 0x0311_0000, bridgeDepth: 6, product: nil, isHub: false, tunnelRootName: "apciec7"),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest,
+            usbTunnelSwitchUIDs: [300, 400]
+        )
+        #expect(result.regionOwner[1] == nil, "disagreeing roots refuse EVERY candidate, not just the minority one")
+        #expect(result.regionOwner[2] == nil)
     }
 }

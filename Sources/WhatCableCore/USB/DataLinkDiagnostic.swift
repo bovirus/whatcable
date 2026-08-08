@@ -381,16 +381,28 @@ extension DataLinkDiagnostic {
             .filter { $0.speedRaw != nil }
             .max { (Self.deviceGbps($0.speedRaw) ?? 0) < (Self.deviceGbps($1.speedRaw) ?? 0) }
         let usbDeviceGbps = Self.deviceGbps(fastestDevice?.speedRaw)
-        let deviceMaxGbps: Double?
+        let rawDeviceMaxGbps: Double?
         if let terminal {
-            deviceMaxGbps = terminal.supportedSpeed.maxTotalGbps
+            rawDeviceMaxGbps = terminal.supportedSpeed.maxTotalGbps
                 ?? Self.terminalLegActiveGbps(terminal)
                 ?? Self.activeTBGbps(port: port, switches: thunderboltSwitches)
         } else if let partner {
-            deviceMaxGbps = partner.supportedSpeed.maxTotalGbps
+            rawDeviceMaxGbps = partner.supportedSpeed.maxTotalGbps
                 ?? Self.activeTBGbps(port: port, switches: thunderboltSwitches)
         } else {
-            deviceMaxGbps = usbDeviceGbps
+            rawDeviceMaxGbps = usbDeviceGbps
+        }
+        // TB1/TB2-era device cap (issue #515): the device figure comes from
+        // the terminal switch when there is a genuine multi-hop chain,
+        // otherwise the direct partner (the same switch the branches above
+        // read from). Capping here covers both the supportedSpeed-mask path
+        // and the terminalLegActiveGbps fallback in one place.
+        let deviceCapGbps = (terminal ?? partner)?.deviceGenerationCapGbps
+        let deviceMaxGbps: Double?
+        if let raw = rawDeviceMaxGbps, let cap = deviceCapGbps {
+            deviceMaxGbps = min(raw, cap)
+        } else {
+            deviceMaxGbps = rawDeviceMaxGbps
         }
 
         // Capture the resolved figures for the Pro breakdown. Every
@@ -557,10 +569,20 @@ extension DataLinkDiagnostic {
               let socketID = ThunderboltTopology.socketID(for: port),
               let root = ThunderboltTopology.hostRoot(forSocketID: socketID, in: switches),
               let hostPort = ThunderboltTopology.activeDownstreamLanePort(root),
-              let gen = hostPort.currentSpeed else {
+              let gen = hostPort.currentSpeed,
+              let negotiated = gen.totalGbps else {
             return nil
         }
-        return gen.totalGbps
+        // TB1/TB2-era first-hop partner (issue #515): code 0x8 reads as a
+        // real TB3 40 Gbps link, but a TB1/TB2 device negotiates far less.
+        // Cap with the directly-connected partner's device-generation
+        // ceiling, not the terminal device's: a dock's own link genuinely
+        // runs at its rated speed even when a TB1 leaf hangs off it further
+        // down the chain, so only the FIRST hop's own class matters here.
+        if let cap = Self.partnerSwitch(port: port, switches: switches)?.deviceGenerationCapGbps {
+            return min(negotiated, cap)
+        }
+        return negotiated
     }
 
     /// The Mac port's maximum throughput, taken from the host root TB

@@ -959,16 +959,32 @@ private func resolveLinkSpeed(
     switches: [IOThunderboltSwitch]
 ) -> LinkSpeed? {
     if hasTB {
-        // Use the host link's published full-link rate (40 or 80). When we
-        // can't match the switch graph for this port, leave the badge off
-        // rather than guess a rate.
-        guard let total = thunderboltTotalGbps(for: port, switches: switches) else {
+        // Use the host link's published full-link rate (40 or 80), capped
+        // by any TB1/TB2-era device ceiling on the first-hop partner
+        // (issue #515). Reuses `DataLinkDiagnostic.activeTBGbps` rather
+        // than re-deriving the cap here, so this badge can never disagree
+        // with the Pro data-speed breakdown. When we can't match the
+        // switch graph for this port, leave the badge off rather than
+        // guess a rate.
+        guard let total = DataLinkDiagnostic.activeTBGbps(port: port, switches: switches) else {
             return nil
         }
         if total >= 80 {
             return LinkSpeed(tier: .tb80, badge: "80G")
         }
-        return LinkSpeed(tier: .tb40, badge: "40G")
+        if total >= 40 {
+            return LinkSpeed(tier: .tb40, badge: "40G")
+        }
+        // TB1/TB2-era device cap (issue #515): the negotiated total can
+        // now read below 40 Gbps instead of the misleading shared 40 Gbps
+        // code. There is no dedicated Thunderbolt tier under 40 Gbps, so
+        // this reuses the existing USB 10G/20G tiers (same badge text,
+        // blue rather than green) instead of inventing a new tier case or
+        // a new user-facing string.
+        if total >= 20 {
+            return LinkSpeed(tier: .usb20g, badge: "20G")
+        }
+        return LinkSpeed(tier: .usb10g, badge: "10G")
     }
     if hasUSB3 {
         switch usb3Gbps(port: port, devices: devices, transports: usb3Transports) {
@@ -981,22 +997,6 @@ private func resolveLinkSpeed(
         return LinkSpeed(tier: .usb2, badge: "480M")
     }
     return nil
-}
-
-/// Published full-link Gb/s for the Thunderbolt host link on this port, or nil
-/// if we can't find the matching switch graph. Mirrors `thunderboltBullets`'s
-/// host-port lookup so the badge tracks the "Linked at ..." bullet.
-private func thunderboltTotalGbps(
-    for port: AppleHPMInterface,
-    switches: [IOThunderboltSwitch]
-) -> Double? {
-    guard !switches.isEmpty,
-          let socketID = ThunderboltTopology.socketID(for: port),
-          let root = ThunderboltTopology.hostRoot(forSocketID: socketID, in: switches),
-          let hostPort = ThunderboltTopology.activeDownstreamLanePort(root) else {
-        return nil
-    }
-    return hostPort.currentSpeed?.totalGbps
 }
 
 /// Negotiated USB 3 link in Gb/s (5, 10, or 20), using the same precedence as

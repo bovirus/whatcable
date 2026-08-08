@@ -137,6 +137,59 @@ struct PortSummaryThunderboltTests {
         #expect(summary.linkSpeed?.badge == "40G")
     }
 
+    // MARK: - TB1/TB2-era device generation cap (issue #515)
+
+    @Test("TB1 device badge caps below the shared 40 Gbps tier, matching the diagnostic panel")
+    func tb1DeviceBadgeCapsBelowSharedTier() {
+        // Before this fix, the badge resolver read the host link's raw
+        // `Current Link Speed` code directly and always mapped code 0x8 to
+        // the 40 Gbps tier, independent of `DataLinkDiagnostic`'s cap. A
+        // LaCie Rugged THB (TB1, Device ID 0x1549) would badge "40G" on
+        // the port card while the Pro data-speed panel correctly said
+        // 10 Gbps: the two disagreed. The badge now shares
+        // `DataLinkDiagnostic.activeTBGbps`, so it must read the same
+        // capped figure.
+        let port = tbPort(socket: "1")
+        let host = IOThunderboltSwitch(
+            id: 100,
+            className: "IOIOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 12),
+            ports: [lanePort(portNumber: 1, socketID: "1", speed: .tb3, widthRaw: 0x1)],
+            parentSwitchUID: nil
+        )
+        let device = IOThunderboltSwitch(
+            id: 200,
+            className: "IOThunderboltSwitchType2",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "LaCie Rugged THB",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            ports: [],
+            parentSwitchUID: host.id,
+            thunderboltVersion: 1,
+            deviceID: 0x1549
+        )
+        let summary = PortSummary(port: port, thunderboltSwitches: [host, device])
+        #expect(summary.linkSpeed?.tier != .tb40,
+            "A TB1 device must not badge into the shared 40 Gbps tier. Got tier: \(String(describing: summary.linkSpeed?.tier))")
+        #expect(summary.linkSpeed?.tier == .usb10g,
+            "No dedicated sub-40 Gbps Thunderbolt tier exists; the badge reuses the existing 10G tier. Got: \(String(describing: summary.linkSpeed?.tier))")
+        #expect(summary.linkSpeed?.badge == "10G")
+    }
+
     // MARK: - Daisy-chain step-down (the headline UX)
 
     @Test("Daisy chain step-down is surfaced")

@@ -441,6 +441,46 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
 
     /// True when the controller is in an active power state.
     public var isAwake: Bool { currentPowerState == 2 }
+
+    /// TB1/TB2-era device IDs whose `Current Link Speed` code `0x8` does
+    /// NOT mean a real 40 Gbps TB3 link (issue #515). Intel Falcon Ridge,
+    /// the TB2 controller. `Thunderbolt Version == 2` is not used for this:
+    /// it mixes real TB2 devices with TB3 controllers (Alpine Ridge etc),
+    /// so the cap is keyed on Device ID here instead. Device ID alone is
+    /// not a safe key across vendors (the same 16-bit number can be reused
+    /// outside Intel's own device space), so the match also requires
+    /// `Vendor ID == 0x8086` (Intel, decimal 32902, confirmed in the
+    /// corpus).
+    private static let falconRidgeTB2DeviceIDs: Set<Int> = [0x156c, 0x156d]
+    private static let intelVendorID = 0x8086
+
+    /// Capability ceiling for TB1/TB2-era devices, in Gbps, or `nil` when
+    /// no cap applies (TB3-class silicon and newer).
+    ///
+    /// `LinkGeneration` maps raw speed code `0x8` to `.tb3` (40 Gbps total),
+    /// and that mapping is correct for real TB3 links (corpus-verified). But
+    /// TB1/TB2-era devices report the same code `0x8` for what is actually a
+    /// 10 Gb/s single-lane link, so `totalGbps` overstates them (issue
+    /// #515: a LaCie Rugged THB, genuine TB1 silicon, showed "40 Gbps"
+    /// instead of its real 10 Gbps cap). This property flags those devices
+    /// so callers can cap the misleading figure without touching
+    /// `LinkGeneration` itself, which stays correct for real TB3 links.
+    ///
+    /// `thunderboltVersion == 1` is corpus-verified as ONLY genuine TB1
+    /// silicon (Light Ridge / Port Ridge device IDs), zero contamination
+    /// across 48 rows, so it's safe as a direct 10 Gbps cap.
+    /// `thunderboltVersion == 2` is a TRAP (mixes real TB2 devices with TB3
+    /// controllers) and must never be used here; the TB2 case is instead
+    /// keyed on the Falcon Ridge device IDs above, capped at 20 Gbps (TB2's
+    /// real per-link maximum).
+    public var deviceGenerationCapGbps: Double? {
+        if thunderboltVersion == 1 { return 10 }
+        if vendorID == Self.intelVendorID,
+           let deviceID, Self.falconRidgeTB2DeviceIDs.contains(deviceID) {
+            return 20
+        }
+        return nil
+    }
 }
 
 /// One row of an adapter's `Hop Table`. A Thunderbolt link multiplexes

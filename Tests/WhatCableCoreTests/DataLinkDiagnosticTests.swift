@@ -946,11 +946,18 @@ struct DataLinkDiagnosticTests {
     ///   * `upstreamPortNumber` is the child's OWN port number for its
     ///     upstream link. Real partners often have this value at 3 even
     ///     when the parent connects through port 1.
+    /// `thunderboltVersion`/`deviceID`/`vendorID` default to values that
+    /// never trigger `deviceGenerationCapGbps` (nil version, nil device
+    /// id), so existing callers are unaffected; issue #515 tests pass real
+    /// values to build a TB1/TB2-era partner or terminal switch.
     private func partnerSwitch(
         parent: IOThunderboltSwitch,
         parentLanePortNumber: Int,
         supportedRaw: UInt8,
-        partnerOwnUpstreamPortNumber: Int = 3
+        partnerOwnUpstreamPortNumber: Int = 3,
+        thunderboltVersion: Int? = nil,
+        deviceID: Int? = nil,
+        vendorID: Int = 9999
     ) -> IOThunderboltSwitch {
         let upstream = IOThunderboltPort(
             portNumber: partnerOwnUpstreamPortNumber, socketID: nil, adapterType: .lane,
@@ -961,7 +968,7 @@ struct DataLinkDiagnosticTests {
         return IOThunderboltSwitch(
             id: parent.id + Int64(parentLanePortNumber),
             className: "IOThunderboltSwitchType5",
-            vendorID: 9999,
+            vendorID: vendorID,
             vendorName: "Partner",
             modelName: "Partner Device",
             routerID: 1,
@@ -971,7 +978,9 @@ struct DataLinkDiagnosticTests {
             maxPortNumber: 4,
             supportedSpeed: SupportedSpeedMask(rawValue: supportedRaw),
             ports: [upstream],
-            parentSwitchUID: parent.id
+            parentSwitchUID: parent.id,
+            thunderboltVersion: thunderboltVersion,
+            deviceID: deviceID
         )
     }
 
@@ -1482,6 +1491,329 @@ struct DataLinkDiagnosticTests {
         )
         #expect(diag?.facts.deviceGbps == 40,
             "Must read the arriving upstream leg (40), not the stale downstream leg (80). Got: \(String(describing: diag?.facts.deviceGbps))")
+    }
+
+    // MARK: - TB1/TB2-era device generation cap (issue #515)
+
+    @Test("Direct-attached TB1 device caps both the negotiated and device figures at 10 Gbps")
+    func directAttachedTB1DeviceCapsAt10() {
+        // LaCie Rugged THB USB-C (Thunderbolt 1, Intel Port Ridge, Device
+        // ID 0x1549) attached to the host via Apple's TB3-to-TB2 adapter.
+        // `Current Link Speed` code 0x8 reads as `.tb3` (40 Gbps total,
+        // see LinkGeneration), and the real TB1 device's own
+        // `supportedSpeed` mask reports the same TB3 bit, but the actual
+        // link is a single 10 Gb/s lane. Before this fix both the
+        // negotiated figure and the device figure read "40 Gbps" and the
+        // cable took the blame (Mac 40 / cable 20 / device 40 -> cable
+        // limit). `thunderboltVersion == 1` is the corpus-verified,
+        // uncontaminated signal for genuine TB1 silicon, so it caps both
+        // figures at 10.
+        let hostLane = IOThunderboltPort(
+            portNumber: 1, socketID: "1", adapterType: .lane,
+            currentSpeed: .tb3, currentWidth: LinkWidth(rawValue: 0x1),   // single lane
+            targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let host = IOThunderboltSwitch(
+            id: 300,
+            className: "IOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xC),
+            ports: [hostLane],
+            parentSwitchUID: nil
+        )
+        let partner = IOThunderboltSwitch(
+            id: 301,
+            className: "IOThunderboltSwitchType2",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "LaCie Rugged THB",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),   // reports the TB3 bit despite being TB1
+            ports: [],
+            parentSwitchUID: host.id,
+            thunderboltVersion: 1,
+            deviceID: 0x1549
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 2),   // controller reads 20 Gbps
+            thunderboltSwitches: [host, partner],
+            hostMaxGbps: 40
+        )
+        guard let facts = diag?.facts else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        #expect(facts.activeGbps == 10,
+            "Negotiated figure must be capped to the TB1 device's 10 Gbps ceiling. Got: \(facts.activeGbps)")
+        #expect(facts.deviceGbps == 10,
+            "Device figure must be capped to the TB1 device's 10 Gbps ceiling. Got: \(String(describing: facts.deviceGbps))")
+        #expect(facts.hostGbps == 40,
+            "The Mac port's own ceiling must stay uncapped: it is genuinely a 40 Gbps port. Got: \(String(describing: facts.hostGbps))")
+        #expect(facts.cableGbps == 20,
+            "The cable figure comes from the CIO controller reading and must stay uncapped by the device-side rule. Got: \(String(describing: facts.cableGbps))")
+        if case .cableLimit = diag?.bottleneck {
+            Issue.record("Must not blame the cable for a TB1 device's own ceiling: \(String(describing: diag?.bottleneck))")
+        }
+        guard case .deviceLimit(let d) = diag?.bottleneck else {
+            Issue.record("expected .deviceLimit at the TB1 device's ceiling, got \(String(describing: diag?.bottleneck))")
+            return
+        }
+        #expect(d == 10)
+    }
+
+    @Test("TB3 controller reporting Thunderbolt Version 2 (Alpine Ridge) is NOT capped (the version-2 trap, regression pin)")
+    func tb3DockVersion2NotCapped() {
+        // `Thunderbolt Version == 2` mixes real TB2 devices (Falcon Ridge)
+        // with real TB3 devices (Alpine Ridge, device ID 0x15d3 among
+        // others). Capping on version 2 alone would wrongly flag genuine
+        // TB3 hardware as TB1/TB2. Figures must stay at their uncapped
+        // 40 Gbps.
+        let hostLane = IOThunderboltPort(
+            portNumber: 1, socketID: "1", adapterType: .lane,
+            currentSpeed: .tb3, currentWidth: LinkWidth(rawValue: 0x2),   // dual lane
+            targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let host = IOThunderboltSwitch(
+            id: 302,
+            className: "IOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xC),
+            ports: [hostLane],
+            parentSwitchUID: nil
+        )
+        let partner = IOThunderboltSwitch(
+            id: 303,
+            className: "IOThunderboltSwitchType3",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "TB3 Dock",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            ports: [],
+            parentSwitchUID: host.id,
+            thunderboltVersion: 2,
+            deviceID: 0x15d3   // Alpine Ridge, TB3
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),   // 40 Gbps, agrees
+            thunderboltSwitches: [host, partner],
+            hostMaxGbps: 40
+        )
+        guard let facts = diag?.facts else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        #expect(facts.activeGbps == 40,
+            "A version-2 Alpine Ridge (TB3) controller must not be capped. Got: \(facts.activeGbps)")
+        #expect(facts.deviceGbps == 40,
+            "A version-2 Alpine Ridge (TB3) controller must not be capped. Got: \(String(describing: facts.deviceGbps))")
+    }
+
+    @Test("TB4 dock with a TB1 leaf: negotiated stays 40 (the dock's own link), device figure caps at 10")
+    func tb4DockWithTB1LeafCapsDeviceOnly() {
+        // A healthy TB4 dock sits between the host and a TB1 leaf drive.
+        // The dock's own link to the host is a real 40 Gbps TB4 link and
+        // must not be dragged down by whatever is further downstream:
+        // `activeTBGbps` caps using the FIRST-HOP partner (the dock),
+        // which has no TB1/TB2 cap of its own, so the negotiated figure
+        // stays 40. The device figure comes from the TERMINAL switch (the
+        // TB1 leaf, walked past the dock by `deepTerminalSwitch`) and
+        // must be capped at 10. This gives the two cap sites (activeTBGbps
+        // vs the device-figure resolution) two genuinely distinct
+        // fixtures: the direct-attach tests above collapse partner and
+        // terminal into the same switch.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let dock = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0xC)   // TB4 dock, no cap
+        let leaf = partnerSwitch(
+            parent: dock, parentLanePortNumber: 1, supportedRaw: 0x8,
+            thunderboltVersion: 1, deviceID: 0x1549                                          // TB1 leaf
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],   // 40 Gbps cable
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),           // 40 Gbps, agrees with the dock's real link
+            thunderboltSwitches: [host, dock, leaf]
+        )
+        guard let facts = diag?.facts else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        #expect(facts.activeGbps == 40,
+            "The dock's own link must not be dragged down by a downstream TB1 leaf. Got: \(facts.activeGbps)")
+        #expect(facts.deviceGbps == 10,
+            "The terminal TB1 leaf's cap must still apply to the device figure. Got: \(String(describing: facts.deviceGbps))")
+    }
+
+    @Test("Direct-attached Falcon Ridge TB2 device caps both negotiated and device figures at 20 Gbps")
+    func directAttachedFalconRidgeTB2CapsAt20() {
+        let hostLane = IOThunderboltPort(
+            portNumber: 1, socketID: "1", adapterType: .lane,
+            currentSpeed: .tb3, currentWidth: LinkWidth(rawValue: 0x2),
+            targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let host = IOThunderboltSwitch(
+            id: 320,
+            className: "IOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xC),
+            ports: [hostLane],
+            parentSwitchUID: nil
+        )
+        let partner = IOThunderboltSwitch(
+            id: 321,
+            className: "IOThunderboltSwitchType2",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "Falcon Ridge TB2 Dock",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            ports: [],
+            parentSwitchUID: host.id,
+            thunderboltVersion: 2,
+            deviceID: 0x156d
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 2),   // controller reads 20 Gbps, agrees
+            thunderboltSwitches: [host, partner],
+            hostMaxGbps: 40
+        )
+        guard let facts = diag?.facts else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        #expect(facts.activeGbps == 20,
+            "Negotiated figure must be capped to the Falcon Ridge TB2 ceiling. Got: \(facts.activeGbps)")
+        #expect(facts.deviceGbps == 20,
+            "Device figure must be capped to the Falcon Ridge TB2 ceiling. Got: \(String(describing: facts.deviceGbps))")
+    }
+
+    @Test("min() preserves an already-lower raw device figure instead of raising it to a further-hop cap")
+    func capMinPreservesAlreadyLowerRawFigure() {
+        // Two-hop chain: host -> TB1 mid (cap 10) -> Falcon Ridge TB2
+        // terminal (cap 20). The terminal has no supportedSpeed mask and
+        // no active leg of its own, so its device figure falls all the
+        // way back to `activeTBGbps`, which is already capped by the
+        // FIRST-HOP partner (the TB1 mid, cap 10). The terminal's own
+        // (higher) cap of 20 must not raise that already-lower figure
+        // back up: min(10, 20) stays 10. A buggy implementation that
+        // clamped with max(), or unconditionally overwrote the raw figure
+        // with the cap, would read 20 here.
+        let hostLane = IOThunderboltPort(
+            portNumber: 1, socketID: "1", adapterType: .lane,
+            currentSpeed: .tb3, currentWidth: LinkWidth(rawValue: 0x2),
+            targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let host = IOThunderboltSwitch(
+            id: 330,
+            className: "IOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xC),
+            ports: [hostLane],
+            parentSwitchUID: nil
+        )
+        let midUpstream = IOThunderboltPort(
+            portNumber: 3, socketID: nil, adapterType: .lane,
+            currentSpeed: .usb4Tb4, currentWidth: LinkWidth(rawValue: 0x2),
+            targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let mid = IOThunderboltSwitch(
+            id: 331,
+            className: "IOThunderboltSwitchType2",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "TB1 Adapter",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            ports: [midUpstream],
+            parentSwitchUID: host.id,
+            thunderboltVersion: 1,
+            deviceID: 0x1549
+        )
+        let terminal = IOThunderboltSwitch(
+            id: 332,
+            className: "IOThunderboltSwitchType2",
+            vendorID: 0x8086,
+            vendorName: "Intel",
+            modelName: "Falcon Ridge TB2 Terminal",
+            routerID: 2,
+            depth: 2,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0),   // no mask -> forces the fallback chain
+            ports: [],                                          // no upstream leg -> forces the host-side fallback
+            parentSwitchUID: mid.id,
+            thunderboltVersion: 2,
+            deviceID: 0x156d
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: nil,
+            thunderboltSwitches: [host, mid, terminal]
+        )
+        #expect(diag?.facts.deviceGbps == 10,
+            "Already-capped raw figure (10, from the first-hop TB1 mid) must not be raised to the terminal's own 20 Gbps cap. Got: \(String(describing: diag?.facts.deviceGbps))")
     }
 
     // MARK: - Culprit priority on tied floors (issue #190, Port 1)

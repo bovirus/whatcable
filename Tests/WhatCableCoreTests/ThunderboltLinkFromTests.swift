@@ -510,4 +510,68 @@ struct ThunderboltLinkFromTests {
         #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "notacio2") == nil)
         #expect(ThunderboltTopology.apciecRootName(fromAcioRootName: "acio2x") == nil)
     }
+
+    // MARK: - deviceGenerationCapGbps (issue #515)
+
+    private func switchWith(thunderboltVersion: Int?, deviceID: Int?, vendorID: Int = 0x8086) -> IOThunderboltSwitch {
+        IOThunderboltSwitch(
+            id: 1,
+            className: "IOThunderboltSwitchType2",
+            vendorID: vendorID,
+            vendorName: "Intel",
+            modelName: "Test",
+            routerID: 1,
+            depth: 1,
+            routeString: 1,
+            upstreamPortNumber: 3,
+            maxPortNumber: 4,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            ports: [],
+            parentSwitchUID: 100,
+            thunderboltVersion: thunderboltVersion,
+            deviceID: deviceID
+        )
+    }
+
+    @Test("deviceGenerationCapGbps: Thunderbolt Version 1 (genuine TB1 silicon) caps at 10")
+    func deviceGenerationCapVersion1CapsAt10() {
+        // Corpus-verified: Thunderbolt Version == 1 is ONLY genuine TB1
+        // silicon (Light Ridge 0x1513, Port Ridge 0x1549), zero
+        // contamination across 48 rows.
+        let sw = switchWith(thunderboltVersion: 1, deviceID: 0x1549)
+        #expect(sw.deviceGenerationCapGbps == 10)
+    }
+
+    @Test("deviceGenerationCapGbps: Falcon Ridge TB2 device ID caps at 20")
+    func deviceGenerationCapFalconRidgeCapsAt20() {
+        let sw = switchWith(thunderboltVersion: 2, deviceID: 0x156d)
+        #expect(sw.deviceGenerationCapGbps == 20)
+        let other = switchWith(thunderboltVersion: 2, deviceID: 0x156c)
+        #expect(other.deviceGenerationCapGbps == 20)
+    }
+
+    @Test("deviceGenerationCapGbps: Thunderbolt Version 2 alone is NOT a cap (the version-2 trap)")
+    func deviceGenerationCapVersion2AloneIsNotCapped() {
+        // Version 2 mixes real TB2 devices (Falcon Ridge) with TB3 devices
+        // (Alpine Ridge etc). Only the device ID identifies Falcon Ridge;
+        // version 2 alone must never cap.
+        let sw = switchWith(thunderboltVersion: 2, deviceID: 0x15d3)   // Alpine Ridge, TB3
+        #expect(sw.deviceGenerationCapGbps == nil)
+    }
+
+    @Test("deviceGenerationCapGbps: TB3-class controller (Type5, version 32) is not capped")
+    func deviceGenerationCapTB3ClassNotCapped() {
+        let sw = switchWith(thunderboltVersion: 32, deviceID: nil)
+        #expect(sw.deviceGenerationCapGbps == nil)
+    }
+
+    @Test("deviceGenerationCapGbps: Falcon Ridge device ID on a non-Intel vendor ID does NOT cap (collision guard)")
+    func deviceGenerationCapFalconRidgeRequiresIntelVendor() {
+        // Device ID 0x156d is only a safe Falcon Ridge signal under Intel's
+        // own vendor ID (0x8086, decimal 32902 in the corpus). A non-Intel
+        // switch happening to reuse that 16-bit device ID number must not
+        // be capped: the match is Intel-scoped on purpose.
+        let sw = switchWith(thunderboltVersion: 2, deviceID: 0x156d, vendorID: 0x1234)
+        #expect(sw.deviceGenerationCapGbps == nil)
+    }
 }

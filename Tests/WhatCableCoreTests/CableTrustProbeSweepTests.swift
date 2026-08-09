@@ -136,8 +136,10 @@ struct CableTrustProbeSweepTests {
     /// raw value the plug actually emits (3 = Power Brick → no soften; 4 =
     /// active-cable lookalike → soften).
     @Test("Registered-cable plug softens the blank e-marker unless it is a power brick (real probes)", arguments: [
-        "m1_macos15.6.1",   // plug VID 0x311C (Southchip), registered
-        "m1_macos26.5_r",   // plug VID 0x2F16 (Shenzhen Kejinming), registered
+        "m1_macos15.6.1",   // plug VID 0x311C (Southchip), registered, DFP raw 3
+        "m1_macos26.5_r",   // plug VID 0x2F16 (Shenzhen Kejinming), registered, DFP raw 3
+        "m4pro_macos15.7.8", // plug VID 0x05AC (Apple), registered, DFP raw 4 (softens branch)
+        "m4max_macos26.5_d", // plug VID 0x05AC (Apple), registered, DFP raw 4 (softens branch)
     ])
     func registeredCablePlugSoftens(probe: String) {
         guard let result = Self.zeroedEmarkerPort(probe: probe) else {

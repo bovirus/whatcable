@@ -51,6 +51,7 @@ final class TestKitRunner: ObservableObject {
         "39_system_power_adapter",
         "40_hub_port_statistics",
         "41_class_discovery",
+        "42_typec_phy_subtree",
     ]
 
     /// Probes cheap to re-run and interesting to sample twice per kit run

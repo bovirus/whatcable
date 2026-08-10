@@ -414,61 +414,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// Point size every menu-bar glyph is rendered at.
     private static let menuBarIconPointSize: CGFloat = 16
 
-    /// The fixed canvas size every menu-bar glyph is composited into, so the
-    /// button image is the same width no matter which symbol is chosen. Computed
-    /// once as the largest rendered glyph across all offered icons (so none is
-    /// clipped). A constant image width means swapping the icon never changes the
-    /// button width, so the popover never has to close and reopen to re-centre
-    /// its arrow. A plain SymbolConfiguration does NOT achieve this: it pins the
-    /// point size, but glyphs still have different intrinsic widths (e.g.
-    /// `cable.connector.horizontal` is wider than `bolt.fill`), which shifted the
-    /// anchor and forced the reseat blink (issue #313).
-    private static let menuBarIconCanvasSize: NSSize = {
-        let config = NSImage.SymbolConfiguration(pointSize: menuBarIconPointSize, weight: .regular)
-        var size = NSSize(width: menuBarIconPointSize, height: menuBarIconPointSize)
-        for name in AppSettings.menuBarIconChoices {
-            guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
-                .withSymbolConfiguration(config) else { continue }
-            size.width = max(size.width, image.size.width)
-            size.height = max(size.height, image.size.height)
-        }
-        return NSSize(width: ceil(size.width), height: ceil(size.height))
-    }()
+    /// The box every menu-bar glyph is drawn into. One size for all of them, so
+    /// swapping icons never changes the button width and so never moves the
+    /// popover: the status item is right-aligned in the menu bar, so a width
+    /// change slides its left edge, and the popover correctly follows the icon.
+    ///
+    /// The size is chosen, not measured off the widest icon. Sizing the box to
+    /// the widest glyph is what made the item 42pt wide when a typical menu bar
+    /// extra is 22-26pt (issue #411): the default `cable.connector` is only 10pt
+    /// wide and was being padded out to 24pt to match `powerplug.fill`. Glyphs
+    /// wider or taller than this box are scaled down to fit instead, keeping
+    /// their aspect ratio, so every icon gets the same 18x18 footprint without
+    /// inheriting the widest one's. Note that is a constant footprint, not a
+    /// constant painted glyph: a symbol already smaller than the box keeps its
+    /// natural size and simply sits centred in it.
+    private static let menuBarIconBoxSize = NSSize(width: 18, height: 18)
 
-    /// Composite an SF Symbol, centred, into the fixed canvas so every glyph
-    /// occupies the same width. Returns a template image so the menu bar tints it.
+    /// The uniform-size glyph for a symbol name, or nil if the symbol is
+    /// unavailable on this macOS. Returns a template image so the menu bar tints it.
+    ///
+    /// Aspect-fit into `menuBarIconBoxSize` and centred, so every icon occupies
+    /// exactly the same space. A plain SymbolConfiguration does NOT achieve this:
+    /// it pins the point size, but glyphs still have different intrinsic widths
+    /// (`cable.connector.horizontal` is 24pt against `cable.connector`'s 10pt),
+    /// which shifts the button and moves the popover with it (issue #313).
     ///
     /// Uses the drawing-handler initialiser rather than lockFocus so the glyph
     /// rasterises at each display's backing scale (crisp on Retina) instead of a
     /// single baked-in scale.
-    private static func centeredMenuBarIcon(_ symbol: NSImage) -> NSImage {
-        let size = menuBarIconCanvasSize
-        let symbolSize = symbol.size
-        let canvas = NSImage(size: size, flipped: false) { _ in
+    private static func glyphImage(_ symbolName: String) -> NSImage? {
+        let config = NSImage.SymbolConfiguration(pointSize: menuBarIconPointSize, weight: .regular)
+        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: AppInfo.name)?
+            .withSymbolConfiguration(config) else { return nil }
+
+        let box = menuBarIconBoxSize
+        let natural = symbol.size
+        // Only ever scale down: a glyph already inside the box keeps its own size
+        // rather than being blown up to fill it.
+        let scale = min(1, min(box.width / natural.width, box.height / natural.height))
+        let drawn = NSSize(width: natural.width * scale, height: natural.height * scale)
+
+        let canvas = NSImage(size: box, flipped: false) { _ in
             let origin = NSPoint(
-                x: ((size.width - symbolSize.width) / 2).rounded(),
-                y: ((size.height - symbolSize.height) / 2).rounded()
+                x: ((box.width - drawn.width) / 2).rounded(),
+                y: ((box.height - drawn.height) / 2).rounded()
             )
-            symbol.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1.0)
+            symbol.draw(
+                in: NSRect(origin: origin, size: drawn),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1.0
+            )
             return true
         }
         canvas.isTemplate = true
         return canvas
     }
 
-    /// The centred, constant-width glyph for a symbol name, or nil if the symbol
-    /// is unavailable on this macOS.
-    private static func glyphImage(_ symbolName: String) -> NSImage? {
-        let config = NSImage.SymbolConfiguration(pointSize: menuBarIconPointSize, weight: .regular)
-        guard let symbol = NSImage(systemSymbolName: symbolName, accessibilityDescription: AppInfo.name)?
-            .withSymbolConfiguration(config) else { return nil }
-        return centeredMenuBarIcon(symbol)
-    }
-
     /// Set the status-item button to the plain glyph (no readout). Falls back to
     /// a short text label if the SF Symbol is unavailable (keeps the menu bar
-    /// usable). The glyph is a fixed-width canvas so the button width is identical
-    /// for every icon, keeping the popover anchor stable across an icon swap.
+    /// usable).
     private func applyGlyph(to button: NSStatusBarButton, symbolName: String) {
         if let image = Self.glyphImage(symbolName) {
             button.image = image
@@ -482,19 +487,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
     }
 
-    /// Re-anchor the popover after the status-item button changed width, so its
-    /// arrow stays centred on the button. This works by closing and reopening,
-    /// so it must never run while the popover is pinned (`keepOpen`): that close
-    /// would dismiss a popover the user deliberately kept open. With the live
-    /// watts label on, the label changes width as the number changes (e.g.
-    /// 9W -> 10W), so without this guard a pinned popover snapped shut whenever
-    /// the wattage ticked over. When pinned we accept a slightly off-centre
-    /// arrow rather than shutting the window.
-    private func reseatPopoverAfterWidthChange(button: NSStatusBarButton, widthBefore: CGFloat) {
-        guard !Self.refreshSignal.keepOpen else { return }
-        guard button.frame.width != widthBefore, let popover, popover.isShown else { return }
-        popover.performClose(nil)
-        togglePopover(from: button)
+    /// Re-anchor an open popover after the status-item button changed width, so
+    /// its arrow stays centred on the button.
+    ///
+    /// AppKit's header says popovers "are automatically moved when the location
+    /// or size of the positioning view changes", but that does not hold for an
+    /// `NSStatusBarButton`: issue #313 is a reproduction, with a screenshot, of
+    /// the arrow going misaligned on an icon swap and only correcting on the
+    /// next reopen. So the re-anchor has to be explicit.
+    ///
+    /// It is done by calling `show` again, which the header documents as a
+    /// re-anchor rather than a reopen: "If the popover is already being shown,
+    /// this method will update to be associated with the new view and
+    /// positioningRect passed."
+    ///
+    /// Assigning `positioningRect` instead does NOT work here, which was tried
+    /// first and rejected on evidence: the arrow was left sitting well to the
+    /// left of the icon after an icon swap. The reason is that `positioningRect`
+    /// is a rectangle *within* the positioning view, and a status-item button's
+    /// `bounds` always has a zero origin, so only its size ever changes. When a
+    /// menu bar item changes width what actually moves is the item's window, and
+    /// assigning a same-origin rect never tells AppKit to recompute against it.
+    /// `show` re-reads the view's position, so it does.
+    ///
+    /// Animation is suppressed for the re-anchor so this reads as the arrow
+    /// staying put, not the panel re-presenting itself.
+    ///
+    /// The previous implementation called `performClose` and reopened, which is
+    /// why it needed a `keepOpen` guard: that close dismissed popovers the user
+    /// had pinned (issue #346). Nothing closes here, so no guard is needed and
+    /// pinned popovers get their arrow re-centred too.
+    /// There is deliberately no "did the width actually change?" test. A status
+    /// item's button frame is not guaranteed to report a new width synchronously
+    /// (the status bar reflows a `variableLength` item on its own schedule), so
+    /// such a test can read stale and skip the re-anchor entirely. The caller
+    /// already returns early unless the rendered content changed, so this only
+    /// runs when the geometry plausibly moved.
+    private func reanchorPopoverAfterWidthChange() {
+        // Deferred a runloop turn on purpose. An NSStatusItem with
+        // `variableLength` reflows to fit its contents on the status bar's own
+        // schedule, not synchronously inside the layout call above, so
+        // re-anchoring immediately reads the button at its OLD width. The item
+        // then grows and leaves the arrow off-centre, which is what turning the
+        // watts readout on did: the label adds ~29pt, and the arrow stayed put
+        // while the item widened underneath it. By the next turn the status bar
+        // has settled and `bounds` is the real rect.
+        // The button is deliberately re-read here rather than captured. Between
+        // scheduling and the next turn the menu bar can be torn down and rebuilt
+        // (`tearDownMenuBarMode` then `setUpMenuBarMode`, e.g. a display-mode
+        // switch), which leaves the captured button belonging to a status item
+        // that has been removed. Showing a popover relative to a view that is no
+        // longer in a window raises NSInvalidArgumentException, so the stale
+        // button has to be dropped, not merely null-checked.
+        DispatchQueue.main.async { [weak self] in
+            guard let self,
+                  let button = self.statusItem?.button,
+                  button.window != nil,
+                  let popover = self.popover,
+                  popover.isShown
+            else { return }
+            let animated = popover.animates
+            popover.animates = false
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.animates = animated
+        }
     }
 
     /// Single entry point that paints the status item for the current state: the
@@ -532,7 +588,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         guard content != lastMenuBarContent else { return }
         lastMenuBarContent = content
 
-        let widthBefore = button.frame.width
         switch content {
         case .glyphOnly(let symbol):
             applyGlyph(to: button, symbolName: symbol)
@@ -548,14 +603,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         button.needsLayout = true
         button.needsDisplay = true
         button.layoutSubtreeIfNeeded()
-        reseatPopoverAfterWidthChange(button: button, widthBefore: widthBefore)
+        reanchorPopoverAfterWidthChange()
     }
 
     /// The figure-space-padded "NNW" title for the menu bar watts label. The
     /// padding keeps the width constant across 9 -> 10: U+2007 (FIGURE SPACE) is
     /// exactly one digit wide in a monospaced-digit font, so a padded single
-    /// digit lines up with a double digit and the anchor doesn't drift as the
-    /// value ticks.
+    /// digit lines up with a double digit (issue #346).
+    ///
+    /// This padding is kept deliberately, even though the popover is now
+    /// re-anchored on a width change rather than closed and reopened. The
+    /// re-anchor keeps the arrow centred, but it cannot stop the item itself
+    /// changing width, and a live wattage ticking across 9 -> 10 would then
+    /// shuffle the whole popover sideways every few seconds while the user is
+    /// reading it. Costing 8pt of menu bar, only while charging below 10W, is
+    /// the cheaper side of that trade. The icon padding was a different case
+    /// and was removed: see `glyphImage`.
     private static func wattsAttributedTitle(_ watts: Int) -> NSAttributedString {
         let digits = String(watts)
         let padded = digits.count < 2
@@ -598,7 +661,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// alpha, so both tint to the menu bar colour at their drawn opacity).
     private static func menuBarBarImage(symbolName: String, fillStep: Int) -> NSImage {
         let glyph = glyphImage(symbolName)
-        let glyphSize = menuBarIconCanvasSize
+        // Every glyph is drawn into the same box, so the composite is a constant
+        // width whether or not the symbol resolved.
+        let glyphSize = menuBarIconBoxSize
         let totalWidth = glyphSize.width + powerBarGap + powerBarWidth
         let height = max(glyphSize.height, powerBarHeight)
         let fraction = Double(fillStep) / Double(powerBarSteps)

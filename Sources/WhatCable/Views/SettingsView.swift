@@ -221,6 +221,12 @@ struct MenuBarIconPicker: View {
                     Image(systemName: name)
                         .scaledFont(.body)
                         .frame(width: 28 * fontScale, height: 24 * fontScale)
+                        // Without this the button only responds where the glyph
+                        // actually paints: `.plain` hit-tests the rendered
+                        // content, and the box below is drawn as decoration, so
+                        // the empty space inside it was dead. Makes the whole
+                        // swatch the target, which is what it looks like.
+                        .contentShape(RoundedRectangle(cornerRadius: 6))
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(selection == name ? Color.accentColor.opacity(0.25) : Color.clear)

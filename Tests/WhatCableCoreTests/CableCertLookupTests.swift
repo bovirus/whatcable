@@ -242,11 +242,19 @@ struct CableCertLookupTests {
             port: makePort(),
             identities: [cable(vid: 0x05AC, xid: Self.appleAbsentXID)]
         )
+        // The note moves to the database group: under the old flat list it
+        // read as a verdict on the cable, and it is really a limit of our
+        // records. The raw ID gets no line of its own on the card; it lives
+        // in the Pro diagnostics cable-identity section.
         #expect(
-            summary.bullets.contains {
-                $0.contains("isn't in the public registry") && $0.contains("0x2600")
-            },
-            "expected the unpublished-ID note, got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Certification ID") } != true,
+            "the raw certification ID must not appear on the card, got: \(summary.groups)"
+        )
+        #expect(
+            summary.group(.database)?.lines.contains {
+                $0.contains("isn't in our copy of the USB-IF registry") && $0.contains("0x2600")
+            } == true,
+            "expected the unresolved-ID note in the database group, got: \(summary.groups)"
         )
         // It is a note, not a certification claim, and never a fault word.
         #expect(!summary.bullets.contains { $0.contains("USB-IF certified") })

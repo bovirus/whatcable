@@ -649,12 +649,15 @@ struct JSONFormatterTests {
         let obj = parse(json)
         let portJSON = (obj["ports"] as? [[String: Any]])?.first ?? [:]
         #expect(portJSON["pdCapable"] as? Bool == false)
-        // And the port-level bullet should not claim a missing e-marker.
+        // And the port should not claim a missing e-marker. The read state is
+        // now the e-marker group's subtitle, which the JSON does not carry
+        // yet, so assert it on the summary itself.
         let bullets = portJSON["bullets"] as? [String] ?? []
-        #expect(bullets.contains(where: { $0.contains("No e-marker reported") }) == false,
+        #expect(bullets.contains(where: { $0.contains("No e-marker") }) == false,
                 "no-PD port should not claim a missing e-marker, got: \(bullets)")
-        #expect(bullets.contains(where: { $0.contains("can't read cable details") }),
-                "expected 'port can't read cable details' bullet, got: \(bullets)")
+        let summary = PortSummary(port: port)
+        #expect(summary.group(.emarker)?.subtitle?.contains("can't read cable details") == true,
+                "expected the 'port can't read cable details' subtitle, got: \(summary.groups)")
     }
 
     // MARK: - JSON validity

@@ -14,11 +14,9 @@
 "Alternate Mode Adapter" = "Alt(Alternate) 모드 어댑터";
 "Both the charger and cable can do more, but the Mac is currently asking for less. This is normal once the battery is mostly full, or when the system is idle." = "충전기와 케이블은 더 높은 성능을 낼 수 있지만, Mac이 현재 그보다 적은 전력만 요청하고 있어요. 배터리가 거의 다 찼거나 시스템이 유휴 상태일 때는 정상적인 현상입니다.";
 "Cable does not advertise an e-marker (basic cable)" = "케이블에 E-marker 칩이 없어요 (기본 케이블)";
-"Cable has an e-marker chip (advertises its capabilities)" = "케이블에 E-marker 칩이 있어요 (성능 정보를 알려 줌)";
 "Cable is limiting charging speed" = "케이블이 충전 속도를 제한하고 있어요";
 "Cable identified as %@" = "케이블이 %@(으)로 식별되었어요";
 "This e-marker is used in: %@" = "이 e-marker는 다음에서 사용됩니다: %@";
-"Cable made by %@" = "제조사: %@";
 "Cable rated for %@ at up to %lldV (~%lldW)" = "케이블 정격: %1$@, 최대 %2$lldV (약 %3$lldW)";
 "Cable rated to %lldV / %@, delivers up to %lldW (USB-PD caps at 48V)" = "케이블 정격 %1$lldV / %2$@, 최대 %3$lldW 전달 (USB-PD는 48V로 제한)";
 "Cable speed: %@" = "케이블 속도: %@";
@@ -64,8 +62,6 @@
 "Charger on standby" = "충전기 대기 중";
 "Another charger is powering the Mac right now. macOS draws from one charger at a time, so this charger stays on standby until the other is unplugged." = "지금은 다른 충전기가 Mac에 전원을 공급하고 있어요. macOS는 한 번에 하나의 충전기에서만 전원을 가져오므로, 다른 충전기를 뽑기 전까지 이 충전기는 대기 상태로 있어요.";
 "No USB-C / MagSafe ports were found on this Mac." = "이 Mac에서 USB-C / MagSafe 포트를 찾을 수 없었어요.";
-"No e-marker detected. This cable doesn't advertise its capabilities." = "E-marker가 감지되지 않았어요. 이 케이블은 자신의 성능 정보를 알리지 않습니다.";
-"No e-marker detected. The cable may have one, but macOS only reads it above 3A or with Thunderbolt." = "E-marker가 감지되지 않았어요. 케이블에 있을 수도 있지만, macOS는 3A를 넘거나 Thunderbolt 연결일 때만 읽어 들입니다.";
 "Nothing connected" = "연결되지 않음";
 "Only USB 2.0 is active. If you expected high speed, the cable may not support it." = "USB 2.0만 활성화되어 있어요. 고속 전송을 기대했다면 케이블이 지원하지 않는 것일 수 있습니다.";
 "Optical" = "광";
@@ -93,7 +89,6 @@
 "The cable's e-marker reports current value %lld, which is reserved by the USB-PD spec. Real e-marker chips should not emit reserved values." = "케이블의 E-marker가 전류 값 %lld을(를) 보고하는데, 이는 USB-PD 규격에서 예약된 값입니다. 정품 E-marker 칩이라면 예약된 값을 내보내지 않습니다.";
 "The cable's e-marker reports speed value %lld, which is reserved by the USB-PD spec. Real e-marker chips should not emit reserved values." = "케이블의 E-marker가 속도 값 %lld을(를) 보고하는데, 이는 USB-PD 규격에서 예약된 값입니다. 정품 E-marker 칩이라면 예약된 값을 내보내지 않습니다.";
 "The cable's e-marker reports vendor %@, which isn't in our bundled USB-IF list. The number could be unassigned, copied, or assigned after the bundled list was generated. On its own this isn't proof of a problem, but on a clone cable it often appears alongside other inconsistencies." = "케이블의 E-marker가 벤더 %@을(를) 보고하는데, 이 번호는 앱에 포함된 USB-IF 목록에 없습니다. 이 번호는 미할당이거나, 복제되었거나, 목록이 생성된 이후에 할당된 것일 수 있어요. 이것만으로 문제의 증거가 되지는 않지만, 복제 케이블에서는 다른 불일치와 함께 나타나는 경우가 많습니다.";
-"This port can't read cable details (USB-only port, no Power Delivery)" = "이 포트는 케이블 세부 정보를 읽을 수 없습니다 (USB 전용 포트, Power Delivery 없음)";
 "Thunderbolt / USB4" = "Thunderbolt / USB4";
 "Thunderbolt / USB4 link active" = "Thunderbolt / USB4 링크 활성";
 "Thunderbolt / USB4 · %lldW charger" = "Thunderbolt / USB4 · %lldW 충전기";
@@ -128,8 +123,6 @@
 "40 Gbps capable" = "40 Gbps 지원";
 "80 Gbps capable" = "80 Gbps 지원";
 "Charger connected. Battery is full, so the Mac isn't drawing power." = "충전기가 연결되어 있어요. 배터리가 가득 차서 Mac이 전력을 끌어오지 않고 있습니다.";
-"E-marker reports passive (no USB signal conditioning). Thunderbolt is negotiated separately by the controller." = "E-marker가 패시브로 보고합니다 (USB 신호 조정 없음). Thunderbolt는 컨트롤러가 별도로 협상합니다.";
-"E-marker reports passive. This is normal for Thunderbolt cables where the active electronics handle Thunderbolt, not USB." = "E-marker가 패시브로 보고합니다. 액티브 전자 회로가 USB가 아닌 Thunderbolt를 처리하는 Thunderbolt 케이블에서는 정상적인 현상이에요.";
 "Per-port negotiation data is not available. Wattage is from the system-wide adapter reading." = "포트별 협상 데이터를 사용할 수 없어요. 전력량은 시스템 전체 어댑터 측정값을 기준으로 합니다.";
 "Plugged in · battery full" = "연결됨 · 배터리 가득 참";
 "Try a higher-wattage charger to identify the cable." = "케이블을 식별하려면 더 높은 전력의 충전기를 사용해 보세요.";
@@ -456,7 +449,6 @@
 "Cable note:" = "케이블 참고:";
 "Vendor is recognised but not in WhatCable's bundled USB-IF list" = "벤더는 확인되지만 WhatCable에 포함된 USB-IF 목록에는 없음";
 "The vendor ID %@ (%@) is a recognised maker in the community USB vendor list, but not in the USB-IF list WhatCable bundles." = "벤더 ID %1$@(%2$@)는 커뮤니티 USB 벤더 목록에서는 확인되는 제조사이지만, WhatCable에 포함된 USB-IF 목록에는 없습니다.";
-"Cable has an e-marker chip, not read on this connection (needs above 3A or Thunderbolt, or try reconnecting the cable)" = "케이블에 E-marker 칩이 있지만 이 연결에서는 읽지 못했습니다 (3A 초과 또는 Thunderbolt 필요, 또는 케이블을 다시 연결해 보세요)";
 
 /* DFP product type labels (DAR-24) */
 "Host" = "호스트";
@@ -567,7 +559,6 @@
 "USB-IF certified. Manufacturer: %@ (%@)" = "USB-IF 인증됨. 제조사: %1$@ (%2$@)";
 "USB-IF certified. Manufacturer: %@" = "USB-IF 인증됨. 제조사: %1$@";
 "The cable's declared maker matches the USB-IF certificate" = "케이블이 보고한 제조사가 USB-IF 인증서와 일치합니다";
-"Carries a USB-IF certification ID (%@) that isn't in the public registry" = "공개 레지스트리에 없는 USB-IF 인증 ID(%1$@)를 포함합니다";
 
 /* Header for a USB controller group in the connected-devices tree. */
 "USB bus" = "USB 버스";
@@ -575,3 +566,19 @@
 "macOS is holding data back until you approve the accessory." = "액세서리를 승인할 때까지 macOS가 데이터를 보류합니다.";
 "Video is working. macOS is holding data back until you approve the accessory." = "영상은 정상입니다. 액세서리를 승인할 때까지 macOS가 데이터를 보류합니다.";
 "USB device, data blocked · %lldW charger" = "USB 기기, 데이터 차단됨 · %lldW 충전기";
+/* Port card source attribution (grouped headers + e-marker read state) */
+"Present, but not read on this connection. Try reconnecting the cable." = "있지만 이 연결에서는 읽지 못했습니다. 케이블을 다시 연결해 보십시오.";
+"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "있지만 이 연결에서는 읽지 못했습니다. macOS는 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
+"This port can't read cable details: USB-only, no Power Delivery." = "이 포트는 케이블 정보를 읽을 수 없습니다: USB 전용, Power Delivery 없음.";
+"No e-marker. This cable doesn't advertise its capabilities." = "e-marker 없음. 이 케이블은 자신의 성능을 알리지 않습니다.";
+"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "e-marker를 읽지 못했습니다. 케이블에 있을 수 있습니다. macOS는 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
+"Passive (no signal-conditioning electronics)" = "패시브 (신호 조정 회로 없음)";
+"%@ isn't in our bundled vendor list" = "%1$@은(는) 내장 제조사 목록에 없습니다";
+"%@ isn't in our copy of the USB-IF registry" = "%1$@은(는) USB-IF 등록부 사본에 없습니다";
+"What your Mac measured" = "Mac이 측정한 내용";
+"What the cable's e-marker reports" = "케이블의 e-marker가 보고하는 내용";
+"What the charger reports" = "충전기가 보고하는 내용";
+"What WhatCable knows" = "WhatCable이 아는 내용";
+"Made by %@ (%@), per our bundled vendor list" = "내장 제조사 목록 기준 %1$@ (%2$@) 제조";
+"Answered, but reported no capability data." = "응답했지만 성능 데이터를 보고하지 않았습니다.";
+"Certification ID" = "인증 ID";

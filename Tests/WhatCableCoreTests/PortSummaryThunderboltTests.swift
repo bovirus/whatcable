@@ -570,7 +570,12 @@ struct PortSummaryThunderboltTests {
         )
     }
 
-    @Test("Passive e-marker with active TB link shows clarification")
+    // Bug C. This used to assert an explanation the app printed on EVERY
+    // passive cable sitting on a live Thunderbolt link: "the active
+    // electronics handle Thunderbolt, not USB". A short passive TB5 cable
+    // has no active electronics, so the sentence was simply false about it.
+    // The e-marker group now states what the e-marker said and nothing more.
+    @Test("Passive e-marker with active TB link states passive, no invented explanation")
     func passiveEmarkerWithActiveTBLinkShowsClarification() {
         let port = tbPort(socket: "1")
         let host = sw(
@@ -587,8 +592,12 @@ struct PortSummaryThunderboltTests {
         )
 
         #expect(
-            summary.bullets.contains { $0.contains("E-marker reports passive") && $0.contains("Thunderbolt") },
-            "expected passive-but-TB clarification bullet; got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Passive (no signal-conditioning electronics)") } == true,
+            "expected a plain passive line in the e-marker group; got: \(summary.groups)"
+        )
+        #expect(
+            summary.bullets.contains { $0.contains("active electronics handle Thunderbolt") } == false,
+            "must not tell a passive cable it contains active electronics; got: \(summary.bullets)"
         )
     }
 
@@ -659,17 +668,19 @@ struct PortSummaryThunderboltTests {
             cioCapability: cio
         )
 
+        // The controller's reading is a measurement, so it belongs with the
+        // Mac's other measurements, not among the e-marker's claims.
         #expect(
-            summary.bullets.contains { $0.contains("Controller confirms Thunderbolt cable") && $0.contains("40 Gbps") },
-            "expected CIO confirmation bullet; got: \(summary.bullets)"
+            summary.group(.measured)?.lines.contains { $0.contains("Controller confirms Thunderbolt cable") && $0.contains("40 Gbps") } == true,
+            "expected the CIO confirmation in the measured group; got: \(summary.groups)"
         )
         #expect(
-            summary.bullets.contains { $0.contains("E-marker reports passive. This is normal") },
-            "expected educational explanation bullet; got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Passive (no signal-conditioning electronics)") } == true,
+            "expected a plain passive line in the e-marker group; got: \(summary.groups)"
         )
         #expect(
-            summary.bullets.contains { $0.contains("Thunderbolt is negotiated separately") } == false,
-            "old fallback bullet should be gone when CIO confirms; got: \(summary.bullets)"
+            summary.bullets.contains { $0.contains("active electronics handle Thunderbolt") } == false,
+            "the false active-electronics explanation must be gone; got: \(summary.bullets)"
         )
     }
 
@@ -700,8 +711,8 @@ struct PortSummaryThunderboltTests {
         )
 
         #expect(
-            summary.bullets.contains { $0.contains("E-marker reports passive") && $0.contains("Thunderbolt is negotiated separately") },
-            "unknown CIO speed should fall back to passive/TB clarification; got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Passive (no signal-conditioning electronics)") } == true,
+            "the e-marker's own claim still stands with an unreadable CIO code; got: \(summary.groups)"
         )
         #expect(
             summary.bullets.contains { $0.contains("Controller confirms") } == false,
@@ -734,8 +745,12 @@ struct PortSummaryThunderboltTests {
         )
 
         #expect(
-            summary.bullets.contains { $0.contains("Thunderbolt is negotiated separately") },
-            "nil CIO speed should fall back; got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Passive (no signal-conditioning electronics)") } == true,
+            "the e-marker's own claim still stands with no CIO speed; got: \(summary.groups)"
+        )
+        #expect(
+            summary.bullets.contains { $0.contains("Controller confirms") } == false,
+            "nothing to confirm without a CIO speed; got: \(summary.bullets)"
         )
     }
 
@@ -787,16 +802,16 @@ struct PortSummaryThunderboltTests {
         )
 
         #expect(
-            summary.bullets.contains { $0.contains("Thunderbolt link active at 40 Gbps") },
-            "expected the link-rate bullet, not a cable-capacity confirm; got: \(summary.bullets)"
+            summary.group(.measured)?.lines.contains { $0.contains("Thunderbolt link active at 40 Gbps") } == true,
+            "expected the link-rate line in the measured group, not a cable-capacity confirm; got: \(summary.groups)"
         )
         #expect(
             summary.bullets.contains { $0.contains("Controller confirms Thunderbolt cable") } == false,
             "must not describe a 40 Gbps floor as if it were the cable's confirmed capacity; got: \(summary.bullets)"
         )
         #expect(
-            summary.bullets.contains { $0.contains("E-marker reports passive. This is normal") },
-            "the educational passive-cable note should still show; got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Passive (no signal-conditioning electronics)") } == true,
+            "the e-marker's own passive claim still stands; got: \(summary.groups)"
         )
     }
 

@@ -183,6 +183,22 @@ private struct BuiltInUSBDevicesDTO: Codable {
     let devices: [USBDeviceDTO]
 }
 
+/// One attributed section of a port card. `source` is the stable machine key
+/// (`measured`, `emarker`, `charger`, `database`); `header` is the localised
+/// human heading, so a script should key off `source`, never the header text.
+private struct BulletGroupDTO: Codable {
+    let source: String
+    let header: String
+    /// The group's state when it has nothing to list, e.g. the e-marker was
+    /// present but not read on this connection.
+    ///
+    /// The key is OMITTED, not null, when the group simply carries its lines:
+    /// Swift's synthesised Codable drops nil optionals. Consumers must treat
+    /// absent as "no state to report".
+    let state: String?
+    let lines: [String]
+}
+
 private struct PortDTO: Codable {
     let name: String
     let type: String?
@@ -192,7 +208,14 @@ private struct PortDTO: Codable {
     let status: String
     let headline: String
     let subtitle: String
+    /// Every group's lines, flattened. Kept for schema stability: scripts have
+    /// consumed this key since long before the lines were attributed to a
+    /// source. Prefer `bulletGroups`, which says where each line came from.
     let bullets: [String]
+    /// The same lines, grouped by source, plus each group's read state.
+    /// `bullets` cannot carry a subtitle, so a port whose e-marker was not
+    /// read explains itself only here.
+    let bulletGroups: [BulletGroupDTO]
     let transports: TransportsDTO
     let powerSources: [PowerSourceDTO]
     let cable: CableDTO?
@@ -275,6 +298,9 @@ private struct PortDTO: Codable {
         self.headline = summary.headline
         self.subtitle = summary.subtitle
         self.bullets = summary.bullets
+        self.bulletGroups = summary.groups.map {
+            BulletGroupDTO(source: $0.kind.rawValue, header: $0.header, state: $0.subtitle, lines: $0.lines)
+        }
 
         // Resolve the host-root switch via Socket ID matching, then encode
         // its array index (never the raw hardware UID).
@@ -452,10 +478,10 @@ private struct CableDTO: Codable {
     /// included, so the difference is common enough to matter when diagnosing
     /// a "why is there no certified line?" report.
     ///
-    /// The raw ID is JSON-only. The UI does show a neutral note for the
-    /// unpublished case (`PortSummary`: "Carries a USB-IF certification ID
-    /// ... that isn't in the public registry"), but never the bare hex and
-    /// never as a fault: an unpublished ID says nothing bad about a cable, so
+    /// The UI shows the raw ID under the cable's own claims ("Certification
+    /// ID 0x...") and, when we can't resolve it, a neutral note under our
+    /// records ("... isn't in our copy of the USB-IF registry"). Never as a
+    /// fault: an unpublished ID says nothing bad about a cable, so
     /// a red/verdict treatment would read as doubt cast on good hardware. See
     /// planning/cable-trust-model.md for the same lesson learned the expensive
     /// way.

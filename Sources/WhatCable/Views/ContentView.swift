@@ -1090,19 +1090,35 @@ struct PortCard: View {
                 .padding(.leading, 48)
             }
 
-            if !summary.bullets.isEmpty {
-                // "Cable details" subheading + the extra top gap mark the break
-                // between the callout verdicts above and the plain spec facts
-                // below, mirroring the "Connected devices" subheading.
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(String(localized: "Cable details", bundle: _appLocalizedBundle))
-                        .scaledFont(.subheadline, weight: .semibold)
-                        .foregroundStyle(.secondary)
-                    ForEach(summary.bullets, id: \.self) { bullet in
-                        HStack(alignment: .top, spacing: 6) {
-                            Text(verbatim: "•").foregroundStyle(.secondary)
-                            Text(bullet).scaledFont(.callout)
-                            Spacer()
+            if !summary.groups.isEmpty {
+                // One subheading per source, replacing the old single "Cable
+                // details" heading. The card's facts come from four places
+                // with four different reliabilities (the cable's e-marker and
+                // the charger both make claims; the Mac measures; our database
+                // is our own records), and a flat list of equal-weight bullets
+                // let a claim read as a fact. The extra top gap still marks the
+                // break from the callout verdicts above.
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(summary.groups, id: \.kind) { group in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.header)
+                                .scaledFont(.subheadline, weight: .semibold)
+                                .foregroundStyle(.secondary)
+                            // The group's state, e.g. "not read on this
+                            // connection". Deliberately not a bullet: it is not
+                            // one of the facts, it is why there are none.
+                            if let subtitle = group.subtitle, !subtitle.isEmpty {
+                                Text(subtitle)
+                                    .scaledFont(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                            ForEach(group.lines, id: \.self) { line in
+                                HStack(alignment: .top, spacing: 6) {
+                                    Text(verbatim: "•").foregroundStyle(.secondary)
+                                    Text(line).scaledFont(.callout)
+                                    Spacer()
+                                }
+                            }
                         }
                     }
                 }

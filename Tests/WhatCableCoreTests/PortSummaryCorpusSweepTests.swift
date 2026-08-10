@@ -451,14 +451,22 @@ struct PortSummaryCorpusSweepTests {
             "\(violations.count) connected corpus port(s) reported .empty status: \(violations.prefix(5))")
     }
 
-    @Test("Invariant: an e-marker response always produces at least one bullet")
+    @Test("Invariant: an e-marker response always produces an e-marker group")
     func emarkerResponseProducesBullet() {
-        // Source: PortSummary.init, the "B. The cable" section --
-        // `let hasEmarker = identities.contains { $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime }`
-        // followed unconditionally by `if hasEmarker { if emarkerRead { bullets.append(...) } else { bullets.append(...) } }`.
-        // Whichever branch fires, at least one bullet is appended, so
-        // `hasEmarker == true` must imply `bullets.count >= 1`.
+        // Source: PortSummary.init, the e-marker section --
+        // `let hasEmarker = identities.contains { $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime }`.
+        // When it responded and was read, its claims are the group's lines.
+        // When it responded but was not read, that read state is the group's
+        // subtitle. Either way the group exists, so `hasEmarker == true` must
+        // imply a non-nil e-marker group.
+        //
+        // This used to assert `bullets.count >= 1`, which the read-state
+        // rework broke for a real reason worth pinning: an unread e-marker
+        // has NO claims to list, so it now contributes a subtitle and no
+        // lines. 32 corpus ports are in exactly that state.
         var examined = 0
+        var read = 0
+        var unread = 0
         var violations: [String] = []
         for c in Self.cases {
             let hasEmarker = c.identities.contains {
@@ -472,15 +480,21 @@ struct PortSummaryCorpusSweepTests {
                 identities: c.identities,
                 cioCapability: c.cio
             )
-            if summary.bullets.isEmpty {
+            guard let group = summary.group(.emarker) else {
                 violations.append("\(c.folder) port \(c.port.serviceName)")
+                continue
             }
+            if group.lines.isEmpty { unread += 1 } else { read += 1 }
         }
         if examined == 0 {
             Issue.record("No corpus case had a decodable SOP'/SOP'' e-marker; this invariant is untested by this sweep")
         }
         #expect(violations.isEmpty,
-            "\(violations.count) case(s) had an e-marker response but produced no bullets: \(violations.prefix(5))")
+            "\(violations.count) case(s) had an e-marker response but produced no e-marker group: \(violations.prefix(5))")
+        // Floors, so a parser change that quietly empties one of the two paths
+        // shows up as a failure rather than a clean run. Measured 2026-08-10.
+        #expect(read >= 100, "only \(read) read e-markers in the sweep; expected 100+")
+        #expect(unread >= 20, "only \(unread) unread e-markers in the sweep; expected 20+")
     }
 
     @Test("Invariant: a decoded Cable VDO always produces a 'Cable speed' bullet")

@@ -419,7 +419,7 @@ extension WidgetSnapshot {
                 status: status,
                 headline: summary.headline,
                 subtitle: summary.subtitle,
-                topBullet: summary.bullets.first,
+                topBullet: summary.topLine,
                 iconName: status.iconName,
                 deviceCount: devices.count,
                 // recentPower is always empty here: power history comes from

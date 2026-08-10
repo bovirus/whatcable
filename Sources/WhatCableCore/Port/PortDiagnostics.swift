@@ -244,6 +244,17 @@ public struct VDMIdentity: Codable, Sendable, Equatable {
         return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)
     }
 
+    /// Reads `vdos[1]`, the Cert Stat VDO, as a little-endian UInt32. That is
+    /// the USB-IF-issued XID, or 0 for a cable that never went through
+    /// certification (the majority). Nil when VDO[1] is absent or malformed.
+    /// Mirrors `USBPDSOP.certStatVDO` for the Pro diagnostic view, which works
+    /// from `VDMIdentity` rather than `USBPDSOP`.
+    public var certStatXID: UInt32? {
+        guard vdos.count > 1, vdos[1].count == 4 else { return nil }
+        let b = vdos[1]
+        return UInt32(b[0]) | (UInt32(b[1]) << 8) | (UInt32(b[2]) << 16) | (UInt32(b[3]) << 24)
+    }
+
     /// True when the cable's ID Header self-reports as passive (Product Type = 3)
     /// but VDO[3] bit 3 is set. Mirrors `USBPDSOP.hasActiveLayoutContradiction`.
     /// Used in the Pro diagnostic view which works from `VDMIdentity` rather

@@ -217,7 +217,7 @@ struct PortSummaryTests {
 
     // MARK: - Bullets
 
-    @Test("E-marker cable produces e-marker bullet")
+    @Test("E-marker cable produces a read e-marker group")
     func emarkerCableProducesEmarkerBullet() {
         let port = makePort(active: ["USB3"], superSpeed: true)
         let cable = USBPDSOP(
@@ -227,13 +227,15 @@ struct PortSummaryTests {
             vdos: [(3 << 27), 0, 0, (0b10 << 5) | 0b011 | (1 << 13)], specRevision: 0
         )
         let summary = PortSummary(port: port, identities: [cable])
-        #expect(
-            summary.bullets.contains(where: { $0.contains("e-marker") && $0.contains("advertises") }),
-            "expected an e-marker bullet, got bullets: \(summary.bullets)"
-        )
+        // A read e-marker is a group with the cable's own claims in it and no
+        // "we couldn't read it" subtitle.
+        let group = summary.group(.emarker)
+        #expect(group != nil, "expected an e-marker group, got: \(summary.groups)")
+        #expect(group?.subtitle == nil, "a read e-marker must carry no not-read subtitle")
+        #expect(group?.lines.contains { $0.contains("Cable speed") } == true)
     }
 
-    @Test("E-marker present but not read shows the not-read bullet, not advertises")
+    @Test("E-marker present but not read shows the not-read subtitle, not claims")
     func unreadEmarkerShowsNotReadBullet() {
         // Endpoint present but no identity VDOs: a connection at 3A or below,
         // no Thunderbolt, never wakes the e-marker. We should say "not read",
@@ -246,14 +248,16 @@ struct PortSummaryTests {
             vdos: [], specRevision: 0
         )
         let summary = PortSummary(port: port, identities: [cable])
+        let group = summary.group(.emarker)
         #expect(
-            summary.bullets.contains(where: { $0.contains("e-marker") && $0.contains("not read") }),
-            "expected a not-read e-marker bullet, got: \(summary.bullets)"
+            group?.subtitle?.contains("not read on this connection") == true,
+            "expected a not-read subtitle, got: \(String(describing: group))"
         )
-        #expect(
-            summary.bullets.contains(where: { $0.contains("advertises") }) == false,
-            "should not claim the cable advertises capabilities when its e-marker was not read"
-        )
+        #expect(group?.lines.isEmpty == true, "an unread e-marker has nothing to list")
+        // Bug A: the advice must not contradict the port it is printed on.
+        // This port negotiates nothing above 3 A and has no Thunderbolt, so
+        // naming those conditions is correct here.
+        #expect(group?.subtitle?.contains("above 3A or over Thunderbolt") == true)
     }
 
     @Test("Populated SOP'' wins over an empty SOP' (reads, not 'not read')")
@@ -274,17 +278,18 @@ struct PortSummaryTests {
             vdos: [(3 << 27), 0, 0, (0b10 << 5) | 0b011 | (1 << 13)], specRevision: 0
         )
         let summary = PortSummary(port: port, identities: [emptySOP, populatedSOPp])
+        let group = summary.group(.emarker)
         #expect(
-            summary.bullets.contains(where: { $0.contains("e-marker") && $0.contains("advertises") }),
-            "expected the populated endpoint to win, got: \(summary.bullets)"
+            group?.lines.contains { $0.contains("Cable speed") } == true,
+            "expected the populated endpoint to win, got: \(String(describing: group))"
         )
         #expect(
-            summary.bullets.contains(where: { $0.contains("not read") }) == false,
+            group?.subtitle == nil,
             "should not say 'not read' when one endpoint carries VDOs"
         )
     }
 
-    @Test("No e-marker cable produces no e-marker bullet")
+    @Test("No e-marker cable produces a no-e-marker subtitle")
     func noEmarkerCableProducesNoEmarkerBullet() {
         // PD-capable port (CC present) with no SOP'/SOP'' identity. The
         // wording deliberately doesn't claim "basic cable" - macOS may
@@ -293,8 +298,8 @@ struct PortSummaryTests {
         let port = makePort(active: ["USB2"], supported: ["CC", "USB2"], emarker: false)
         let summary = PortSummary(port: port)
         #expect(
-            summary.bullets.contains(where: { $0.contains("No e-marker detected") }),
-            "expected a no-e-marker bullet, got: \(summary.bullets)"
+            summary.group(.emarker)?.subtitle?.contains("No e-marker") == true,
+            "expected a no-e-marker subtitle, got: \(summary.groups)"
         )
     }
 
@@ -305,13 +310,14 @@ struct PortSummaryTests {
         // is the M4 Mac Mini front-port case from issue #50.
         let port = makePort(active: ["USB3"], supported: ["USB2", "USB3"], superSpeed: true)
         let summary = PortSummary(port: port)
+        let subtitle = summary.group(.emarker)?.subtitle
         #expect(
-            summary.bullets.contains(where: { $0.contains("No e-marker detected") }) == false,
-            "no-PD port should not claim a missing e-marker, got: \(summary.bullets)"
+            subtitle?.contains("No e-marker") != true,
+            "no-PD port should not claim a missing e-marker, got: \(String(describing: subtitle))"
         )
         #expect(
-            summary.bullets.contains(where: { $0.contains("can't read cable details") }),
-            "expected the 'port can't read cable details' bullet, got: \(summary.bullets)"
+            subtitle?.contains("can't read cable details") == true,
+            "expected the 'port can't read cable details' subtitle, got: \(summary.groups)"
         )
     }
 
@@ -376,8 +382,8 @@ struct PortSummaryTests {
         )
         let summary = PortSummary(port: port, identities: [cable])
         #expect(
-            summary.bullets.contains(where: { $0.contains("e-marker") && $0.contains("advertises") }),
-            "expected e-marker bullet on PD-capable port, got: \(summary.bullets)"
+            summary.group(.emarker)?.lines.contains { $0.contains("Cable speed") } == true,
+            "expected e-marker claims on a PD-capable port, got: \(summary.groups)"
         )
     }
 
@@ -466,8 +472,8 @@ struct PortSummaryTests {
     /// cable-specific lines, and cable-specific lines come before the
     /// charger-power numbers. Refactors that move bullets between these
     /// blocks should fail this test.
-    @Test("Bullets are grouped link then cable then power")
-    func bulletsAreGroupedLinkThenCableThenPower() {
+    @Test("Bullets are attributed to the source they came from")
+    func bulletsAreAttributedToTheirSource() {
         let port = makePort(active: ["USB3"], superSpeed: true)
         let cable = USBPDSOP(
             id: 99, endpoint: .sopPrime,
@@ -494,34 +500,28 @@ struct PortSummaryTests {
             identities: [cable, partner]
         )
 
-        func index(_ predicate: (String) -> Bool) -> Int? {
-            summary.bullets.firstIndex(where: predicate)
+        // Every line lands in the group matching where it came from.
+        func kind(of needle: String) -> BulletGroup.Kind? {
+            summary.groups.first { $0.lines.contains { $0.contains(needle) } }?.kind
         }
 
-        let speedIdx = index { $0.contains("SuperSpeed USB") }
-        let deviceIdx = index { $0.contains("Connected device") }
-        let cableSpeedIdx = index { $0.contains("Cable speed") }
-        let cableMakerIdx = index { $0.contains("Cable made by") }
-        let chargerIdx = index { $0.contains("Charger advertises") }
-        let negotiatedIdx = index { $0.contains("Currently negotiated") }
+        #expect(kind(of: "SuperSpeed USB") == .measured)
+        #expect(kind(of: "Connected device") == .measured)
+        #expect(kind(of: "Currently negotiated") == .measured)
+        #expect(kind(of: "Cable speed") == .emarker)
+        #expect(kind(of: "Passive (no signal-conditioning electronics)") == .emarker)
+        #expect(kind(of: "Charger advertises") == .charger)
+        #expect(kind(of: "Made by Apple (0x05AC)") == .database)
+        // The raw vendor ID gets no line of its own: it would be new free
+        // content, and the Pro diagnostics screen already shows it.
+        #expect(kind(of: "Vendor ID 0x05AC") == nil)
 
-        #expect(speedIdx != nil)
-        #expect(deviceIdx != nil)
-        #expect(cableSpeedIdx != nil)
-        #expect(cableMakerIdx != nil)
-        #expect(chargerIdx != nil)
-        #expect(negotiatedIdx != nil)
+        // Groups appear in the agreed order: measurements, then the cable's
+        // claims, then the charger's, then our own records.
+        #expect(summary.groups.map(\.kind) == [.measured, .emarker, .charger, .database])
 
-        // A: link + connected device come first
-        #expect(speedIdx! < deviceIdx!, "Speed should come before connected device")
-        #expect(deviceIdx! < cableSpeedIdx!, "Connected device should come before cable details")
-
-        // B: cable details (speed -> maker) come before power numbers
-        #expect(cableSpeedIdx! < cableMakerIdx!, "Cable speed should come before cable maker")
-        #expect(cableMakerIdx! < chargerIdx!, "Cable maker should come before charger numbers")
-
-        // C: power negotiation tail
-        #expect(chargerIdx! < negotiatedIdx!, "Charger max should come before currently negotiated")
+        // `bullets` is the flattened groups, so the two can never disagree.
+        #expect(summary.bullets == summary.groups.flatMap(\.lines))
     }
 
     // MARK: - DisplayPort lane config
@@ -713,8 +713,8 @@ struct PortSummaryTests {
         let summary = PortSummary(port: port, identities: [partner])
         #expect(summary.status == .unknown)
         #expect(
-            summary.bullets.contains(where: { $0.contains("No e-marker detected") }),
-            "Expected e-marker explanation bullet in .unknown with SOP partner, got: \(summary.bullets)"
+            summary.group(.emarker)?.subtitle?.contains("No e-marker") == true,
+            "Expected an e-marker read-state subtitle in .unknown with SOP partner, got: \(summary.groups)"
         )
     }
 

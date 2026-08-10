@@ -425,7 +425,7 @@ final class WidgetDataWriter {
                 status: status,
                 headline: summary.headline,
                 subtitle: summary.subtitle,
-                topBullet: summary.bullets.first,
+                topBullet: summary.topLine,
                 iconName: status.iconName,
                 deviceCount: devices.count,
                 recentPower: recentPower,

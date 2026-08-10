@@ -18,16 +18,57 @@ public struct PortSummary {
     public let status: Status
     public let headline: String
     public let subtitle: String
-    public let bullets: [String]
+    /// Every line, attributed to the source it came from. At most one group
+    /// per `kind`, and empty groups are dropped. See `BulletGroup`.
+    ///
+    /// This is the authoritative representation. `bullets` is derived from it,
+    /// so no caller can hand the two representations different content.
+    public let groups: [BulletGroup]
     /// Structured negotiated link speed for badges / JSON. Nil when there's no
     /// active data link to badge (empty port, charge-only, display-only).
     public let linkSpeed: LinkSpeed?
 
-    public init(status: Status, headline: String, subtitle: String, bullets: [String], linkSpeed: LinkSpeed? = nil) {
+    /// Flat text, for the JSON `bullets` key and the widget's one-line detail.
+    ///
+    /// A group's subtitle comes first, then its lines. The subtitle carries
+    /// the read state ("not read on this connection"), which used to be an
+    /// ordinary bullet, so including it here keeps flat consumers seeing
+    /// everything they saw before the lines were attributed. The order across
+    /// groups did change, but it was never a documented contract; the content
+    /// is what scripts actually match on.
+    public var bullets: [String] {
+        groups.flatMap { group -> [String] in
+            guard let subtitle = group.subtitle, !subtitle.isEmpty else { return group.lines }
+            return [subtitle] + group.lines
+        }
+    }
+
+    /// The single line of detail the desktop widget shows under the headline.
+    ///
+    /// Reads as "prefer a measurement, else whatever we have". Be clear about
+    /// what that is and is not: it is **identical in behaviour** to
+    /// `bullets.first`, because the measured group is built without a subtitle
+    /// and sits first, so its first line already is the first bullet. The
+    /// explicit form exists to state the intent and to give the two widget
+    /// sites one expression to share (the widget runs in its own process, so
+    /// two copies are two places to drift apart), not because it changes any
+    /// output. A review flagged this as a behaviour fix; it is not, and
+    /// deliberately breaking it does not fail any test.
+    ///
+    /// When nothing was measured, this is a read state rather than a fact
+    /// about the cable, e.g. "Present, but not read on this connection". That
+    /// is intended: it is the only useful thing to say on such a port, and it
+    /// is what the widget showed before the lines were attributed, when the
+    /// read state was an ordinary bullet that happened to sort first.
+    public var topLine: String? {
+        group(.measured)?.lines.first ?? bullets.first
+    }
+
+    public init(status: Status, headline: String, subtitle: String, groups: [BulletGroup] = [], linkSpeed: LinkSpeed? = nil) {
         self.status = status
         self.headline = headline
         self.subtitle = subtitle
-        self.bullets = bullets
+        self.groups = groups
         self.linkSpeed = linkSpeed
     }
 }
@@ -150,32 +191,32 @@ extension PortSummary {
             self.status = .empty
             self.headline = String(localized: "Nothing connected", bundle: _coreLocalizedBundle)
             self.subtitle = String(localized: "Plug a cable into \(portLabel) to see what it can do.", bundle: _coreLocalizedBundle)
-            self.bullets = []
+            self.groups = []
             self.linkSpeed = nil
             return
         }
 
-        var bullets: [String] = []
-
-        // Bullets are grouped by the question the user is mentally asking,
-        // so related facts sit next to each other:
+        // Lines are attributed to the source they came from, because the four
+        // sources have four different reliabilities and describe different
+        // physical objects. A claim by the cable or the charger must never be
+        // rendered as a fact. See planning/port-card-source-attribution.md.
         //
-        //   A. What's happening on this port and what's plugged in?
-        //      - link speed / Thunderbolt link
-        //      - DisplayPort note
-        //      - connected device
-        //   B. What does the cable advertise?
-        //      - e-marker presence
-        //      - cable speed and power rating
-        //      - active-cable details (medium, element, isolation)
-        //      - port-level optical flag
-        //      - cable maker
-        //   C. What does the power negotiation look like?
-        //      - charger max
-        //      - currently negotiated PDO
+        //   measured  - the Mac's own controllers: link state, negotiated
+        //               contract, what's plugged in
+        //   emarker   - what the cable says about itself
+        //   charger   - what the charger says about itself
+        //   database  - what our bundled vendor / cable / certification data
+        //               makes of the identifiers above
+        var measured: [String] = []
+        var emarkerLines: [String] = []
+        var chargerLines: [String] = []
+        var databaseLines: [String] = []
+        // "We couldn't read it" is the state of the e-marker group, not a
+        // value inside it, so it lives here rather than as a bullet.
+        var emarkerSubtitle: String?
 
         // ------------------------------------------------------------
-        // A. Live link / what's plugged in
+        // measured: live link / what's plugged in
         // ------------------------------------------------------------
 
         if hasTB {
@@ -185,9 +226,9 @@ extension PortSummary {
             // "active" line so older paths still work.
             let tbBullets = thunderboltBullets(for: port, switches: thunderboltSwitches)
             if tbBullets.isEmpty {
-                bullets.append(String(localized: "Thunderbolt / USB4 link active", bundle: _coreLocalizedBundle))
+                measured.append(String(localized: "Thunderbolt / USB4 link active", bundle: _coreLocalizedBundle))
             } else {
-                bullets.append(contentsOf: tbBullets)
+                measured.append(contentsOf: tbBullets)
             }
         } else if hasUSB3 {
             // Speed selection order:
@@ -230,12 +271,12 @@ extension PortSummary {
             }
 
             if let label = rootDeviceLabel ?? transportLabel ?? portMatchedLabel {
-                bullets.append(label)
+                measured.append(label)
             } else {
-                bullets.append(String(localized: "SuperSpeed USB (5 Gbps or faster)", bundle: _coreLocalizedBundle))
+                measured.append(String(localized: "SuperSpeed USB (5 Gbps or faster)", bundle: _coreLocalizedBundle))
             }
         } else if hasUSB2 {
-            bullets.append(String(localized: "USB 2.0 only (480 Mbps), no high-speed data", bundle: _coreLocalizedBundle))
+            measured.append(String(localized: "USB 2.0 only (480 Mbps), no high-speed data", bundle: _coreLocalizedBundle))
         }
 
         if hasDP {
@@ -243,7 +284,7 @@ extension PortSummary {
             // (DisplayPort in transportsActive), so the config is always
             // present here; no plain-video fallback is reachable.
             if let dpConfig = port.dpLaneConfig {
-                bullets.append(String(localized: "Carrying DisplayPort video (\(dpConfig.label))", bundle: _coreLocalizedBundle))
+                measured.append(String(localized: "Carrying DisplayPort video (\(dpConfig.label))", bundle: _coreLocalizedBundle))
             }
         }
 
@@ -285,7 +326,7 @@ extension PortSummary {
                     // Keep the PD revision inside the single %@ argument so the
                     // info isn't dropped and no new localised key is needed.
                     let label = partner.pdRevisionLabel.map { "\(vendor) (\($0))" } ?? vendor
-                    bullets.append(String(localized: "Charger identified as \(label)", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "Charger identified as \(label)", bundle: _coreLocalizedBundle))
                 }
                 // If adapterIdentityWillFire, a richer "Charger: <mfr> <name>"
                 // line is coming later; skip to avoid a double charger line
@@ -293,9 +334,9 @@ extension PortSummary {
             } else {
                 let kind = header.ufpProductType != .undefined ? header.ufpProductType.label : header.dfpProductType.label
                 if let pdRev = partner.pdRevisionLabel {
-                    bullets.append(String(localized: "Connected device: \(kind), \(vendor) (\(pdRev))", bundle: _coreLocalizedBundle))
+                    measured.append(String(localized: "Connected device: \(kind), \(vendor) (\(pdRev))", bundle: _coreLocalizedBundle))
                 } else {
-                    bullets.append(String(localized: "Connected device: \(kind), \(vendor)", bundle: _coreLocalizedBundle))
+                    measured.append(String(localized: "Connected device: \(kind), \(vendor)", bundle: _coreLocalizedBundle))
                 }
             }
         } else if let portNum = port.portNumber,
@@ -311,12 +352,12 @@ extension PortSummary {
                 // A charging source is on this port and we don't have
                 // a richer Manufacturer/Name pair from AdapterDetails;
                 // label this as the charger.
-                bullets.append(String(localized: "Charger identified as \(vendor)", bundle: _coreLocalizedBundle))
+                databaseLines.append(String(localized: "Charger identified as \(vendor)", bundle: _coreLocalizedBundle))
             } else if chargingSource == nil {
                 // No charging source: the connected thing is a
                 // peripheral, dock, drive, etc. Keep the generic
                 // wording.
-                bullets.append(String(localized: "Connected device: \(vendor)", bundle: _coreLocalizedBundle))
+                measured.append(String(localized: "Connected device: \(vendor)", bundle: _coreLocalizedBundle))
             }
             // If chargingSource != nil && adapterIdentityWillFire,
             // the AdapterDetails "Charger:" line is coming later with
@@ -324,7 +365,7 @@ extension PortSummary {
         }
 
         // ------------------------------------------------------------
-        // B. The cable
+        // emarker: what the cable says about itself
         // ------------------------------------------------------------
 
         // E-marker presence. The whole cable-details bullet only makes
@@ -361,25 +402,32 @@ extension PortSummary {
         })
         let emarkerRead = cableEmarker.map { !$0.vdos.isEmpty } ?? false
 
+        // Read state is the state of the e-marker group, so it becomes the
+        // group's subtitle rather than a bullet sitting among the cable's own
+        // claims. This is what kills the old contradiction where the card
+        // advised "needs above 3A or Thunderbolt" while negotiating 5 A over a
+        // live Thunderbolt link: the advice is now conditioned on the very
+        // signals that made it wrong.
+        let readConditionsMet = negotiatedAbove3A || hasTB
         if hasEmarker {
-            if emarkerRead {
-                bullets.append(String(localized: "Cable has an e-marker chip (advertises its capabilities)", bundle: _coreLocalizedBundle))
-            } else {
-                bullets.append(String(localized: "Cable has an e-marker chip, not read on this connection (needs above 3A or Thunderbolt, or try reconnecting the cable)", bundle: _coreLocalizedBundle))
+            if !emarkerRead {
+                emarkerSubtitle = readConditionsMet
+                    ? String(localized: "Present, but not read on this connection. Try reconnecting the cable.", bundle: _coreLocalizedBundle)
+                    : String(localized: "Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }
         } else if hasPayload && !isMagSafe {
             if !pdCapable {
-                bullets.append(String(localized: "This port can't read cable details (USB-only port, no Power Delivery)", bundle: _coreLocalizedBundle))
-            } else if negotiatedAbove3A || hasTB {
-                bullets.append(String(localized: "No e-marker detected. This cable doesn't advertise its capabilities.", bundle: _coreLocalizedBundle))
+                emarkerSubtitle = String(localized: "This port can't read cable details: USB-only, no Power Delivery.", bundle: _coreLocalizedBundle)
+            } else if readConditionsMet {
+                emarkerSubtitle = String(localized: "No e-marker. This cable doesn't advertise its capabilities.", bundle: _coreLocalizedBundle)
             } else {
-                bullets.append(String(localized: "No e-marker detected. The cable may have one, but macOS only reads it above 3A or with Thunderbolt.", bundle: _coreLocalizedBundle))
+                emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }
         }
 
         if let cable = cableEmarker, let cv = cable.cableVDO {
             let speedLabel = cv.speed.label
-            bullets.append(String(localized: "Cable speed: \(speedLabel)", bundle: _coreLocalizedBundle))
+            emarkerLines.append(String(localized: "Cable speed: \(speedLabel)", bundle: _coreLocalizedBundle))
             let currentLabel = cv.current.label
             let maxVolts = cv.maxVolts
             let maxWatts = cv.maxWatts
@@ -389,24 +437,24 @@ extension PortSummary {
                 // Show the rating and the deliverable figure as separate facts
                 // with the reason, so the two numbers don't read as a broken
                 // multiply (50 × 5 = 250, but the cable can only carry 240W).
-                bullets.append(String(localized: "Cable rated to \(maxVolts)V / \(currentLabel), delivers up to \(maxWatts)W (USB-PD caps at 48V)", bundle: _coreLocalizedBundle))
+                emarkerLines.append(String(localized: "Cable rated to \(maxVolts)V / \(currentLabel), delivers up to \(maxWatts)W (USB-PD caps at 48V)", bundle: _coreLocalizedBundle))
             } else {
-                bullets.append(String(localized: "Cable rated for \(currentLabel) at up to \(maxVolts)V (~\(maxWatts)W)", bundle: _coreLocalizedBundle))
+                emarkerLines.append(String(localized: "Cable rated for \(currentLabel) at up to \(maxVolts)V (~\(maxWatts)W)", bundle: _coreLocalizedBundle))
             }
             if cv.cableType == .active {
                 if let v2 = cable.activeCableVDO2 {
                     let medium = v2.physicalConnection.label.lowercased()
                     let element = v2.activeElement.label.lowercased()
-                    bullets.append(String(localized: "Active \(medium) cable, \(element)", bundle: _coreLocalizedBundle))
+                    emarkerLines.append(String(localized: "Active \(medium) cable, \(element)", bundle: _coreLocalizedBundle))
                     if v2.physicalConnection == .optical {
                         if v2.opticallyIsolated {
-                            bullets.append(String(localized: "Optical fibres are electrically isolated end-to-end", bundle: _coreLocalizedBundle))
+                            emarkerLines.append(String(localized: "Optical fibres are electrically isolated end-to-end", bundle: _coreLocalizedBundle))
                         } else {
-                            bullets.append(String(localized: "Optical cable, not electrically isolated (carries copper alongside the fibres)", bundle: _coreLocalizedBundle))
+                            emarkerLines.append(String(localized: "Optical cable, not electrically isolated (carries copper alongside the fibres)", bundle: _coreLocalizedBundle))
                         }
                     }
                 } else {
-                    bullets.append(String(localized: "Active cable (contains signal-conditioning electronics)", bundle: _coreLocalizedBundle))
+                    emarkerLines.append(String(localized: "Active cable (contains signal-conditioning electronics)", bundle: _coreLocalizedBundle))
                 }
             } else if cv.cableType == .passive && cable.hasActiveLayoutContradiction {
                 // The cable's ID Header says passive, but VDO[3] has the
@@ -416,46 +464,64 @@ extension PortSummary {
                 // e-marker (confirmed real case: CalDigit 2M Thunderbolt 4).
                 // Surface the note with hedged wording; VDO[3] is kept decoded
                 // under the passive layout to avoid raising false trust flags.
-                bullets.append(String(localized: "E-marker reports passive, but carries active-cable structure (may be a mis-programmed e-marker)", bundle: _coreLocalizedBundle))
+                emarkerLines.append(String(localized: "E-marker reports passive, but carries active-cable structure (may be a mis-programmed e-marker)", bundle: _coreLocalizedBundle))
                 if let v2 = cable.activeCableVDO2 {
                     let medium = v2.physicalConnection.label.lowercased()
                     let element = v2.activeElement.label.lowercased()
                     // Reuses the same key as the normal active-cable VDO2 line
                     // so no new localisation key is needed for the medium/element.
-                    bullets.append(String(localized: "Active \(medium) cable, \(element)", bundle: _coreLocalizedBundle))
+                    emarkerLines.append(String(localized: "Active \(medium) cable, \(element)", bundle: _coreLocalizedBundle))
                 }
-            } else if cv.cableType == .passive && hasTB {
-                if let cio = cioCapability,
-                   let speed = cio.negotiatedLinkSpeed,
-                   let label = CIOCableCapability.speedLabel(for: speed),
-                   let cioGbps = DataLinkDiagnostic.cioCableGbps(speed) {
-                    // The controller's figure is the NEGOTIATED link rate,
-                    // a floor on cable capability, never a cap (issue
-                    // #393). Only call it a genuine confirmation when the
-                    // controller measured at least what the e-marker
-                    // claims; when the e-marker claims a higher tier than
-                    // the controller measured, describing the *cable* as
-                    // "N Gbps capable" would understate it, so describe
-                    // the *link* instead and leave the cable's capability
-                    // to the "Cable speed" bullet above.
-                    if !DataLinkDiagnostic.meaningfullySlower(cioGbps, than: cv.speed.maxGbps) {
-                        bullets.append(String(localized: "Controller confirms Thunderbolt cable (\(label))", bundle: _coreLocalizedBundle))
-                    } else {
-                        bullets.append(String(localized: "Thunderbolt link active at \(DataLinkDiagnostic.label(cioGbps))", bundle: _coreLocalizedBundle))
-                    }
-                    bullets.append(String(localized: "E-marker reports passive. This is normal for Thunderbolt cables where the active electronics handle Thunderbolt, not USB.", bundle: _coreLocalizedBundle))
+            } else if cv.cableType == .passive {
+                // Plain statement of what the e-marker says, nothing more.
+                //
+                // This used to carry an explanation ("normal for Thunderbolt
+                // cables where the active electronics handle Thunderbolt, not
+                // USB") on every passive cable sitting on a live Thunderbolt
+                // link. That sentence was written for the #111 case, where a
+                // 2 m cable declaring itself passive is suspicious because 2 m
+                // passive at 40 Gbps is not physically possible. Applied
+                // universally it was simply false: a short passive TB5 cable
+                // has no active electronics at all. The mis-programmed-e-marker
+                // case is covered by the hasActiveLayoutContradiction branch
+                // above, which is the case the wording was written for.
+                emarkerLines.append(String(localized: "Passive (no signal-conditioning electronics)", bundle: _coreLocalizedBundle))
+            }
+
+            // The controller's own reading of the cable. A measurement, so it
+            // belongs with the Mac's other measurements, not among the
+            // e-marker's claims.
+            //
+            // Still gated on a passive e-marker and a live Thunderbolt link,
+            // which is where it has always fired. Widening it to active cables
+            // is a separate change with its own user-visible effect.
+            if cv.cableType == .passive, hasTB,
+               let cio = cioCapability,
+               let speed = cio.negotiatedLinkSpeed,
+               let label = CIOCableCapability.speedLabel(for: speed),
+               let cioGbps = DataLinkDiagnostic.cioCableGbps(speed) {
+                // The controller's figure is the NEGOTIATED link rate, a floor
+                // on cable capability, never a cap (issue #393). Only call it a
+                // genuine confirmation when the controller measured at least
+                // what the e-marker claims; when the e-marker claims a higher
+                // tier than the controller measured, describing the *cable* as
+                // "N Gbps capable" would understate it, so describe the *link*
+                // instead and leave the cable's capability to the e-marker
+                // group's "Cable speed" line.
+                if !DataLinkDiagnostic.meaningfullySlower(cioGbps, than: cv.speed.maxGbps) {
+                    measured.append(String(localized: "Controller confirms Thunderbolt cable (\(label))", bundle: _coreLocalizedBundle))
                 } else {
-                    // No CIO data (or unrecognised speed code): keep the
-                    // existing educational fallback.
-                    bullets.append(String(localized: "E-marker reports passive (no USB signal conditioning). Thunderbolt is negotiated separately by the controller.", bundle: _coreLocalizedBundle))
+                    measured.append(String(localized: "Thunderbolt link active at \(DataLinkDiagnostic.label(cioGbps))", bundle: _coreLocalizedBundle))
                 }
             }
         }
 
-        // Port-level optical flag. Independent of the e-marker's claim;
-        // kept on its own line for now so users can see both signals.
+        // Port-level optical flag. This is the port controller's own reading,
+        // not the cable's claim, so it sits with the measurements. Under the
+        // old flat list it was indistinguishable from the e-marker's optical
+        // lines above.
         if port.opticalCable == true {
-            bullets.append(String(localized: "Optical cable", bundle: _coreLocalizedBundle))
+            measured.append(String(localized: "Optical cable", bundle: _coreLocalizedBundle))
         }
 
         // Cable e-marker vendor (SOP'): who made the cable.
@@ -472,19 +538,35 @@ extension PortSummary {
         // sold under several sleeve brands). Showing only the first brand
         // would mislabel every cable whose brand doesn't sort first, so a
         // 2+ match gets its own honest wording instead of picking a winner.
+        //
+        // The old single line "Cable made by CalDigit, Inc. (0x01B6)" blended
+        // two sources: the cable declared a number, we turned it into a name.
+        // It moves to the database group, worded so a stale or missing entry
+        // in our list reads as a limit of our records rather than a claim
+        // about the cable.
+        //
+        // The raw VID is deliberately NOT given its own line in the e-marker
+        // group. It would be new free content, and the Pro diagnostics screen
+        // already shows it (cable identity section, alongside Product ID and
+        // the raw cable VDOs). The card keeps exactly the vendor information
+        // it has always shown.
         if let cable = cableEmarker, cable.vendorID != 0 {
-            let vendor = VendorDB.label(for: cable.vendorID)
-            bullets.append(String(localized: "Cable made by \(vendor)", bundle: _coreLocalizedBundle))
+            let vendorHex = "0x" + String(format: "%04X", cable.vendorID)
+            if let vendorName = VendorDB.name(for: cable.vendorID) {
+                databaseLines.append(String(localized: "Made by \(vendorName) (\(vendorHex)), per our bundled vendor list", bundle: _coreLocalizedBundle))
+            } else {
+                databaseLines.append(String(localized: "\(vendorHex) isn't in our bundled vendor list", bundle: _coreLocalizedBundle))
+            }
 
             let cableVDORaw = cable.vdos.count > 3 ? cable.vdos[3] : 0
             let matches = CableDB.curatedCables(vid: cable.vendorID, pid: cable.productID, cableVDO: cableVDORaw)
             var seenBrands = Set<String>()
             let distinctBrands = matches.map(\.brand).filter { seenBrands.insert($0).inserted }
             if distinctBrands.count == 1 {
-                bullets.append(String(localized: "Cable identified as \(distinctBrands[0])", bundle: _coreLocalizedBundle))
+                databaseLines.append(String(localized: "Cable identified as \(distinctBrands[0])", bundle: _coreLocalizedBundle))
             } else if distinctBrands.count > 1 {
                 let brandList = distinctBrands.joined(separator: "; ")
-                bullets.append(String(localized: "This e-marker is used in: \(brandList)", bundle: _coreLocalizedBundle))
+                databaseLines.append(String(localized: "This e-marker is used in: \(brandList)", bundle: _coreLocalizedBundle))
             }
         }
 
@@ -501,6 +583,13 @@ extension PortSummary {
         // mismatch is never surfaced (ODM rebrands legitimately differ). See
         // research/usb-if-registry.md.
         if let cable = cableEmarker, let xid = cable.certStatVDO?.xid {
+            let xidHex = "0x" + String(xid, radix: 16, uppercase: true)
+            // The raw XID gets no line of its own here. It would be new free
+            // content on a card that has never shown a certified cable's ID,
+            // so it lives in the Pro diagnostics cable-identity section
+            // instead, next to the Vendor ID row. What the card shows is
+            // unchanged: the certified line, or the neutral note below when
+            // we can't resolve the ID.
             let certs = CableDB.certifications(forXID: xid)
             // Prefer the listing whose vendor matches the cable's own VID;
             // otherwise the first listing (rebrands share one XID).
@@ -510,18 +599,18 @@ extension PortSummary {
                 let status = cert.status
                 switch (cert.model.isEmpty, status.isEmpty) {
                 case (false, false):
-                    bullets.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company), model \(cert.model) (\(status))", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company), model \(cert.model) (\(status))", bundle: _coreLocalizedBundle))
                 case (false, true):
-                    bullets.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company), model \(cert.model)", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company), model \(cert.model)", bundle: _coreLocalizedBundle))
                 case (true, false):
-                    bullets.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company) (\(status))", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company) (\(status))", bundle: _coreLocalizedBundle))
                 case (true, true):
-                    bullets.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company)", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "USB-IF certified. Manufacturer: \(cert.company)", bundle: _coreLocalizedBundle))
                 }
                 // Confirming note only, and only for a real (non-zero) VID
                 // match. A mismatch is never shown as anything.
                 if cable.vendorID != 0 && certs.contains(where: { $0.vendorID == cable.vendorID }) {
-                    bullets.append(String(localized: "The cable's declared maker matches the USB-IF certificate", bundle: _coreLocalizedBundle))
+                    databaseLines.append(String(localized: "The cable's declared maker matches the USB-IF certificate", bundle: _coreLocalizedBundle))
                 }
             } else if xid != 0 {
                 // The cable advertised a certification ID, but USB-IF publishes
@@ -533,13 +622,16 @@ extension PortSummary {
                 // claimed nothing to check, so it stays silent. This closes the
                 // gap a beta tester raised (darrylmorley/whatcable#475): "no
                 // ID" and "an ID that isn't published" used to look identical.
-                let hex = "0x" + String(xid, radix: 16, uppercase: true)
-                bullets.append(String(localized: "Carries a USB-IF certification ID (\(hex)) that isn't in the public registry", bundle: _coreLocalizedBundle))
+                //
+                // Worded as a limit of our copy of the registry, not a verdict
+                // on the cable. Under the old flat list it read as the latter.
+                databaseLines.append(String(localized: "\(xidHex) isn't in our copy of the USB-IF registry", bundle: _coreLocalizedBundle))
             }
         }
 
         // ------------------------------------------------------------
-        // C. Charging numbers
+        // charger: what the charger says about itself, plus the contract
+        // the Mac actually measured
         // ------------------------------------------------------------
 
         // Power summary from PD or MagSafe power sources.
@@ -552,29 +644,32 @@ extension PortSummary {
             // the brand instead.
             if let manufacturer = adapter?.manufacturer, !manufacturer.isEmpty {
                 if let name = adapter?.name, !name.isEmpty {
-                    bullets.append(String(localized: "Charger: \(manufacturer) \(name)", bundle: _coreLocalizedBundle))
+                    chargerLines.append(String(localized: "Charger: \(manufacturer) \(name)", bundle: _coreLocalizedBundle))
                 } else {
-                    bullets.append(String(localized: "Charger: \(manufacturer)", bundle: _coreLocalizedBundle))
+                    chargerLines.append(String(localized: "Charger: \(manufacturer)", bundle: _coreLocalizedBundle))
                 }
             }
 
             switch chargerWattageSource {
             case .portNegotiated(let w) where w > 0:
-                bullets.append(String(localized: "Charger advertises up to \(w)W", bundle: _coreLocalizedBundle))
+                chargerLines.append(String(localized: "Charger advertises up to \(w)W", bundle: _coreLocalizedBundle))
             case .systemAdapterFallback(let w):
-                bullets.append(String(localized: "System reports charger at \(w)W", bundle: _coreLocalizedBundle))
+                // macOS's own reading of the adapter, not the charger's PDOs,
+                // so this is a measurement.
+                measured.append(String(localized: "System reports charger at \(w)W", bundle: _coreLocalizedBundle))
             default:
                 let maxW = Int((Double(chargingSource.maxPowerMW) / 1000).rounded())
                 let hasOptions = !chargingSource.options.isEmpty
                 if hasOptions && maxW > 0 {
-                    bullets.append(String(localized: "Charger advertises up to \(maxW)W", bundle: _coreLocalizedBundle))
+                    chargerLines.append(String(localized: "Charger advertises up to \(maxW)W", bundle: _coreLocalizedBundle))
                 }
             }
             if let win = chargingSource.winning {
                 let volts = win.voltsLabel
                 let amps = win.ampsLabel
                 let watts = win.wattsLabel
-                bullets.append(String(localized: "Currently negotiated: \(volts) @ \(amps) (\(watts))", bundle: _coreLocalizedBundle))
+                // The contract the port controller actually settled on.
+                measured.append(String(localized: "Currently negotiated: \(volts) @ \(amps) (\(watts))", bundle: _coreLocalizedBundle))
             }
         } else if !systemPowerUnavailable,
                   case .systemAdapterFallback(let w) = chargerWattageSource, w > 0 {
@@ -587,12 +682,12 @@ extension PortSummary {
             // source, so it stays in that branch). See issue #278.
             if let manufacturer = adapter?.manufacturer, !manufacturer.isEmpty {
                 if let name = adapter?.name, !name.isEmpty {
-                    bullets.append(String(localized: "Charger: \(manufacturer) \(name)", bundle: _coreLocalizedBundle))
+                    chargerLines.append(String(localized: "Charger: \(manufacturer) \(name)", bundle: _coreLocalizedBundle))
                 } else {
-                    bullets.append(String(localized: "Charger: \(manufacturer)", bundle: _coreLocalizedBundle))
+                    chargerLines.append(String(localized: "Charger: \(manufacturer)", bundle: _coreLocalizedBundle))
                 }
             }
-            bullets.append(String(localized: "System reports charger at \(w)W", bundle: _coreLocalizedBundle))
+            measured.append(String(localized: "System reports charger at \(w)W", bundle: _coreLocalizedBundle))
         }
 
         // Headline wattage: prefer the resolved source, fall back to
@@ -805,7 +900,27 @@ extension PortSummary {
             self.subtitle = String(localized: "Try a higher-wattage charger to identify the cable.", bundle: _coreLocalizedBundle)
         }
 
-        self.bullets = bullets
+        // An e-marker that answered but told us nothing we can decode. Every
+        // line in this group comes from a Cable VDO, a non-zero vendor ID or a
+        // certification ID, so a response carrying none of those (an ID header
+        // alone, say) leaves the group with no lines and no read-state
+        // subtitle, and the empty-group filter below would drop it silently.
+        // The old flat list said "Cable has an e-marker chip" here, so say the
+        // equivalent rather than showing the user nothing.
+        if hasEmarker, emarkerRead, emarkerLines.isEmpty, emarkerSubtitle == nil {
+            emarkerSubtitle = String(localized: "Answered, but reported no capability data.", bundle: _coreLocalizedBundle)
+        }
+
+        // Most useful first: what actually happened, then the claims that
+        // explain it, then what our own records add.
+        let groups = [
+            BulletGroup(kind: .measured, header: BulletGroup.Kind.measured.header, lines: measured),
+            BulletGroup(kind: .emarker, header: BulletGroup.Kind.emarker.header, subtitle: emarkerSubtitle, lines: emarkerLines),
+            BulletGroup(kind: .charger, header: BulletGroup.Kind.charger.header, lines: chargerLines),
+            BulletGroup(kind: .database, header: BulletGroup.Kind.database.header, lines: databaseLines),
+        ].filter { !$0.isEmpty }
+
+        self.groups = groups
         self.linkSpeed = resolveLinkSpeed(
             hasTB: hasTB,
             hasUSB3: hasUSB3,

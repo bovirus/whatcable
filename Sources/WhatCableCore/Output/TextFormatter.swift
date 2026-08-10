@@ -283,10 +283,17 @@ public enum TextFormatter {
             out += ANSI.wrap(ANSI.dim, terminalField(summary.subtitle)) + "\n"
         }
 
-        if !summary.bullets.isEmpty {
-            out += "\n"
-            for bullet in summary.bullets {
-                out += "  " + ANSI.wrap(ANSI.gray, "•") + " \(terminalField(bullet))\n"
+        // Grouped by where each fact came from, so a claim by the cable or the
+        // charger never reads as a measurement. A group's subtitle is its
+        // state ("not read on this connection"), printed under the heading
+        // rather than as one of the facts.
+        for group in summary.groups {
+            out += "\n" + ANSI.wrap(ANSI.bold, "  \(terminalField(group.header))") + "\n"
+            if let subtitle = group.subtitle, !subtitle.isEmpty {
+                out += "    " + ANSI.wrap(ANSI.dim, terminalField(subtitle)) + "\n"
+            }
+            for line in group.lines {
+                out += "    " + ANSI.wrap(ANSI.gray, "•") + " \(terminalField(line))\n"
             }
         }
 

@@ -496,6 +496,7 @@
 "Other USB devices" = "Inne urządzenia USB";
 "Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them." = "Dostępne przez stację dokującą lub monitor Thunderbolt, więc nie ma dla nich danych o kablu, zasilaniu ani Thunderbolt.";
 "Built-in USB ports" = "Wbudowane porty USB";
+"Built-in USB-A ports" = "Wbudowane porty USB-A";
 "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them." = "Zwykłe porty USB podłączone do wewnętrznego koncentratora Maca, więc nie ma dla nich danych o kablu, zasilaniu ani Thunderbolt.";
 
 /* Cable history (DAR-52) */

@@ -497,6 +497,7 @@
 "Other USB devices" = "Այլ USB սարքեր";
 "Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them." = "Հասանելի են Thunderbolt դոկի կամ էկրանի միջոցով, ուստի դրանց համար չկան մալուխի, սնման կամ Thunderbolt տվյալներ։";
 "Built-in USB ports" = "Ներկառուցված USB միացքներ";
+"Built-in USB-A ports" = "Ներկառուցված USB-A միացքներ";
 "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them." = "Պարզ USB միացքներ՝ Mac-ի ներքին հանգույցի հետևում, ուստի դրանց համար չկան մալուխի, սնման կամ Thunderbolt տվյալներ։";
 
 /* Cable history (DAR-52) */

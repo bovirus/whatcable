@@ -616,12 +616,23 @@ struct OtherUSBDevicesCard: View {
     let devices: [USBDevice]
     let kind: Kind
 
+    /// Per-physical-port grouping for the built-in section (issue #490):
+    /// one tree per Port-USB-A@N / Port-USB-C@N node, fallback group last.
+    /// Empty for the tunnelled kind, which renders the flat list.
+    private var builtInGroups: [BuiltInPortGrouping.Group] {
+        kind == .builtInUSBPort ? BuiltInPortGrouping.groups(from: devices) : []
+    }
+
     private var title: String {
         switch kind {
         case .thunderboltTunnelled:
             return String(localized: "Other USB devices", bundle: _appLocalizedBundle)
         case .builtInUSBPort:
-            return String(localized: "Built-in USB ports", bundle: _appLocalizedBundle)
+            // Say the connector type outright when every device is on a
+            // USB-A node (issue #490's headline ask).
+            return BuiltInPortGrouping.allOnUSBA(builtInGroups)
+                ? String(localized: "Built-in USB-A ports", bundle: _appLocalizedBundle)
+                : String(localized: "Built-in USB ports", bundle: _appLocalizedBundle)
         }
     }
 
@@ -642,7 +653,32 @@ struct OtherUSBDevicesCard: View {
                 Text(title)
                     .scaledFont(.headline, weight: .semibold)
             }
-            GroupedUSBDeviceList(devices: devices)
+            if kind == .builtInUSBPort {
+                // One tree per physical port, with a header naming the
+                // connector ("Built-in USB-A port 1"). The unattributed
+                // fallback group (macOS 15, no port node) has no header and
+                // renders exactly like the pre-#490 combined list.
+                ForEach(builtInGroups, id: \.portNodeName) { group in
+                    if let connector = group.connector, let number = group.portNumber {
+                        Text(String(localized: "Built-in \(connector) port \(number)", bundle: _appLocalizedBundle))
+                            .scaledFont(.caption, weight: .semibold)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 2)
+                        // Flat tree, no bus sub-headers: a USB-A port's USB2
+                        // and USB3 personas sit on different buses, and
+                        // splitting one physical port's tree by bus is
+                        // exactly the plumbing noise the port header replaces.
+                        ForEach(USBDeviceNode.flatten(USBDeviceNode.buildTree(from: group.devices))) { node in
+                            USBDeviceRow(node: node)
+                                .padding(.leading, 12)
+                        }
+                    } else {
+                        GroupedUSBDeviceList(devices: group.devices)
+                    }
+                }
+            } else {
+                GroupedUSBDeviceList(devices: devices)
+            }
             Text(footer)
                 .scaledFont(.caption)
                 .foregroundStyle(.secondary)

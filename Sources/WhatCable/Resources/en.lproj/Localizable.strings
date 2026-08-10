@@ -160,6 +160,7 @@
 "Other USB devices" = "Other USB devices";
 "Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them." = "Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them.";
 "Built-in USB ports" = "Built-in USB ports";
+"Built-in USB-A ports" = "Built-in USB-A ports";
 "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them." = "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them.";
 
 /* Built-in display port card (issue #352). Used by the popover when a

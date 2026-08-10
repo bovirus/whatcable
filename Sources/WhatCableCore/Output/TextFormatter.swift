@@ -199,16 +199,33 @@ public enum TextFormatter {
     private static func renderInternalHubDevices(_ devices: [USBDevice]) -> String {
         guard !devices.isEmpty else { return "" }
         var out = "\n"
-        let title = String(localized: "Built-in USB ports", bundle: _coreLocalizedBundle)
+        // Group by physical port node (Port-USB-A@1, ...) so each port gets
+        // its own tree and the connector type is explicit (issue #490). When
+        // every device is on a USB-A node the title says so too.
+        let groups = BuiltInPortGrouping.groups(from: devices)
+        let title = BuiltInPortGrouping.allOnUSBA(groups)
+            ? String(localized: "Built-in USB-A ports", bundle: _coreLocalizedBundle)
+            : String(localized: "Built-in USB ports", bundle: _coreLocalizedBundle)
         out += ANSI.wrap(ANSI.bold, title + ":") + "\n"
-        let tree = USBDeviceNode.flatten(USBDeviceNode.buildTree(from: devices))
-        for node in tree {
-            let indent = String(repeating: "  ", count: node.depth + 1)
-            // Same as the tunnelled block: displayName carries device-supplied
-            // vendor text, so it stays wrapped in terminalField.
-            let name = terminalField(node.device.displayName)
-            let prefix = node.depth > 0 ? "\u{21B3}" : ANSI.wrap(ANSI.gray, "\u{2022}")
-            out += "\(indent)\(prefix) \(name) - \(node.device.speedLabel)\n"
+        for group in groups {
+            // With a port header, the devices nest one level under it; the
+            // unnamed macOS 15 fallback keeps the pre-#490 indentation.
+            var extraDepth = 0
+            if let connector = group.connector, let number = group.portNumber {
+                // Same key the built-in display port card uses, so
+                // "Built-in USB-A port 1" is already translated.
+                out += "  " + ANSI.wrap(ANSI.dim, String(localized: "Built-in \(connector) port \(number)", bundle: _coreLocalizedBundle)) + "\n"
+                extraDepth = 1
+            }
+            let tree = USBDeviceNode.flatten(USBDeviceNode.buildTree(from: group.devices))
+            for node in tree {
+                let indent = String(repeating: "  ", count: node.depth + 1 + extraDepth)
+                // Same as the tunnelled block: displayName carries device-supplied
+                // vendor text, so it stays wrapped in terminalField.
+                let name = terminalField(node.device.displayName)
+                let prefix = node.depth > 0 ? "\u{21B3}" : ANSI.wrap(ANSI.gray, "\u{2022}")
+                out += "\(indent)\(prefix) \(name) - \(node.device.speedLabel)\n"
+            }
         }
         out += "  " + ANSI.wrap(ANSI.dim, String(localized: "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them.", bundle: _coreLocalizedBundle)) + "\n"
         return out

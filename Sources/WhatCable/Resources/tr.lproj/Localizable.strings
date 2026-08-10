@@ -157,6 +157,7 @@
 "Other USB devices" = "Diğer USB aygıtları";
 "Reached through a Thunderbolt dock or display, so there's no cable, power, or Thunderbolt data for them." = "Bir Thunderbolt yerleştirme istasyonu veya ekranı üzerinden erişilir, bu nedenle bunlar için kablo, güç veya Thunderbolt verisi yoktur.";
 "Built-in USB ports" = "Yerleşik USB bağlantı noktaları";
+"Built-in USB-A ports" = "Yerleşik USB-A bağlantı noktaları";
 "Plain USB ports behind the Mac's internal hub, so there's no cable, power, or Thunderbolt data for them." = "Mac'in dahili hub'ına bağlı sıradan USB bağlantı noktaları, bu nedenle bunlar için kablo, güç veya Thunderbolt verisi yoktur.";
 
 /* Built-in display port card (issue #352). English placeholders, community can refine. */

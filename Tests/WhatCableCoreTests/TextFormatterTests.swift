@@ -549,6 +549,62 @@ struct TextFormatterTests {
         #expect(output.contains("PSSD T9"))
     }
 
+    @Test("Built-in section with named USB-A ports: USB-A title, per-port headers, nested devices (issue #490)")
+    func builtInUSBSectionNamesUSBAPorts() {
+        func namedDevice(id: UInt64, name: String, portNode: String) -> USBDevice {
+            USBDevice(
+                id: id, locationID: UInt32(truncatingIfNeeded: id),
+                vendorID: 0x04E8, productID: 0x61FD,
+                vendorName: "Samsung", productName: name,
+                serialNumber: nil, usbVersion: nil, speedRaw: 4,
+                busPowerMA: nil, currentMA: nil,
+                controllerPortName: portNode,
+                isBehindInternalHub: true,
+                rawProperties: [:]
+            )
+        }
+        let output = TextFormatter.render(
+            ports: [makePort()], sources: [], identities: [], showRaw: false,
+            isDesktopMac: true,
+            usbDevices: [
+                namedDevice(id: 84, name: "PSSD T9", portNode: "Port-USB-A@1"),
+                namedDevice(id: 85, name: "Backup Plus", portNode: "Port-USB-A@2"),
+            ]
+        )
+        // All devices on USB-A nodes: the title itself says USB-A.
+        #expect(output.contains("Built-in USB-A ports"))
+        // One header per physical port, each device under its own port.
+        #expect(output.contains("Built-in USB-A port 1"))
+        #expect(output.contains("Built-in USB-A port 2"))
+        #expect(output.contains("PSSD T9"))
+        #expect(output.contains("Backup Plus"))
+        // Devices nest one indent level deeper than their port header.
+        #expect(output.contains("    \u{2022}") || output.contains("    \u{1B}"),
+            "device bullets should be indented under the port header")
+    }
+
+    @Test("Built-in section with a USB-C front-port device keeps the generic title")
+    func builtInUSBSectionMixedKeepsGenericTitle() {
+        let namedC = USBDevice(
+            id: 86, locationID: 0x0030_0000,
+            vendorID: 0x04E8, productID: 0x61FD,
+            vendorName: "Samsung", productName: "Front SSD",
+            serialNumber: nil, usbVersion: nil, speedRaw: 4,
+            busPowerMA: nil, currentMA: nil,
+            controllerPortName: "Port-USB-C@6",
+            isBehindInternalHub: true,
+            rawProperties: [:]
+        )
+        let output = TextFormatter.render(
+            ports: [makePort()], sources: [], identities: [], showRaw: false,
+            isDesktopMac: true,
+            usbDevices: [namedC]
+        )
+        #expect(output.contains("Built-in USB ports"))
+        #expect(!output.contains("Built-in USB-A ports"))
+        #expect(output.contains("Built-in USB-C port 6"))
+    }
+
     @Test("Built-in USB ports section is suppressed on a laptop (desktop-only gate)")
     func builtInUSBSectionSuppressedOnLaptop() {
         // Same front-port-flagged device, but isDesktopMac is false: the gate

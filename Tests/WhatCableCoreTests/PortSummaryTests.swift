@@ -516,9 +516,12 @@ struct PortSummaryTests {
         // content, and the Pro diagnostics screen already shows it.
         #expect(kind(of: "Vendor ID 0x05AC") == nil)
 
-        // Groups appear in the agreed order: measurements, then the cable's
-        // claims, then the charger's, then our own records.
-        #expect(summary.groups.map(\.kind) == [.measured, .emarker, .charger, .database])
+        // Groups appear in the agreed order: the cable's own claims first
+        // (this is a cable app, and it is the question the card exists to
+        // answer), then what the Mac measured, then what our records add
+        // about that cable. The charger is last: it is the one group that is
+        // not about the cable at all.
+        #expect(summary.groups.map(\.kind) == [.emarker, .measured, .database, .charger])
 
         // `bullets` is the flattened groups, so the two can never disagree.
         #expect(summary.bullets == summary.groups.flatMap(\.lines))

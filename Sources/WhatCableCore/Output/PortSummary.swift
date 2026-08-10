@@ -45,15 +45,15 @@ public struct PortSummary {
 
     /// The single line of detail the desktop widget shows under the headline.
     ///
-    /// Reads as "prefer a measurement, else whatever we have". Be clear about
-    /// what that is and is not: it is **identical in behaviour** to
-    /// `bullets.first`, because the measured group is built without a subtitle
-    /// and sits first, so its first line already is the first bullet. The
-    /// explicit form exists to state the intent and to give the two widget
-    /// sites one expression to share (the widget runs in its own process, so
-    /// two copies are two places to drift apart), not because it changes any
-    /// output. A review flagged this as a behaviour fix; it is not, and
-    /// deliberately breaking it does not fail any test.
+    /// Prefer a measurement, else whatever we have.
+    ///
+    /// This used to be equivalent to `bullets.first`, because the measured
+    /// group sorted first and carries no subtitle. It is NOT equivalent any
+    /// more: the e-marker group now leads the card, so `bullets.first` is
+    /// usually a claim the cable made about itself. Naming the measured group
+    /// explicitly is what keeps the widget leading with what is actually
+    /// happening, and it is why card order can be changed for presentation
+    /// without dragging the widget along with it.
     ///
     /// When nothing was measured, this is a read state rather than a fact
     /// about the cable, e.g. "Present, but not read on this connection". That
@@ -911,13 +911,22 @@ extension PortSummary {
             emarkerSubtitle = String(localized: "Answered, but reported no capability data.", bundle: _coreLocalizedBundle)
         }
 
-        // Most useful first: what actually happened, then the claims that
-        // explain it, then what our own records add.
+        // The cable first. This is a cable app: what the cable says about
+        // itself is the question the user opened the card to answer, and the
+        // read state ("not read on this connection") belongs at the top where
+        // it explains an otherwise bare card, rather than below a list of
+        // measurements. Then what the Mac measured, then what our records add
+        // about the cable, and the charger last: it is the one group that is
+        // not about the cable at all.
+        //
+        // Order is presentation only. `topLine` names the measured group
+        // explicitly, so the widget still leads with a measurement rather than
+        // following whatever sorts first here.
         let groups = [
-            BulletGroup(kind: .measured, header: BulletGroup.Kind.measured.header, lines: measured),
             BulletGroup(kind: .emarker, header: BulletGroup.Kind.emarker.header, subtitle: emarkerSubtitle, lines: emarkerLines),
-            BulletGroup(kind: .charger, header: BulletGroup.Kind.charger.header, lines: chargerLines),
+            BulletGroup(kind: .measured, header: BulletGroup.Kind.measured.header, lines: measured),
             BulletGroup(kind: .database, header: BulletGroup.Kind.database.header, lines: databaseLines),
+            BulletGroup(kind: .charger, header: BulletGroup.Kind.charger.header, lines: chargerLines),
         ].filter { !$0.isEmpty }
 
         self.groups = groups

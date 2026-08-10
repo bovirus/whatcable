@@ -233,6 +233,12 @@ extension LinkSpeed.Tier {
 
 // MARK: - Port presentation helpers
 
+// `rowDetail` and `displayDetail` used to live here. They moved to
+// WhatCableCore (WidgetSnapshotPresentation.swift) because this target is
+// built by xcodebuild and is not in Package.swift, so nothing under Tests/
+// can reach it. That is not a style point: it is why the missing detail line
+// went unnoticed from v0.14.0 to v1.5.0. Render logic that can be expressed
+// as a plain function belongs where `swift test` can see it.
 extension WidgetSnapshot.PortEntry {
     /// Short type title for the row. Metrics live in pills, not the title, so
     /// this stays one short word/phrase that never wraps.
@@ -246,31 +252,6 @@ extension WidgetSnapshot.PortEntry {
         case .displayCable: return String(localized: "Display", bundle: _coreLocalizedBundle)
         case .unknown: return String(localized: "Connected", bundle: _coreLocalizedBundle)
         }
-    }
-
-    /// Muted detail line: monitor + mode for a display, else the subtitle.
-    var rowDetail: String? {
-        if let detail = displayDetail { return detail }
-        return subtitle.isEmpty ? nil : subtitle
-    }
-
-    /// One-line display detail: "Studio Display · 5K 60Hz", or just the mode
-    /// when the monitor name is unknown. Nil when no display. When a dock drives
-    /// more than one monitor through this port, a "+N" hint is appended for the
-    /// others, since the card has room for one line only (issue #271).
-    var displayDetail: String? {
-        let base: String?
-        if let mode = displayMode {
-            if let name = monitorName, !name.isEmpty {
-                base = "\(name) · \(mode)"
-            } else {
-                base = mode
-            }
-        } else {
-            base = monitorName
-        }
-        guard let base, !base.isEmpty else { return nil }
-        return displayCount > 1 ? "\(base) +\(displayCount - 1)" : base
     }
 
     /// True when there's any pill to show.

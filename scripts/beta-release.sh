@@ -247,7 +247,7 @@ Please report anything odd on the issue tracker:
 https://github.com/darrylmorley/whatcable/issues"
 
 if [[ -f "${NOTES_FILE}" ]]; then
-    RELEASE_TITLE_FIRST_LINE=$(head -1 "${NOTES_FILE}" | sed -E 's/^#+\s*//')
+    RELEASE_TITLE_FIRST_LINE=$(head -1 "${NOTES_FILE}" | sed -E 's/^#+[[:space:]]*//')
     if [[ -z "${RELEASE_TITLE_FIRST_LINE}" ]]; then
         RELEASE_TITLE="v${VERSION} (beta)"
     else

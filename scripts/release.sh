@@ -226,7 +226,7 @@ fi
 
 # ---- 6. Create the GitHub release on PUBLIC repo -------------------------
 
-RELEASE_TITLE_FIRST_LINE=$(head -1 "${NOTES_FILE}" | sed -E 's/^#+\s*//')
+RELEASE_TITLE_FIRST_LINE=$(head -1 "${NOTES_FILE}" | sed -E 's/^#+[[:space:]]*//')
 if [[ -z "${RELEASE_TITLE_FIRST_LINE}" ]]; then
     RELEASE_TITLE="v${VERSION}"
 else

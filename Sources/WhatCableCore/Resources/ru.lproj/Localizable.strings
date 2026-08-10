@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Изготовлено %1$@ (%2$@), по нашему встроенному списку производителей";
 "Answered, but reported no capability data." = "Ответил, но не сообщил данных о возможностях.";
 "Certification ID" = "ID сертификации";
+"Connect a charger to identify the cable." = "Подключите зарядное устройство, чтобы определить кабель.";

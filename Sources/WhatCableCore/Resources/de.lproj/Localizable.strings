@@ -583,3 +583,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Hergestellt von %1$@ (%2$@), laut unserer mitgelieferten Herstellerliste";
 "Answered, but reported no capability data." = "Hat geantwortet, aber keine Fähigkeitsdaten gemeldet.";
 "Certification ID" = "Zertifizierungs-ID";
+"Connect a charger to identify the cable." = "Schließen Sie ein Netzteil an, um das Kabel zu identifizieren.";

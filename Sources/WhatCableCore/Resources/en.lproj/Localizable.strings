@@ -588,3 +588,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Made by %1$@ (%2$@), per our bundled vendor list";
 "Answered, but reported no capability data." = "Answered, but reported no capability data.";
 "Certification ID" = "Certification ID";
+"Connect a charger to identify the cable." = "Connect a charger to identify the cable.";

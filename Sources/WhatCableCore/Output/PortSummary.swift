@@ -850,7 +850,8 @@ extension PortSummary {
             self.status = .charging
             self.headline = String(localized: "Charging only", bundle: _coreLocalizedBundle)
             self.subtitle = String(localized: "Power is flowing but no data link is established.", bundle: _coreLocalizedBundle)
-        } else if FederatedIdentity.chargerPresent(on: port, in: federatedIdentities, portIsLive: connected) {
+        } else if !systemPowerUnavailable,
+                  FederatedIdentity.chargerPresent(on: port, in: federatedIdentities, portIsLive: connected) {
             // No PowerSource node and no resolvable wattage on this port, but
             // FedDetails says a charger is attached here. This is the M1 Pro/Max/
             // Ultra USB-C case (macOS publishes no per-port node there): the
@@ -860,6 +861,22 @@ extension PortSummary {
             // the cable e-marker and read as a contradiction next to the
             // "Charger on standby" banner (issue #459). Say a charger is plugged
             // in; the banner explains the standby detail.
+            //
+            // `!systemPowerUnavailable` is the same guard the two branches above
+            // carry, and it was missing here. "Plugged in" is a plugged-in
+            // claim, so it must not fire when the system reports no external
+            // power. Reproduced on an M5 on 2026-08-10: `pmset` reported
+            // battery power and discharging while the card showed a charging
+            // bolt and "Plugged in". FedDetails is the only signal this branch
+            // rests on and `FedExternalConnected` is known stale roughly 40% of
+            // the time, so it needs the cross-check more than its siblings do,
+            // not less.
+            //
+            // This cannot reinstate the #459 contradiction it was added to fix.
+            // `ChargingDiagnostic`'s standby banner already requires
+            // `!SystemPowerState.onBattery(...)` on the same recovery path, so
+            // on battery the banner is silent too and there is nothing left to
+            // contradict.
             self.status = .charging
             self.headline = String(localized: "Plugged in", bundle: _coreLocalizedBundle)
             self.subtitle = ""
@@ -894,6 +911,20 @@ extension PortSummary {
             self.status = .unknown
             self.headline = String(localized: "Connected", bundle: _coreLocalizedBundle)
             self.subtitle = String(localized: "No data link or charger detected on this port.", bundle: _coreLocalizedBundle)
+        } else if systemPowerUnavailable {
+            // On battery. The advice below is "try a HIGHER-WATTAGE charger",
+            // which quietly assumes a charger is already attached; on battery
+            // that reads as nonsense. The underlying point is the same though:
+            // macOS only runs Discover Identity when the link negotiates above
+            // 3 A, so power is what identifies the cable. Say that plainly.
+            //
+            // This branch is only reachable because of the guard added above.
+            // Before it, an on-battery port with a stale FedDetails entry
+            // claimed "Plugged in" instead, so the wrong advice was hidden
+            // behind a worse bug.
+            self.status = .unknown
+            self.headline = String(localized: "Connected", bundle: _coreLocalizedBundle)
+            self.subtitle = String(localized: "Connect a charger to identify the cable.", bundle: _coreLocalizedBundle)
         } else {
             self.status = .unknown
             self.headline = String(localized: "Connected", bundle: _coreLocalizedBundle)

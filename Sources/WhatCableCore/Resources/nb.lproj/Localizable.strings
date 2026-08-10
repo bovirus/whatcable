@@ -583,3 +583,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Laget av %1$@ (%2$@), ifølge vår innebygde produsentliste";
 "Answered, but reported no capability data." = "Svarte, men oppga ingen egenskapsdata.";
 "Certification ID" = "Sertifiserings-ID";
+"Connect a charger to identify the cable." = "Koble til en lader for å identifisere kabelen.";

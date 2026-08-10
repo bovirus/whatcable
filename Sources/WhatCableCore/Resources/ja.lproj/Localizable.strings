@@ -584,3 +584,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "内蔵ベンダーリストによると %1$@ (%2$@) 製";
 "Answered, but reported no capability data." = "応答しましたが、能力データは報告されませんでした。";
 "Certification ID" = "認証 ID";
+"Connect a charger to identify the cable." = "ケーブルを識別するには充電器を接続してください。";

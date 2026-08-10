@@ -583,3 +583,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "据内置厂商列表，由 %1$@ (%2$@) 制造";
 "Answered, but reported no capability data." = "有响应，但未报告能力数据。";
 "Certification ID" = "认证 ID";
+"Connect a charger to identify the cable." = "请连接充电器以识别线缆。";

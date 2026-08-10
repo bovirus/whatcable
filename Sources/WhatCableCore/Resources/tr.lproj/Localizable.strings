@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Üretici: %1$@ (%2$@), yerleşik üretici listemize göre";
 "Answered, but reported no capability data." = "Yanıt verdi, ancak yetenek verisi bildirmedi.";
 "Certification ID" = "Sertifika kimliği";
+"Connect a charger to identify the cable." = "Kabloyu tanımlamak için bir şarj cihazı bağlayın.";

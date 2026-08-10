@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "내장 제조사 목록 기준 %1$@ (%2$@) 제조";
 "Answered, but reported no capability data." = "응답했지만 성능 데이터를 보고하지 않았습니다.";
 "Certification ID" = "인증 ID";
+"Connect a charger to identify the cable." = "케이블을 식별하려면 충전기를 연결하십시오.";

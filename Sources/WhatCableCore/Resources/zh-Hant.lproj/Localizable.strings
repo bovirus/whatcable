@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "根據內建廠商清單，製造商為 %1$@ (%2$@)";
 "Answered, but reported no capability data." = "e-marker 有回應，但未回報任何規格資料。";
 "Certification ID" = "認證 ID";
+"Connect a charger to identify the cable." = "請連接充電器以識別連接線。";

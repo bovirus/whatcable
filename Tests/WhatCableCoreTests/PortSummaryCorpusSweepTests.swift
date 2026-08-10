@@ -451,6 +451,83 @@ struct PortSummaryCorpusSweepTests {
             "\(violations.count) connected corpus port(s) reported .empty status: \(violations.prefix(5))")
     }
 
+    /// No real port may claim to be plugged in while the system says there is
+    /// no external power.
+    ///
+    /// The bug this guards was reproduced on an M5 on 2026-08-10: `pmset`
+    /// reported battery power and discharging while the card showed a charging
+    /// bolt and "Plugged in". Three branches conclude a charger is present;
+    /// the FedDetails recovery added for #459 was the one missing
+    /// `!systemPowerUnavailable`, and it rests on `FedExternalConnected`,
+    /// which is stale roughly 40% of the time.
+    ///
+    /// The FedDetails entry is SYNTHESISED rather than parsed from probe 32,
+    /// and that is deliberate: this sweep asks "given a charger claim on this
+    /// real port, does on-battery state suppress it?", so the claim has to be
+    /// present on every case or the assertion would be vacuous on the many
+    /// corpus ports that have no charger. The port, its transports and its
+    /// identities are all real. Every case is fed the strongest possible
+    /// charger claim and must still refuse to say "Plugged in".
+    @Test("Invariant: no corpus port claims 'Plugged in' while the system is on battery")
+    func noPortClaimsPluggedInOnBattery() {
+        var examined = 0
+        var reachedTheBranch = 0
+        var violations: [String] = []
+        for c in Self.cases {
+            guard let portNumber = c.port.portNumber else { continue }
+            examined += 1
+
+            let fed = [
+                FederatedIdentity(
+                    portIndex: portNumber,
+                    vendorID: 0x05AC,
+                    productID: 0,
+                    pdSpecRevision: 0,
+                    powerRole: 0,
+                    dualRolePower: false,
+                    externalConnected: true   // the stale signal
+                )
+            ]
+            func summary(onBattery: Bool) -> PortSummary {
+                PortSummary(
+                    port: c.port,
+                    sources: [],          // the #459 case: no PowerSource node
+                    identities: c.identities,
+                    federatedIdentities: fed,
+                    cioCapability: c.cio,
+                    batteryIsCharging: onBattery ? false : true,
+                    adapter: nil
+                )
+            }
+
+            // The same port, twice, differing only in battery state. If the
+            // off-battery run says "Plugged in", this case genuinely reaches
+            // the FedDetails branch, so the on-battery run is a real test of
+            // the guard rather than a case that exited somewhere earlier in
+            // the chain and would have passed regardless.
+            //
+            // Counting inputs instead of this was the weakness a reviewer
+            // found in the first version: 1515 ports were "examined" while
+            // only 340 reached the decision under test, so the floor could
+            // stay satisfied while the sweep stopped testing anything.
+            if summary(onBattery: false).headline.contains("Plugged in") {
+                reachedTheBranch += 1
+                let onBattery = summary(onBattery: true)
+                if onBattery.status == .charging || onBattery.headline.contains("Plugged in") {
+                    violations.append("\(c.folder) \(c.port.serviceName): \(onBattery.headline)")
+                }
+            }
+        }
+        #expect(examined >= 400,
+            "only \(examined) corpus ports carried a port number; expected 400+")
+        // Measured at 340 on 2026-08-10. The floor is on ports that actually
+        // reach the guarded decision, not on ports fed to the sweep.
+        #expect(reachedTheBranch >= 300,
+            "only \(reachedTheBranch) of \(examined) ports reached the FedDetails branch; expected 300+, so this sweep is no longer testing the guard")
+        #expect(violations.isEmpty,
+            "\(violations.count) real port(s) claimed power while on battery: \(violations.prefix(5))")
+    }
+
     @Test("Invariant: an e-marker response always produces an e-marker group")
     func emarkerResponseProducesBullet() {
         // Source: PortSummary.init, the e-marker section --

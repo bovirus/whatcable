@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Ražotājs: %1$@ (%2$@), pēc mūsu iekļautā ražotāju saraksta";
 "Answered, but reported no capability data." = "Atbildēja, bet nepaziņoja datus par iespējām.";
 "Certification ID" = "Sertifikācijas ID";
+"Connect a charger to identify the cable." = "Pievienojiet lādētāju, lai identificētu kabeli.";

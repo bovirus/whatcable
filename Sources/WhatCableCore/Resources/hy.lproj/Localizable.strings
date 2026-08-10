@@ -583,3 +583,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Արտադրված է %1$@-ի կողմից (%2$@), ըստ մեր ներկառուցված արտադրողների ցանկի";
 "Answered, but reported no capability data." = "Պատասխանեց, բայց հնարավորությունների տվյալներ չհաղորդեց։";
 "Certification ID" = "Հավաստագրման ID";
+"Connect a charger to identify the cable." = "Միացրեք լիցքավորիչ՝ մալուխը որոշելու համար։";

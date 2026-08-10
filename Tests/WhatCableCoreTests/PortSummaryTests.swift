@@ -1470,6 +1470,62 @@ struct PortSummaryTests {
         #expect(bullet == "Charger: Apple Inc.")
     }
 
+    // MARK: - The #459 FedDetails branch must not claim "Plugged in" on battery
+
+    /// Reproduced on an M5 on 2026-08-10: `pmset` reported battery power and
+    /// discharging while the card showed a charging bolt and "Plugged in".
+    ///
+    /// The #459 branch recovers a charger from FedDetails when this port has no
+    /// PowerSource node (the M1 Pro/Max/Ultra case). It was the only one of the
+    /// three charger branches without the `!systemPowerUnavailable` guard, and
+    /// it rests on `FedExternalConnected`, which is stale roughly 40% of the
+    /// time, so it needs the cross-check more than its siblings, not less.
+    @Test("FedDetails charger does not claim 'Plugged in' when the system is on battery")
+    func fedDetailsChargerSuppressedOnBattery() {
+        // No PowerSource node, no adapter, battery discharging: the system
+        // says there is no external power, whatever FedDetails still holds.
+        let port = makePort(connected: true, active: [], supported: ["CC"])
+        let summary = PortSummary(
+            port: port,
+            federatedIdentities: [fed(portIndex: 1, vid: 0x05AC)],
+            batteryIsCharging: false,
+            adapter: nil
+        )
+        #expect(summary.status != .charging,
+                "must not report charging on battery, got \(summary.status)")
+        #expect(!summary.headline.contains("Plugged in"),
+                "must not claim plugged in on battery, got: \(summary.headline)")
+        // Pin the whole message, not just what it must NOT say. Suppressing
+        // the wrong claim is only half the job: the catch-all this now falls
+        // to used to advise a HIGHER-WATTAGE charger, which assumes one is
+        // already attached and reads as nonsense on battery.
+        #expect(summary.subtitle == "Connect a charger to identify the cable.",
+                "got: \(summary.subtitle)")
+        #expect(!summary.subtitle.contains("higher-wattage"),
+                "must not imply a charger is already attached, got: \(summary.subtitle)")
+    }
+
+    /// The other half, so the fix cannot be "delete the branch": with real
+    /// external power the branch must still fire. This is the case #459 was
+    /// opened for, and losing it would put the card back to advising a bigger
+    /// charger next to a "Charger on standby" banner.
+    @Test("FedDetails charger still reports 'Plugged in' when the Mac has external power")
+    func fedDetailsChargerStillFiresOnPower() {
+        let port = makePort(connected: true, active: [], supported: ["CC"])
+        let summary = PortSummary(
+            port: port,
+            federatedIdentities: [fed(portIndex: 1, vid: 0x05AC)],
+            batteryIsCharging: false,
+            // An adapter present means the system IS on external power, so
+            // `onBattery` is false even with the battery not charging (a
+            // charge hold at 100%, say).
+            adapter: adapter(watts: 96)
+        )
+        #expect(summary.status == .charging)
+        #expect(summary.headline.contains("Plugged in"),
+                "expected the #459 branch to still fire, got: \(summary.headline)")
+    }
+
     @Test("FedDetails fallback emits Charger identified line when no AdapterDetails")
     func fedDetailsFallbackEmitsCharger() {
         // CUKTECH-style case: AdapterDetails is empty / not present, but

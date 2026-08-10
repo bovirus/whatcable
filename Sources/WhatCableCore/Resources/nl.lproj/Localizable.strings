@@ -582,3 +582,4 @@
 "Made by %@ (%@), per our bundled vendor list" = "Gemaakt door %1$@ (%2$@), volgens onze meegeleverde fabrikantenlijst";
 "Answered, but reported no capability data." = "Heeft geantwoord, maar geen capaciteitsgegevens gemeld.";
 "Certification ID" = "Certificerings-ID";
+"Connect a charger to identify the cable." = "Sluit een oplader aan om de kabel te identificeren.";

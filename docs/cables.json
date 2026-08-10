@@ -266,6 +266,20 @@
     "xid" : "none"
   },
   {
+    "brand" : "Anker 737 power bank bundled USB-C cable (VID\/PID zeroed)",
+    "cableVDO" : "0x000A2E40",
+    "issueNum" : "#497",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/497",
+    "pid" : "0x0000",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : false,
+    "speed" : "USB 2.0 (480 Mbps)",
+    "type" : "passive",
+    "vendor" : "(zeroed)",
+    "vid" : "0x0000",
+    "xid" : "none"
+  },
+  {
     "brand" : "UGREEN 140 W charger bundled cable (VID\/PID zeroed)",
     "cableVDO" : "0x000A4640",
     "issueNum" : "#327",
@@ -672,7 +686,7 @@
     "xid" : "none"
   },
   {
-    "brand" : "Apple USB-C Charging Cable, shipped with M1 MacBook Air",
+    "brand" : "Apple USB-C Charging Cable (bundled with the 61 W A1718 adapter onwards, incl. M1 MacBook Air)",
     "cableVDO" : "0xA1084050",
     "issueNum" : "#397",
     "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/397",
@@ -1120,6 +1134,34 @@
     "xid" : "none"
   },
   {
+    "brand" : "Anker 2-in-1 USB-C cable 1.8 m, Amazon",
+    "cableVDO" : "0x000A2640",
+    "issueNum" : "#485",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/485",
+    "pid" : "0x8895",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : true,
+    "speed" : "USB 2.0 (480 Mbps)",
+    "type" : "passive",
+    "vendor" : "Anker Innovations Limited",
+    "vid" : "0x291A",
+    "xid" : "none"
+  },
+  {
+    "brand" : "Anker A80E6 240 W Bio-Braided USB-C cable 6 ft, Amazon",
+    "cableVDO" : "0x000A4640",
+    "issueNum" : "#519",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/519",
+    "pid" : "0xA8F6",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : true,
+    "speed" : "USB 2.0 (480 Mbps)",
+    "type" : "passive",
+    "vendor" : "Anker Innovations Limited",
+    "vid" : "0x291A",
+    "xid" : "0x38A7"
+  },
+  {
     "brand" : "CUKTECH CTC615N 6A 240 W 1.5 m, USB-IF certified",
     "cableVDO" : "0x000A4640",
     "issueNum" : "#138",
@@ -1132,6 +1174,20 @@
     "vendor" : "Zimi Corporation",
     "vid" : "0x2B01",
     "xid" : "0x9DC"
+  },
+  {
+    "brand" : "Cuktech Rainbow 240 W USB-C cable 1.5 m, Amazon (Zimi silicon)",
+    "cableVDO" : "0x000A0640",
+    "issueNum" : "#521",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/521",
+    "pid" : "0x4091",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : true,
+    "speed" : "USB 2.0 (480 Mbps)",
+    "type" : "passive",
+    "vendor" : "Zimi Corporation",
+    "vid" : "0x2B01",
+    "xid" : "none"
   },
   {
     "brand" : "OWC Thunderbolt 4 cable, Amazon (Lintes silicon)",
@@ -1260,6 +1316,34 @@
     "xid" : "0x1E94"
   },
   {
+    "brand" : "DJI Power 7 A USB-C digital-display charging cable 1 m",
+    "cableVDO" : "0x000A2640",
+    "issueNum" : "#499",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/499",
+    "pid" : "0xC701",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : true,
+    "speed" : "USB 2.0 (480 Mbps)",
+    "type" : "passive",
+    "vendor" : "DJI Technology Co., Ltd.",
+    "vid" : "0x2CA3",
+    "xid" : "none"
+  },
+  {
+    "brand" : "j5create JUCX27L12 USB4 40 Gbps coaxial cable, Best Buy",
+    "cableVDO" : "0x12084043",
+    "issueNum" : "#509",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/509",
+    "pid" : "0x2409",
+    "power" : "5 A \/ 20 V (100 W)",
+    "registered" : true,
+    "speed" : "USB4 Gen 3 (40 Gbps, Thunderbolt 4 class)",
+    "type" : "passive",
+    "vendor" : "KaiJet Technology International Limited, Inc. dba j5create",
+    "vid" : "0x2DE5",
+    "xid" : "none"
+  },
+  {
     "brand" : "j5create USB4 40 Gbps coaxial cable, braided, OfficeDepot",
     "cableVDO" : "0x12084043",
     "issueNum" : "#258",
@@ -1328,6 +1412,20 @@
     "vendor" : "Hynetek Semiconductor Co., Ltd",
     "vid" : "0x2E99",
     "xid" : "0x1514"
+  },
+  {
+    "brand" : "DELTACO USBC-1362 braided 10 Gbps cable 1 m",
+    "cableVDO" : "0x00082022",
+    "issueNum" : "#487",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/487",
+    "pid" : "0x0000",
+    "power" : "3 A \/ 20 V (60 W)",
+    "registered" : true,
+    "speed" : "USB 3.2 Gen 2 (10 Gbps)",
+    "type" : "passive",
+    "vendor" : "Ningbo Prime Electronic Co., Ltd.",
+    "vid" : "0x2EC8",
+    "xid" : "none"
   },
   {
     "brand" : "Satechi USB4 V2 cable (ST-YU4120K), Amazon",
@@ -1454,6 +1552,20 @@
     "vendor" : "Chengdu Convenientpower Semiconductor Co., LTD",
     "vid" : "0x315C",
     "xid" : "none"
+  },
+  {
+    "brand" : "SmallRig USB4 40 Gbps 240 W cable, Amazon (Chengdu Convenientpower silicon)",
+    "cableVDO" : "0x450A4643",
+    "issueNum" : "#486",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/486",
+    "pid" : "0x0001",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : true,
+    "speed" : "USB4 Gen 3 (40 Gbps, Thunderbolt 4 class)",
+    "type" : "passive",
+    "vendor" : "Chengdu Convenientpower Semiconductor Co., LTD",
+    "vid" : "0x315C",
+    "xid" : "0x1094"
   },
   {
     "brand" : "FDBRO USB4 cable 40 Gbps 240 W, AliExpress (USB-IF certified)",
@@ -1608,6 +1720,20 @@
     "vendor" : "Unregistered",
     "vid" : "0x7880",
     "xid" : "0xB1BD"
+  },
+  {
+    "brand" : "samzhe USB4 40 Gbps cable (eEver silicon, unregistered VID)",
+    "cableVDO" : "0x110A2E43",
+    "issueNum" : "#502",
+    "issueURL" : "https:\/\/github.com\/darrylmorley\/whatcable\/issues\/502",
+    "pid" : "0x0913",
+    "power" : "5 A \/ 50 V (240 W)",
+    "registered" : false,
+    "speed" : "USB4 Gen 3 (40 Gbps, Thunderbolt 4 class)",
+    "type" : "passive",
+    "vendor" : "Unregistered",
+    "vid" : "0x7880",
+    "xid" : "0x2EE"
   },
   {
     "brand" : "Ikea RUNDHULT USB-C cable 1.5 m 100 W, Ikea",

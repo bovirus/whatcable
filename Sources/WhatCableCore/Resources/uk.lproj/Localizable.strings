@@ -179,16 +179,14 @@
 "Display Output" = "Виведення зображення";
 "Enabled" = "Увімкнено";
 "Enter your licence key to unlock pro features." = "Введіть ключ ліцензії для розблокування Pro-функцій.";
-"Estimating cable resistance…" = "Оцінка опору кабелю…";
+"Measuring charging path…" = "Вимірювання шляху заряджання…";
 "Event Log" = "Журнал подій";
 "FET enable failures" = "Збої увімкнення FET";
 "FET status" = "Стан FET";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Генерується контролером TPS6598x при фізичному підключенні або відключенні кабелю. Кілька спрацьовувань під час одного підключення є нормою.";
 "General port controller status change (connection state, error flags)." = "Загальна зміна стану контролера порту (стан з'єднання, прапори помилок).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Загальний регістр стану контролера змінився. Охоплює стан підключення, орієнтацію та умови помилок.";
-"Good" = "Добре";
 "Hard reset count" = "Кількість жорстких скидань";
-"High" = "Високий";
 "Could not reach the licence server. Check your internet connection and try again." = "Не вдалося зв'язатися із сервером ліцензій. Перевірте підключення до інтернету та спробуйте знову.";
 "I2C error count" = "Кількість помилок I2C";
 "Inactive" = "Неактивний";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "Зарядний пристрій MagSafe";
 "Manufacturer" = "Виробник";
-"Marginal" = "Граничний";
 "Requested max operating current" = "Запитуваний максимальний робочий струм";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Максимальна потужність";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Рік виробництва";
 "Yes" = "Так";
-"cable resistance estimate" = "оцінка опору кабелю";
+"Experimental charging-path estimate" = "Експериментальна оцінка шляху заряджання";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Порт %2$lld";

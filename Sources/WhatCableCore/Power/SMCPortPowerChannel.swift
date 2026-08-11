@@ -57,11 +57,18 @@ public struct SMCSystemPowerInput: Sendable, Equatable {
     public let amps: Double
     /// DC-in total power (`PDTR`), or `volts * amps` when `PDTR` is absent.
     public let watts: Double
+    /// True when `watts` came from a real `PDTR` read; false when it is the
+    /// computed fallback. The resistance regression's torn-read sanity gate
+    /// (`PDTR ~= volts * amps`) is only meaningful against an independently
+    /// read `PDTR`; against the fallback it compares a product with itself.
+    /// Defaults true so existing constructions keep their behaviour.
+    public let pdtrIsMeasured: Bool
 
-    public init(volts: Double, amps: Double, watts: Double) {
+    public init(volts: Double, amps: Double, watts: Double, pdtrIsMeasured: Bool = true) {
         self.volts = volts
         self.amps = amps
         self.watts = watts
+        self.pdtrIsMeasured = pdtrIsMeasured
     }
 }
 

@@ -179,16 +179,14 @@
 "Display Output" = "Displeja izeja";
 "Enabled" = "Iespējots";
 "Enter your licence key to unlock pro features." = "Ievadiet licences atslēgu, lai atbloķētu Pro funkcijas.";
-"Estimating cable resistance…" = "Aprēķina kabeļa pretestību…";
+"Measuring charging path…" = "Mēra uzlādes ceļu…";
 "Event Log" = "Notikumu žurnāls";
 "FET enable failures" = "FET iespējošanas kļūmes";
 "FET status" = "FET statuss";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Iedarbina TPS6598x kontrolleris, kad kabelis tiek fiziski ievietots vai izņemts. Vairākas iedarbināšanas viena pievienošanas notikuma laikā ir normālas.";
 "General port controller status change (connection state, error flags)." = "Vispārēja porta kontrollera statusa maiņa (savienojuma stāvoklis, kļūdu karodziņi).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Vispārēja kontrollera statusa reģistra maiņa. Ietver kontakta stāvokli, orientāciju un kļūdu apstākļus.";
-"Good" = "Labs";
 "Hard reset count" = "Pilnīgo atiestati skaits";
-"High" = "Augsts";
 "Could not reach the licence server. Check your internet connection and try again." = "Nevarēja sasniegt licences serveri. Pārbaudiet interneta savienojumu un mēģiniet vēlreiz.";
 "I2C error count" = "I2C kļūdu skaits";
 "Inactive" = "Neaktīvs";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe lādētājs";
 "Manufacturer" = "Ražotājs";
-"Marginal" = "Robežstāvoklī";
 "Requested max operating current" = "Pieprasītā maks. darba strāva";
 "Requested max operating power" = "Pieprasītā maks. darba jauda";
 "Max power" = "Maks. jauda";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Ražošanas gads";
 "Yes" = "Jā";
-"cable resistance estimate" = "kabeļa pretestības aprēķins";
+"Experimental charging-path estimate" = "Eksperimentāls uzlādes ceļa novērtējums";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ ports %2$lld";

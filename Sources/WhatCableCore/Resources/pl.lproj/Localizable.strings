@@ -179,16 +179,14 @@
 "Display Output" = "Wyjście wideo";
 "Enabled" = "Włączone";
 "Enter your licence key to unlock pro features." = "Wprowadź klucz licencji, aby odblokować funkcje Pro.";
-"Estimating cable resistance…" = "Szacowanie rezystancji kabla…";
+"Measuring charging path…" = "Pomiar ścieżki ładowania…";
 "Event Log" = "Dziennik zdarzeń";
 "FET enable failures" = "Błędy włączenia FET";
 "FET status" = "Stan FET";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Wyzwalane przez kontroler TPS6598x, gdy kabel jest fizycznie wkładany lub wyjmowany. Wielokrotne wyzwolenia podczas jednego zdarzenia podłączenia są normalne.";
 "General port controller status change (connection state, error flags)." = "Ogólna zmiana stanu kontrolera portu (stan połączenia, flagi błędów).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Zmienił się ogólny rejestr stanu kontrolera. Obejmuje stan złącza, orientację i warunki błędów.";
-"Good" = "Dobry";
 "Hard reset count" = "Liczba twardych resetów";
-"High" = "Wysoki";
 "Could not reach the licence server. Check your internet connection and try again." = "Nie udało się połączyć z serwerem licencji. Sprawdź połączenie internetowe i spróbuj ponownie.";
 "I2C error count" = "Liczba błędów I2C";
 "Inactive" = "Nieaktywne";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "Ładowarka MagSafe";
 "Manufacturer" = "Producent";
-"Marginal" = "Graniczny";
 "Requested max operating current" = "Żądany maks. prąd roboczy";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Maks. moc";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Rok produkcji";
 "Yes" = "Tak";
-"cable resistance estimate" = "szacunkowa rezystancja kabla";
+"Experimental charging-path estimate" = "Eksperymentalne oszacowanie ścieżki ładowania";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

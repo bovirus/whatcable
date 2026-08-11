@@ -179,16 +179,14 @@
 "Display Output" = "Uscita video";
 "Enabled" = "Attivato";
 "Enter your licence key to unlock pro features." = "Inserisci la tua chiave di licenza per sbloccare le funzioni Pro.";
-"Estimating cable resistance…" = "Stima della resistenza del cavo in corso…";
+"Measuring charging path…" = "Misurazione del percorso di ricarica…";
 "Event Log" = "Registro eventi";
 "FET enable failures" = "Errori di attivazione FET";
 "FET status" = "Stato FET";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Generato dal controller TPS6598x quando un cavo viene inserito o rimosso fisicamente. È normale che si generi più volte durante un singolo evento di collegamento.";
 "General port controller status change (connection state, error flags)." = "Cambio generico di stato del controller della porta (stato connessione, flag di errore).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Registro di stato generico del controller modificato. Riguarda stato del connettore, orientamento e condizioni di errore.";
-"Good" = "Buono";
 "Hard reset count" = "Conteggio hard reset";
-"High" = "Alto";
 "Could not reach the licence server. Check your internet connection and try again." = "Impossibile raggiungere il server delle licenze. Controlla la connessione internet e riprova.";
 "I2C error count" = "Conteggio errori I2C";
 "Inactive" = "Inattivo";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "Caricabatterie MagSafe";
 "Manufacturer" = "Produttore";
-"Marginal" = "Marginale";
 "Requested max operating current" = "Corrente operativa massima richiesta";
 "Requested max operating power" = "Potenza operativa massima richiesta";
 "Max power" = "Potenza max";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Anno di produzione";
 "Yes" = "Sì";
-"cable resistance estimate" = "stima della resistenza del cavo";
+"Experimental charging-path estimate" = "Stima sperimentale del percorso di ricarica";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Porta %2$lld";

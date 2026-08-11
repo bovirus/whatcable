@@ -177,28 +177,9 @@ struct SessionMonitorTests {
         #expect(m.observationCount == 1)
     }
 
-    // MARK: Resistance attribution
-
-    private func sample(_ portKey: String, current: Int) -> PortPowerSample {
-        PortPowerSample(portIndex: 1, portKey: portKey, current: current, watts: 0,
-                        configuredVoltage: 0, configuredCurrent: 0, adapterVoltage: 0,
-                        vconnCurrent: 0, vconnPower: 0)
-    }
-
-    @Test("Resistance is attributed only to the sole current-drawing port")
-    func resistanceAttribution() {
-        // Exactly one port drawing: attributable.
-        #expect(SessionMonitor.resistanceAttributedPortKey(
-            in: [sample("2/1", current: 1500), sample("2/2", current: 0)]) == "2/1")
-        // No port drawing: not attributable.
-        #expect(SessionMonitor.resistanceAttributedPortKey(
-            in: [sample("2/1", current: 0), sample("2/2", current: 0)]) == nil)
-        // Two ports drawing: blended, so attributable to neither.
-        #expect(SessionMonitor.resistanceAttributedPortKey(
-            in: [sample("2/1", current: 1500), sample("2/2", current: 900)]) == nil)
-        // Empty.
-        #expect(SessionMonitor.resistanceAttributedPortKey(in: []) == nil)
-    }
+    // `resistanceAttributedPortKey` and its tests were removed in the 2026-08 charging-path rework:
+    // attribution now happens in `ChargingInputResolver`, covered by
+    // `ChargingInputResolverTests`.
 
     // MARK: Bottleneck mapping
 

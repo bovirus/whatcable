@@ -94,11 +94,13 @@ public final class SMCPowerReader {
         let volts = readFloat("VD0R")
         let amps = readFloat("ID0R")
         guard volts != nil || amps != nil else { return nil }
-        let watts = readFloat("PDTR") ?? ((volts ?? 0) * (amps ?? 0))
+        let pdtr = readFloat("PDTR")
+        let watts = pdtr ?? ((volts ?? 0) * (amps ?? 0))
         return SMCSystemPowerInput(
             volts: Double(volts ?? 0),
             amps: Double(amps ?? 0),
-            watts: Double(watts)
+            watts: Double(watts),
+            pdtrIsMeasured: pdtr != nil
         )
     }
 

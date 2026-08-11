@@ -180,16 +180,14 @@
 "Display Output" = "Videoutgang";
 "Enabled" = "Aktivert";
 "Enter your licence key to unlock pro features." = "Skriv inn lisensnøkkelen din for å låse opp Pro-funksjoner.";
-"Estimating cable resistance…" = "Estimerer kabelmotstand…";
+"Measuring charging path…" = "Måler ladebanen…";
 "Event Log" = "Hendelseslogg";
 "FET enable failures" = "FET-aktiveringsfeil";
 "FET status" = "FET-status";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Utløst av TPS6598x-kontrolleren når en kabel fysisk settes inn eller fjernes. Flere utløsninger under en enkelt tilkoblingshendelse er normalt.";
 "General port controller status change (connection state, error flags)." = "Generell statusendring for portkontroller (tilkoblingsstatus, feilflagg).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Generisk kontrollerstatusregister endret. Dekker tilkoblingsstatus, orientering og feilbetingelser.";
-"Good" = "Bra";
 "Hard reset count" = "Antall harde tilbakestillinger";
-"High" = "Høy";
 "Could not reach the licence server. Check your internet connection and try again." = "Kunne ikke nå lisensserveren. Sjekk internettforbindelsen din og prøv igjen.";
 "I2C error count" = "I2C-feilantall";
 "Inactive" = "Inaktiv";
@@ -205,7 +203,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe-lader";
 "Manufacturer" = "Produsent";
-"Marginal" = "Marginal";
 "Requested max operating current" = "Forespurt maks. driftsstrøm";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Maks effekt";
@@ -298,7 +295,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Produksjonsår";
 "Yes" = "Ja";
-"cable resistance estimate" = "estimert kabelmotstand";
+"Experimental charging-path estimate" = "Eksperimentelt estimat av ladebanen";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

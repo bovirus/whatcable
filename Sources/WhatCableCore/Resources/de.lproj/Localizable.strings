@@ -180,16 +180,14 @@
 "Display Output" = "Videoausgang";
 "Enabled" = "Aktiviert";
 "Enter your licence key to unlock pro features." = "Gib deinen Lizenzschlüssel ein, um Pro-Funktionen freizuschalten.";
-"Estimating cable resistance…" = "Kabelwiderstand wird geschätzt…";
+"Measuring charging path…" = "Ladepfad wird gemessen…";
 "Event Log" = "Ereignisprotokoll";
 "FET enable failures" = "FET-Aktivierungsfehler";
 "FET status" = "FET-Status";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Wird vom TPS6598x-Controller ausgelöst, wenn ein Kabel physisch eingesteckt oder entfernt wird. Mehrfaches Auslösen bei einem einzelnen Anschlussereignis ist normal.";
 "General port controller status change (connection state, error flags)." = "Allgemeine Statusänderung des Anschlusscontrollers (Verbindungsstatus, Fehlerflags).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Generisches Controller-Statusregister geändert. Umfasst Anschlussstatus, Ausrichtung und Fehlerbedingungen.";
-"Good" = "Gut";
 "Hard reset count" = "Hardreset-Anzahl";
-"High" = "Hoch";
 "Could not reach the licence server. Check your internet connection and try again." = "Lizenzserver nicht erreichbar. Prüfe deine Internetverbindung und versuche es erneut.";
 "I2C error count" = "I2C-Fehleranzahl";
 "Inactive" = "Inaktiv";
@@ -205,7 +203,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe-Ladegerät";
 "Manufacturer" = "Hersteller";
-"Marginal" = "Grenzwertig";
 "Requested max operating current" = "Angeforderter max. Betriebsstrom";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Max. Leistung";
@@ -298,7 +295,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Herstellungsjahr";
 "Yes" = "Ja";
-"cable resistance estimate" = "Geschätzter Kabelwiderstand";
+"Experimental charging-path estimate" = "Experimentelle Schätzung des Ladepfads";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Anschluss %2$lld";

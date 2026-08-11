@@ -179,16 +179,14 @@
 "Display Output" = "Schermuitvoer";
 "Enabled" = "Ingeschakeld";
 "Enter your licence key to unlock pro features." = "Voer uw licentiesleutel in om pro-functies te ontgrendelen.";
-"Estimating cable resistance…" = "Kabelweerstand wordt geschat…";
+"Measuring charging path…" = "Laadpad wordt gemeten…";
 "Event Log" = "Gebeurtenissenlog";
 "FET enable failures" = "FET-activeringsproblemen";
 "FET status" = "FET-status";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Geactiveerd door de TPS6598x-controller wanneer een kabel fysiek wordt ingevoerd of verwijderd. Meerdere activaties tijdens één invoeggebeurtenis zijn normaal.";
 "General port controller status change (connection state, error flags)." = "Algemene statuswijziging van poortcontroller (verbindingsstatus, foutmarkeringen).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Algemeen statusregister van controller gewijzigd. Omvat inschuifstatus, oriëntatie en foutcondities.";
-"Good" = "Goed";
 "Hard reset count" = "Aantal harde resets";
-"High" = "Hoog";
 "Could not reach the licence server. Check your internet connection and try again." = "De licentieserver kon niet worden bereikt. Controleer uw internetverbinding en probeer opnieuw.";
 "I2C error count" = "Aantal I2C-fouten";
 "Inactive" = "Inactief";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe-oplader";
 "Manufacturer" = "Fabrikant";
-"Marginal" = "Marginaal";
 "Requested max operating current" = "Gevraagde maximale bedrijfsstroom";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Maximaal vermogen";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Fabricagejaar";
 "Yes" = "Ja";
-"cable resistance estimate" = "schatting kabelweerstand";
+"Experimental charging-path estimate" = "Experimentele schatting van het laadpad";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Poort %2$lld";

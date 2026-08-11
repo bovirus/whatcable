@@ -166,7 +166,9 @@ struct PortPowerMergeCharacterisationCorpusSweepTests {
                     + "|external=\(externalConnected)"
                     + "|battery=\(batteryInstalled)"
                     + "|ports=\(machine.ports.count)"
-                    + "|resistanceFeed=\(merged.meteredSamples.map(\.portKey).sorted().joined(separator: ","))"
+                // The `resistanceFeed=` component recorded the removed
+                // `meteredSamples` feed (charging-path resistance rework, 2026-08); the baseline was
+                // regenerated without it in the same change.
             )
         ]
 

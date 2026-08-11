@@ -207,9 +207,15 @@ public final class PowerService: ObservableObject {
         // too. On battery there is no input to show (the discharge figure below
         // drives the card instead). This also fixes the desktop input card, which
         // used to stay 0 and spin on "Negotiating…" forever (#291).
-        if externalConnected, let input = smcReader.readSystemPowerInput() {
+        let smcInput = externalConnected ? smcReader.readSystemPowerInput() : nil
+        if let input = smcInput {
             system = Self.smcSystemSample(input, timestamp: timestamp)
         }
+
+        // Adapter PRESENCE, not rated watts (see the snapshot field's doc
+        // comment). Read once, up here, because the resistance eligibility
+        // gate below needs it on the same tick as the samples.
+        let chargerAttached = SystemPower.currentAdapter() != nil
 
         // Per-port power-OUT from the SMC, tied to each physical port by
         // controller UUID (M3+). This runs on laptops and desktops alike: the
@@ -249,7 +255,20 @@ public final class PowerService: ObservableObject {
         )
         let portSamples = merged.displaySamples
         let perPortMeteringSupported = merged.perPortMeteringSupported
-        accumulator.append(portSamples: merged.meteredSamples)
+
+        // Charging-path resistance feed (charging-path resistance rework, 2026-08): the live SMC DC-in pair,
+        // accepted only when exactly one fixed-SPR USB-C charging input is
+        // resolved on this laptop. Every gate lives in the resolver; the
+        // accumulator handles reset, settle, the distinct-tuple rule and the
+        // PDTR sanity check. When the SMC is unreadable (older silicon,
+        // sandbox) `smcInput` is nil and the estimate stays `insufficient`.
+        let chargingFingerprint = ChargingInputResolver.fingerprint(
+            sources: sources,
+            batteryInstalled: batteryInstalled,
+            externalConnected: externalConnected,
+            chargerAttached: chargerAttached
+        )
+        accumulator.append(input: smcInput, fingerprint: chargingFingerprint)
         // Battery discharge, so the System Power card keeps tracking on battery.
         // Voltage is the pack voltage.
         let batteryVoltageMV = wcInt(dict?["Voltage"])
@@ -283,7 +302,8 @@ public final class PowerService: ObservableObject {
             timestamp: timestamp,
             systemSample: system,
             portSamples: portSamples,
-            resistanceEstimate: resistanceEstimate(),
+            resistanceEstimate: accumulator.estimate(),
+            resistancePortKey: accumulator.attributedPortKey,
             externalConnected: externalConnected,
             batteryInstalled: batteryInstalled,
             batteryVoltageMV: batteryVoltageMV,
@@ -295,9 +315,10 @@ public final class PowerService: ObservableObject {
             // publishes no Watts field still means external power is available,
             // and 118 of 585 corpus machines report exactly that while
             // ExternalConnected is true, so a watts-based test would call them
-            // unplugged. Read here, once, so every surface qualifies this tick's
-            // samples with this tick's answer.
-            chargerAttached: SystemPower.currentAdapter() != nil
+            // unplugged. Read once above (the resistance gate needs it too), so
+            // every surface qualifies this tick's samples with this tick's
+            // answer.
+            chargerAttached: chargerAttached
         )
         latestSnapshot = snapshot
         continuation?.yield(snapshot)
@@ -312,67 +333,6 @@ public final class PowerService: ObservableObject {
             systemVoltageIn: Int((input.volts * 1000).rounded()),
             systemCurrentIn: Int((input.amps * 1000).rounded()),
             systemPowerIn: Int((input.watts * 1000).rounded())
-        )
-    }
-
-    private func resistanceEstimate() -> CableResistanceEstimate? {
-        let samples = accumulator.samples.filter { $0.current > 0 }
-        guard samples.count >= 10 else {
-            return CableResistanceEstimate(
-                milliohms: 0,
-                sampleCount: samples.count,
-                rSquared: 0,
-                status: .insufficient
-            )
-        }
-
-        let minCurrent = samples.map(\.current).min() ?? 0
-        let maxCurrent = samples.map(\.current).max() ?? 0
-        guard maxCurrent - minCurrent > 200 else {
-            return CableResistanceEstimate(
-                milliohms: 0,
-                sampleCount: samples.count,
-                rSquared: 0,
-                status: .unreliable
-            )
-        }
-
-        let count = Double(samples.count)
-        let meanCurrent = samples.reduce(0) { $0 + $1.current } / count
-        let meanDrop = samples.reduce(0) { $0 + $1.voltageDrop } / count
-        let sxx = samples.reduce(0) { $0 + pow($1.current - meanCurrent, 2) }
-        guard sxx > 0 else {
-            return CableResistanceEstimate(
-                milliohms: 0,
-                sampleCount: samples.count,
-                rSquared: 0,
-                status: .unreliable
-            )
-        }
-
-        let sxy = samples.reduce(0) { $0 + (($1.current - meanCurrent) * ($1.voltageDrop - meanDrop)) }
-        let slope = sxy / sxx
-        let intercept = meanDrop - slope * meanCurrent
-        let total = samples.reduce(0) { $0 + pow($1.voltageDrop - meanDrop, 2) }
-        let residual = samples.reduce(0) {
-            let predicted = slope * $1.current + intercept
-            return $0 + pow($1.voltageDrop - predicted, 2)
-        }
-        let rSquared = total > 0 ? max(0, 1 - residual / total) : 0
-        let status: CableResistanceEstimate.Status
-        if samples.count < 30 {
-            status = .converging
-        } else if rSquared >= 0.7 {
-            status = .stable
-        } else {
-            status = .unreliable
-        }
-
-        return CableResistanceEstimate(
-            milliohms: max(0, slope * 1000),
-            sampleCount: samples.count,
-            rSquared: rSquared,
-            status: status
         )
     }
 

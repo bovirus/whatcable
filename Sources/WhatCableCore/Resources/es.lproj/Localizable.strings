@@ -180,16 +180,14 @@
 "Display Output" = "Salida de vídeo";
 "Enabled" = "Activado";
 "Enter your licence key to unlock pro features." = "Introduce tu clave de licencia para desbloquear las funciones Pro.";
-"Estimating cable resistance…" = "Estimando resistencia del cable…";
+"Measuring charging path…" = "Midiendo la ruta de carga…";
 "Event Log" = "Registro de eventos";
 "FET enable failures" = "Fallos de activación FET";
 "FET status" = "Estado FET";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Disparado por el controlador TPS6598x cuando un cable se inserta o retira físicamente. Múltiples disparos durante un solo evento de conexión son normales.";
 "General port controller status change (connection state, error flags)." = "Cambio de estado general del controlador de puerto (estado de conexión, flags de error).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Registro de estado genérico del controlador modificado. Cubre el estado de conexión, orientación y condiciones de error.";
-"Good" = "Bueno";
 "Hard reset count" = "Conteo de reinicios hardware";
-"High" = "Alto";
 "Could not reach the licence server. Check your internet connection and try again." = "No se pudo contactar el servidor de licencias. Verifica tu conexión a internet e inténtalo de nuevo.";
 "I2C error count" = "Conteo de errores I2C";
 "Inactive" = "Inactivo";
@@ -205,7 +203,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "Cargador MagSafe";
 "Manufacturer" = "Fabricante";
-"Marginal" = "Marginal";
 "Requested max operating current" = "Corriente operativa máxima solicitada";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Potencia máx.";
@@ -298,7 +295,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Año de fabricación";
 "Yes" = "Sí";
-"cable resistance estimate" = "estimación de resistencia del cable";
+"Experimental charging-path estimate" = "Estimación experimental de la ruta de carga";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Puerto %2$lld";

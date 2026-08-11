@@ -179,16 +179,14 @@
 "Display Output" = "Display Output";
 "Enabled" = "Enabled";
 "Enter your licence key to unlock pro features." = "Enter your licence key to unlock pro features.";
-"Estimating cable resistance…" = "Estimating cable resistance…";
+"Measuring charging path…" = "Measuring charging path…";
 "Event Log" = "Event Log";
 "FET enable failures" = "FET enable failures";
 "FET status" = "FET status";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal.";
 "General port controller status change (connection state, error flags)." = "General port controller status change (connection state, error flags).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Generic controller status register changed. Covers plug state, orientation, and error conditions.";
-"Good" = "Good";
 "Hard reset count" = "Hard reset count";
-"High" = "High";
 "Could not reach the licence server. Check your internet connection and try again." = "Could not reach the licence server. Check your internet connection and try again.";
 "I2C error count" = "I2C error count";
 "Inactive" = "Inactive";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe Charger";
 "Manufacturer" = "Manufacturer";
-"Marginal" = "Marginal";
 "Requested max operating current" = "Requested max operating current";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Max power";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Year of manufacture";
 "Yes" = "Yes";
-"cable resistance estimate" = "cable resistance estimate";
+"Experimental charging-path estimate" = "Experimental charging-path estimate";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

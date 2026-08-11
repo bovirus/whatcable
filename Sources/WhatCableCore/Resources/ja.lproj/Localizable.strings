@@ -181,16 +181,14 @@
 "Display Output" = "映像出力";
 "Enabled" = "有効";
 "Enter your licence key to unlock pro features." = "ライセンスキーを入力してPro機能をロック解除してください。";
-"Estimating cable resistance…" = "ケーブル抵抗を推定中…";
+"Measuring charging path…" = "充電経路を測定中…";
 "Event Log" = "イベントログ";
 "FET enable failures" = "FET有効化失敗";
 "FET status" = "FETステータス";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "ケーブルの物理的な挿入または取り外し時にTPS6598xコントローラーが発火。1回の接続イベントで複数回発火するのは正常です。";
 "General port controller status change (connection state, error flags)." = "ポートコントローラーの一般的なステータス変更（接続状態、エラーフラグ）。";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "汎用コントローラーステータスレジスタが変更。接続状態、向き、エラー条件をカバーします。";
-"Good" = "良好";
 "Hard reset count" = "ハードリセット回数";
-"High" = "高";
 "Could not reach the licence server. Check your internet connection and try again." = "ライセンスサーバーに接続できません。インターネット接続を確認して再試行してください。";
 "I2C error count" = "I2Cエラー回数";
 "Inactive" = "非アクティブ";
@@ -206,7 +204,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe充電器";
 "Manufacturer" = "製造元";
-"Marginal" = "要注意";
 "Requested max operating current" = "要求最大動作電流";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "最大電力";
@@ -299,7 +296,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "製造年";
 "Yes" = "はい";
-"cable resistance estimate" = "ケーブル抵抗推定値";
+"Experimental charging-path estimate" = "充電経路の実験的推定値";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ ポート%2$lld";

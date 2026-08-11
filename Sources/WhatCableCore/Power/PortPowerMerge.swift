@@ -28,15 +28,6 @@ public struct PortPowerMergeResult: Sendable, Equatable {
     /// What the Power Monitor shows, one sample per covered port, SMC first.
     public let displaySamples: [PortPowerSample]
 
-    /// What feeds the cable-resistance regression. Deliberately NOT the display
-    /// list: the estimate regresses `ConfiguredVoltage - AdapterVoltage` against
-    /// current, and only `PowerOutDetails` carries `AdapterVoltage`. An SMC
-    /// sample has none (0), so it yields no usable point, and its live-jittering
-    /// voltage would thrash the contract fingerprint each tick and starve the
-    /// estimate. So this list is `PowerOutDetails` first, contract second, with
-    /// SMC excluded entirely.
-    public let meteredSamples: [PortPowerSample]
-
     /// True when at least one SMC channel resolved to a known port through the
     /// controller-UUID map. False means M1/M2, a Mac Pro, or a machine whose
     /// UUID map and SMC channel set do not overlap: the UI must then not wait
@@ -54,12 +45,10 @@ public struct PortPowerMergeResult: Sendable, Equatable {
 
     public init(
         displaySamples: [PortPowerSample],
-        meteredSamples: [PortPowerSample],
         perPortMeteringSupported: Bool,
         provenance: [String: PortPowerProvenance]
     ) {
         self.displaySamples = displaySamples
-        self.meteredSamples = meteredSamples
         self.perPortMeteringSupported = perPortMeteringSupported
         self.provenance = provenance
     }
@@ -208,18 +197,13 @@ public enum PortPowerMerge {
             coveredKeys.insert(sample.portKey)
         }
 
-        // The resistance feed, built `PowerOutDetails`-first so a port with both
-        // keeps its metered entry. SMC samples are excluded by construction, not
-        // filtered out afterwards.
-        var meteredSamples = powerOutDetailSamples
-        let meteredKeys = Set(powerOutDetailSamples.map(\.portKey))
-        for sample in contractedSamples where !meteredKeys.contains(sample.portKey) {
-            meteredSamples.append(sample)
-        }
-
+        // The old `meteredSamples` resistance feed lived here. It was removed
+        // in the 2026-08 charging-path rework: the corpus proved zero of its samples were ever accepted
+        // by the regression (`PowerOutDetails` is 5 V power-out only, frozen,
+        // and every active entry failed the old voltage-drop gate). The
+        // regression now reads the live SMC DC-in pair in `PowerService`.
         return PortPowerMergeResult(
             displaySamples: displaySamples,
-            meteredSamples: meteredSamples,
             perPortMeteringSupported: perPortMeteringSupported,
             provenance: provenance
         )

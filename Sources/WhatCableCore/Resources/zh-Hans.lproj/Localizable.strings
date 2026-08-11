@@ -180,16 +180,14 @@
 "Display Output" = "视频输出";
 "Enabled" = "已启用";
 "Enter your licence key to unlock pro features." = "输入许可证密钥以解锁 Pro 功能。";
-"Estimating cable resistance…" = "正在估算线缆电阻……";
+"Measuring charging path…" = "正在测量充电路径……";
 "Event Log" = "事件日志";
 "FET enable failures" = "FET 启用失败次数";
 "FET status" = "FET 状态";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "在线缆物理插入或拔出时由 TPS6598x 控制器触发。单次插拔事件中多次触发属于正常现象。";
 "General port controller status change (connection state, error flags)." = "端口控制器状态发生通用变化（连接状态、错误标志）。";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "通用控制器状态寄存器已更改。涵盖连接器状态、方向和错误情况。";
-"Good" = "良好";
 "Hard reset count" = "硬复位次数";
-"High" = "高";
 "Could not reach the licence server. Check your internet connection and try again." = "无法连接到许可证服务器。请检查网络连接后重试。";
 "I2C error count" = "I2C 错误次数";
 "Inactive" = "未活跃";
@@ -205,7 +203,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe 充电器";
 "Manufacturer" = "制造商";
-"Marginal" = "勉强";
 "Requested max operating current" = "请求最大工作电流";
 "Requested max operating power" = "请求最大工作功率";
 "Max power" = "最大功率";
@@ -298,7 +295,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "制造年份";
 "Yes" = "是";
-"cable resistance estimate" = "线缆电阻估算值";
+"Experimental charging-path estimate" = "充电路径实验性估算";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ 端口 %2$lld";

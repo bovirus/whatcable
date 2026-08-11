@@ -179,38 +179,10 @@ struct PortPowerMergeTests {
             "with no map the channel cannot be tied to a port, so PowerOutDetails must win")
     }
 
-    // MARK: - The resistance feed
-
-    @Test("The resistance feed excludes SMC samples and is PowerOutDetails-first")
-    func resistanceFeedExcludesSMC() {
-        let result = PortPowerMerge.merge(
-            smcChannels: [Self.liveChannel()],
-            uuidMap: [Self.uuidA: "2/1"],
-            powerOutDetailSamples: [Self.podSample(portKey: "2/2")],
-            contractedSamples: [Self.contractSample(portKey: "2/1"), Self.contractSample(portKey: "2/3")]
-        )
-
-        // An SMC sample carries adapterVoltage 0, so feeding it to the
-        // regression yields no usable point and its jitter would reset the
-        // contract fingerprint every tick.
-        #expect(result.meteredSamples.allSatisfy { !$0.isSMCMeasured })
-        #expect(result.meteredSamples.map(\.portKey) == ["2/2", "2/1", "2/3"],
-            "PowerOutDetails entries come first, then contracts for ports it did not cover")
-    }
-
-    @Test("A port with both PowerOutDetails and a contract feeds the regression only once")
-    func resistanceFeedDeduplicatesByPort() {
-        let result = PortPowerMerge.merge(
-            smcChannels: [],
-            uuidMap: [:],
-            powerOutDetailSamples: [Self.podSample(portKey: "2/1")],
-            contractedSamples: [Self.contractSample(portKey: "2/1")]
-        )
-
-        #expect(result.meteredSamples.count == 1)
-        #expect(result.meteredSamples[0].isContractedFallback == false,
-            "the metered PowerOutDetails entry is the one that carries adapterVoltage")
-    }
+    // The old `meteredSamples` resistance-feed tests lived here. The feed was
+    // removed in the 2026-08 charging-path rework (the corpus proved zero of its samples were ever
+    // accepted); the regression now reads the live SMC DC-in pair, covered by
+    // `RegressionAccumulatorTests`.
 
     // MARK: - Degenerate inputs
 
@@ -220,7 +192,6 @@ struct PortPowerMergeTests {
             smcChannels: [], uuidMap: [:], powerOutDetailSamples: [], contractedSamples: []
         )
         #expect(result.displaySamples.isEmpty)
-        #expect(result.meteredSamples.isEmpty)
         #expect(result.provenance.isEmpty)
         #expect(result.perPortMeteringSupported == false)
     }

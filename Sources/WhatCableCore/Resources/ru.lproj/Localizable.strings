@@ -179,16 +179,14 @@
 "Display Output" = "Вывод на дисплей";
 "Enabled" = "Включено";
 "Enter your licence key to unlock pro features." = "Введите ключ лицензии, чтобы разблокировать функции Pro.";
-"Estimating cable resistance…" = "Оценка сопротивления кабеля…";
+"Measuring charging path…" = "Измерение пути зарядки…";
 "Event Log" = "Журнал событий";
 "FET enable failures" = "Сбои включения FET";
 "FET status" = "Состояние FET";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Генерируется контроллером TPS6598x при физической вставке или извлечении кабеля. Несколько срабатываний за одно подключение — норма.";
 "General port controller status change (connection state, error flags)." = "Изменение общего состояния контроллера порта (связь, флаги ошибок).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Изменился регистр состояния контроллера: подключение, ориентация, ошибки.";
-"Good" = "Хорошо";
 "Hard reset count" = "Счётчик жёстких сбросов";
-"High" = "Высокий";
 "Could not reach the licence server. Check your internet connection and try again." = "Не удалось связаться с сервером лицензий. Проверьте подключение к интернету и повторите.";
 "I2C error count" = "Счётчик ошибок I2C";
 "Inactive" = "Неактивно";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "Зарядное устройство MagSafe";
 "Manufacturer" = "Производитель";
-"Marginal" = "На грани";
 "Requested max operating current" = "Запрошенный макс. рабочий ток";
 "Requested max operating power" = "Запрошенная макс. рабочая мощность";
 "Max power" = "Макс. мощность";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Год выпуска";
 "Yes" = "Да";
-"cable resistance estimate" = "оценка сопротивления кабеля";
+"Experimental charging-path estimate" = "Экспериментальная оценка пути зарядки";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@, порт %2$lld";

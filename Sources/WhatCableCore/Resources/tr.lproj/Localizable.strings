@@ -179,16 +179,14 @@
 "Display Output" = "Ekran Çıkışı";
 "Enabled" = "Etkin";
 "Enter your licence key to unlock pro features." = "Pro özellikleri açmak için lisans anahtarınızı girin.";
-"Estimating cable resistance…" = "Kablo direnci tahmin ediliyor…";
+"Measuring charging path…" = "Şarj yolu ölçülüyor…";
 "Event Log" = "Olay Günlüğü";
 "FET enable failures" = "FET etkinleştirme hataları";
 "FET status" = "FET durumu";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "Bir kablo fiziksel olarak takıldığında veya çıkarıldığında TPS6598x denetleyicisi tarafından tetiklenir. Tek bir takma olayında birden fazla tetikleme normaldir.";
 "General port controller status change (connection state, error flags)." = "Genel port denetleyicisi durum değişikliği (bağlantı durumu, hata bayrakları).";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "Genel denetleyici durum kaydı değişti. Takma durumu, yönelim ve hata koşullarını kapsar.";
-"Good" = "İyi";
 "Hard reset count" = "Donanımsal sıfırlama sayısı";
-"High" = "Yüksek";
 "Could not reach the licence server. Check your internet connection and try again." = "Lisans sunucusuna ulaşılamadı. İnternet bağlantınızı kontrol edip tekrar deneyin.";
 "I2C error count" = "I2C hata sayısı";
 "Inactive" = "Etkin değil";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe Şarj Aleti";
 "Manufacturer" = "Üretici";
-"Marginal" = "Sınırda";
 "Requested max operating current" = "İstenen maks. çalışma akımı";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "Maks. güç";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Üretim yılı";
 "Yes" = "Evet";
-"cable resistance estimate" = "kablo direnç tahmini";
+"Experimental charging-path estimate" = "Deneysel şarj yolu tahmini";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

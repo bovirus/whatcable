@@ -179,16 +179,14 @@
 "Display Output" = "वीडियो आउटपुट";
 "Enabled" = "सक्षम";
 "Enter your licence key to unlock pro features." = "Pro सुविधाएँ अनलॉक करने के लिए अपनी लाइसेंस कुंजी दर्ज करें।";
-"Estimating cable resistance…" = "केबल प्रतिरोध का अनुमान लगा रहा है…";
+"Measuring charging path…" = "चार्जिंग पथ मापा जा रहा है…";
 "Event Log" = "इवेंट लॉग";
 "FET enable failures" = "FET सक्रियण विफलताएँ";
 "FET status" = "FET स्थिति";
 "Fired by the TPS6598x controller when a cable is physically inserted or removed. Multiple fires during a single plug event are normal." = "केबल के भौतिक रूप से लगाने या हटाने पर TPS6598x कंट्रोलर द्वारा ट्रिगर। एक कनेक्शन इवेंट में कई बार ट्रिगर होना सामान्य है।";
 "General port controller status change (connection state, error flags)." = "पोर्ट कंट्रोलर की सामान्य स्थिति परिवर्तन (कनेक्शन स्थिति, एरर फ़्लैग)।";
 "Generic controller status register changed. Covers plug state, orientation, and error conditions." = "जनरिक कंट्रोलर स्टेटस रजिस्टर बदला। कनेक्शन स्थिति, ओरिएंटेशन, और एरर कंडीशन को कवर करता है।";
-"Good" = "अच्छा";
 "Hard reset count" = "हार्ड रीसेट गणना";
-"High" = "उच्च";
 "Could not reach the licence server. Check your internet connection and try again." = "लाइसेंस सर्वर तक नहीं पहुँच सके। अपना इंटरनेट कनेक्शन जाँचें और पुनः प्रयास करें।";
 "I2C error count" = "I2C एरर गणना";
 "Inactive" = "निष्क्रिय";
@@ -204,7 +202,6 @@
 "MagSafe 3" = "MagSafe 3";
 "MagSafe Charger" = "MagSafe चार्जर";
 "Manufacturer" = "निर्माता";
-"Marginal" = "सीमांत";
 "Requested max operating current" = "अनुरोधित अधिकतम ऑपरेटिंग करंट";
 "Requested max operating power" = "Requested max operating power";
 "Max power" = "अधिकतम पावर";
@@ -297,7 +294,7 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "निर्माण वर्ष";
 "Yes" = "हाँ";
-"cable resistance estimate" = "केबल प्रतिरोध अनुमान";
+"Experimental charging-path estimate" = "प्रायोगिक चार्जिंग-पथ अनुमान";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ पोर्ट %2$lld";

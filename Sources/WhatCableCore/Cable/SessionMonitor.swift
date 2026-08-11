@@ -248,22 +248,10 @@ public struct SessionMonitor: Equatable, Sendable {
     }
 }
 
-extension SessionMonitor {
-    /// Decide which port the aggregate resistance estimate belongs to. The
-    /// estimator regresses voltage drop against current across *all* ports
-    /// into one number, so the reading is only attributable when exactly one
-    /// port is drawing current. With zero or several ports loaded the number
-    /// is either irrelevant or blended, so it is attributed to no port (the
-    /// caller then folds `nil` resistance and lets the data axis carry the
-    /// verdict). Pure so the rule can be tested without IOKit.
-    ///
-    /// - Returns: the `portKey` of the sole current-drawing port, or `nil`.
-    public static func resistanceAttributedPortKey(in samples: [PortPowerSample]) -> String? {
-        let drawing = samples.filter { $0.current > 0 }
-        guard drawing.count == 1, let only = drawing.first else { return nil }
-        return only.portKey.isEmpty ? nil : only.portKey
-    }
-}
+// `resistanceAttributedPortKey(in:)` lived here until the 2026-08 charging-path rework. Attribution now
+// happens where the estimate is built: `ChargingInputResolver` names the
+// charging port and `PowerMonitorSnapshot.resistancePortKey` carries it, so
+// no surface has to guess from per-port draw any more.
 
 extension SessionMonitor.DataDelivery {
     /// Classify a data-link bottleneck into a delivery outcome. Extracted so

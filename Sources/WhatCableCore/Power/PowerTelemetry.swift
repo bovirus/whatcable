@@ -196,15 +196,52 @@ public struct CableResistanceEstimate: Codable, Sendable, Equatable {
     public let sampleCount: Int
     public let rSquared: Double
     public let status: Status
+    /// Spread between the smallest and largest charging current seen by the
+    /// regression, in mA. Surfaced so the UI (and `--monitor-json` consumers)
+    /// can tell "not converged because the load never varied" apart from "not
+    /// converged because the data is noisy". 0 on estimates decoded from
+    /// older builds.
+    public let currentSpanMilliamps: Int
 
-    public init(milliohms: Double, sampleCount: Int, rSquared: Double, status: Status) {
+    public init(
+        milliohms: Double,
+        sampleCount: Int,
+        rSquared: Double,
+        status: Status,
+        currentSpanMilliamps: Int = 0
+    ) {
         self.milliohms = milliohms
         self.sampleCount = sampleCount
         self.rSquared = rSquared
         self.status = status
+        self.currentSpanMilliamps = currentSpanMilliamps
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case milliohms, sampleCount, rSquared, status, currentSpanMilliamps
+    }
+
+    // Custom decode (encode stays synthesised) so an estimate encoded by an
+    // older build, missing the span key, decodes instead of throwing. Same
+    // pattern as `PowerMonitorSnapshot`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        milliohms = try c.decode(Double.self, forKey: .milliohms)
+        sampleCount = try c.decode(Int.self, forKey: .sampleCount)
+        rSquared = try c.decode(Double.self, forKey: .rSquared)
+        status = try c.decode(Status.self, forKey: .status)
+        currentSpanMilliamps = try c.decodeIfPresent(Int.self, forKey: .currentSpanMilliamps) ?? 0
     }
 
     /// How a stable resistance reading rates against the USB-C spec budget.
+    ///
+    /// **Not surfaced anywhere as of the 2026-08 charging-path rework.** The estimate is a whole
+    /// charging-path slope (cable loop + connectors + charger output
+    /// impedance + Mac board path), so applying cable-only spec budgets to
+    /// it mislabels healthy setups (a known-good dev-M5 setup measured
+    /// 179.6 mOhm against the 150 mOhm 5 A cable budget). The tier stays
+    /// compiled for the Cable History schema and for a future hardware
+    /// calibration pass; nothing feeds it to the UI or the session monitor.
     public enum Tier: String, Sendable {
         /// Comfortably within the spec budget.
         case good
@@ -248,6 +285,12 @@ public struct PowerMonitorSnapshot: Codable, Sendable, Equatable {
     public let systemSample: PowerSample
     public let portSamples: [PortPowerSample]
     public let resistanceEstimate: CableResistanceEstimate?
+    /// Display key ("type/number", e.g. "2/1") of the port whose charging
+    /// cable the resistance estimate describes, or nil when no eligible
+    /// charging input resolved this tick. Attribution happens where the
+    /// estimate is built (the charging-input resolver), not guessed later
+    /// from per-port draw, so every surface agrees on the port.
+    public let resistancePortKey: String?
     /// True when an external power source (a charger) is connected. Drives the
     /// "Charger" vs "Battery" indicator and chart colour. Defaults to true so a
     /// desktop Mac (no battery) reads as plugged in.
@@ -371,6 +414,7 @@ public struct PowerMonitorSnapshot: Codable, Sendable, Equatable {
         systemSample: PowerSample,
         portSamples: [PortPowerSample],
         resistanceEstimate: CableResistanceEstimate?,
+        resistancePortKey: String? = nil,
         externalConnected: Bool = true,
         batteryInstalled: Bool = false,
         batteryVoltageMV: Int = 0,
@@ -384,6 +428,7 @@ public struct PowerMonitorSnapshot: Codable, Sendable, Equatable {
         self.systemSample = systemSample
         self.portSamples = portSamples
         self.resistanceEstimate = resistanceEstimate
+        self.resistancePortKey = resistancePortKey
         self.externalConnected = externalConnected
         self.batteryInstalled = batteryInstalled
         self.batteryVoltageMV = batteryVoltageMV
@@ -395,7 +440,7 @@ public struct PowerMonitorSnapshot: Codable, Sendable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case timestamp, systemSample, portSamples, resistanceEstimate
+        case timestamp, systemSample, portSamples, resistanceEstimate, resistancePortKey
         case externalConnected, batteryInstalled
         case batteryVoltageMV, batteryCurrentMA, batteryPowerMW
         case hasContract, perPortMeteringSupported
@@ -411,6 +456,7 @@ public struct PowerMonitorSnapshot: Codable, Sendable, Equatable {
         systemSample = try c.decode(PowerSample.self, forKey: .systemSample)
         portSamples = try c.decode([PortPowerSample].self, forKey: .portSamples)
         resistanceEstimate = try c.decodeIfPresent(CableResistanceEstimate.self, forKey: .resistanceEstimate)
+        resistancePortKey = try c.decodeIfPresent(String.self, forKey: .resistancePortKey)
         externalConnected = try c.decodeIfPresent(Bool.self, forKey: .externalConnected) ?? true
         batteryInstalled = try c.decodeIfPresent(Bool.self, forKey: .batteryInstalled) ?? false
         batteryVoltageMV = try c.decodeIfPresent(Int.self, forKey: .batteryVoltageMV) ?? 0

@@ -1328,8 +1328,9 @@ def main() -> int:
                 pattern = key_pattern(norm, holes, string_returning_funcs)
                 matches = [k for k in en_all if pattern.match(k)]
                 if len(matches) > 1:
+                    display = norm.replace(HOLE, "\\(...)")
                     failures.append(
-                        f'{target}: "{norm.replace(HOLE, "\\(...)")}" used in {rel} matches '
+                        f'{target}: "{display}" used in {rel} matches '
                         f"{len(matches)} different catalogue keys ({sorted(matches)}), which is "
                         f"ambiguous, not a pass"
                     )

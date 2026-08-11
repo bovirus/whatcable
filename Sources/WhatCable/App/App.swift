@@ -103,6 +103,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
     private var lastMenuBarContent: MenuBarContent?
 
+    /// The button width the popover was last anchored for, so the reanchor
+    /// deferred block can tell a real width change from the ~1 Hz churn of
+    /// `updateMenuBarPresentation` being called every time the watts readout
+    /// ticks. Set whenever the popover is (re)anchored: on open, and inside
+    /// `reanchorPopoverAfterWidthChange` when it applies an update.
+    private var lastAnchoredButtonWidth: CGFloat?
+
+    /// The queued reanchor block, held so a user-initiated close can cancel a
+    /// stale one before it runs. Without this, a queued reanchor from just
+    /// before the click can fire after `performClose`, undoing the user's
+    /// close (the v1.5.0-beta.2 popover-won't-close bug).
+    private var pendingReanchor: DispatchWorkItem?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         log.notice("launch: version=\(AppInfo.version, privacy: .public) macOS=\(ProcessInfo.processInfo.operatingSystemVersionString, privacy: .public)")
         registerWidgetExtension()
@@ -496,19 +509,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// the arrow going misaligned on an icon swap and only correcting on the
     /// next reopen. So the re-anchor has to be explicit.
     ///
-    /// It is done by calling `show` again, which the header documents as a
-    /// re-anchor rather than a reopen: "If the popover is already being shown,
-    /// this method will update to be associated with the new view and
-    /// positioningRect passed."
-    ///
-    /// Assigning `positioningRect` instead does NOT work here, which was tried
-    /// first and rejected on evidence: the arrow was left sitting well to the
-    /// left of the icon after an icon swap. The reason is that `positioningRect`
-    /// is a rectangle *within* the positioning view, and a status-item button's
-    /// `bounds` always has a zero origin, so only its size ever changes. When a
-    /// menu bar item changes width what actually moves is the item's window, and
-    /// assigning a same-origin rect never tells AppKit to recompute against it.
-    /// `show` re-reads the view's position, so it does.
+    /// This used to call `show` again on the assumption that the header's "if
+    /// the popover is already being shown, this method will update to be
+    /// associated with the new view and positioningRect passed" made it a safe
+    /// re-anchor rather than a reopen. It isn't safe: `updateMenuBarPresentation`
+    /// runs on every `MenuBarContent` change, and that includes the raw watts
+    /// value ticking ~1 Hz while charging with the readout on, so `show` was
+    /// being re-invoked roughly once a second on an already-open popover. A
+    /// user's click-to-close could race a queued re-show and pop the popover
+    /// back open, or land inside the "click that opened it" ignore window and
+    /// have the transient dismiss swallowed. That's the v1.5.0-beta.2
+    /// popover-won't-close bug. Assigning `popover.positioningRect` instead
+    /// only mutates a property AppKit already tracks continuously; it can't
+    /// re-enter or fight a concurrent `performClose`. An earlier attempt at
+    /// this approach was rejected because the arrow was left off-centre after
+    /// an icon swap, but that test read the button's bounds synchronously in
+    /// the same runloop turn, before the status bar had reflowed the item to
+    /// its new width. Reading a fresh `bounds` inside the deferred block below
+    /// avoids that stale read, and `positioningRect` moves the arrow correctly.
     ///
     /// Animation is suppressed for the re-anchor so this reads as the arrow
     /// staying put, not the panel re-presenting itself.
@@ -517,12 +535,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// why it needed a `keepOpen` guard: that close dismissed popovers the user
     /// had pinned (issue #346). Nothing closes here, so no guard is needed and
     /// pinned popovers get their arrow re-centred too.
-    /// There is deliberately no "did the width actually change?" test. A status
-    /// item's button frame is not guaranteed to report a new width synchronously
-    /// (the status bar reflows a `variableLength` item on its own schedule), so
-    /// such a test can read stale and skip the re-anchor entirely. The caller
-    /// already returns early unless the rendered content changed, so this only
-    /// runs when the geometry plausibly moved.
+    ///
+    /// The "did the width actually change?" check now lives inside the deferred
+    /// block, checked against a fresh read, not before scheduling. It used to be
+    /// deliberately absent because a pre-scheduling check reads the button's
+    /// width before the status bar has reflowed a `variableLength` item (which
+    /// happens on its own schedule, not synchronously), so it could read stale
+    /// and skip a re-anchor that was actually needed. That objection doesn't
+    /// apply once the check runs after the same deferred turn that waits for the
+    /// reflow to settle, and skipping the no-op case here is what stops the
+    /// ~1 Hz watts tick from touching `positioningRect` when nothing moved.
     private func reanchorPopoverAfterWidthChange() {
         // Deferred a runloop turn on purpose. An NSStatusItem with
         // `variableLength` reflows to fit its contents on the status bar's own
@@ -536,21 +558,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // scheduling and the next turn the menu bar can be torn down and rebuilt
         // (`tearDownMenuBarMode` then `setUpMenuBarMode`, e.g. a display-mode
         // switch), which leaves the captured button belonging to a status item
-        // that has been removed. Showing a popover relative to a view that is no
+        // that has been removed. Repositioning relative to a view that is no
         // longer in a window raises NSInvalidArgumentException, so the stale
         // button has to be dropped, not merely null-checked.
-        DispatchQueue.main.async { [weak self] in
+        //
+        // Held in `pendingReanchor` so a user-initiated close (togglePopover's
+        // close branch) or a popover teardown can cancel a queued-but-not-yet-run
+        // block. Without that, a reanchor queued a moment before the user's
+        // click could still fire after the close and touch a popover the user
+        // just dismissed.
+        pendingReanchor?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
             guard let self,
                   let button = self.statusItem?.button,
                   button.window != nil,
                   let popover = self.popover,
                   popover.isShown
             else { return }
+            let currentWidth = button.bounds.width
+            guard Self.shouldReanchor(lastWidth: self.lastAnchoredButtonWidth, currentWidth: currentWidth) else { return }
             let animated = popover.animates
             popover.animates = false
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.positioningRect = button.bounds
             popover.animates = animated
+            self.lastAnchoredButtonWidth = currentWidth
         }
+        pendingReanchor = workItem
+        DispatchQueue.main.async(execute: workItem)
+    }
+
+    /// Whether the button has genuinely changed width since the popover was
+    /// last anchored, versus a no-op call caused by `updateMenuBarPresentation`
+    /// re-running for an unrelated content change (e.g. the watts value
+    /// ticking). `nil` means never anchored, so treat it as changed. The 0.5pt
+    /// epsilon absorbs floating-point noise from layout, not real movement.
+    nonisolated static func shouldReanchor(lastWidth: CGFloat?, currentWidth: CGFloat) -> Bool {
+        guard let lastWidth else { return true }
+        return abs(currentWidth - lastWidth) > 0.5
     }
 
     /// Single entry point that paints the status item for the current state: the
@@ -696,6 +740,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func tearDownMenuBarMode() {
         // Leaving menu-bar mode: stop the watcher reading charger-in watts.
         WatcherHub.shared.powerWatcher.readsChargerInputWatts = false
+        // Drop any queued reanchor before the status item goes away, so it
+        // can't fire against a button/popover that no longer exists.
+        pendingReanchor?.cancel()
+        pendingReanchor = nil
         if let popover, popover.isShown { popover.performClose(nil) }
         popover = nil
         if let statusItem {
@@ -703,6 +751,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         }
         statusItem = nil
         lastMenuBarContent = nil
+        lastAnchoredButtonWidth = nil
     }
 
     private func setUpWindowMode() {
@@ -758,6 +807,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func togglePopover(from button: NSStatusBarButton) {
         guard let popover else { return }
         if popover.isShown {
+            // User close always wins: drop any reanchor that was queued a
+            // moment ago (e.g. from a watts tick just before the click) so it
+            // can't fire after this close and reopen or reposition a popover
+            // the user just dismissed.
+            pendingReanchor?.cancel()
+            pendingReanchor = nil
             popover.performClose(nil)
         } else {
             // Cap the popover to the display the status item lives on, so a tall
@@ -780,6 +835,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             UpdateChecker.shared.checkIfStale()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            // No pendingReanchor cancel here, and that asymmetry with the
+            // close branch is deliberate: a reanchor queued before this open
+            // compares against the width recorded on this line, so it no-ops
+            // rather than misfires (reviewer-traced).
+            lastAnchoredButtonWidth = button.bounds.width
         }
     }
 
@@ -939,6 +999,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
     nonisolated func popoverDidClose(_ notification: Notification) {
         Task { @MainActor in
+            // Belt-and-braces alongside togglePopover's own cancel: any close,
+            // however it happened, drops a queued reanchor so it can't fire
+            // against a popover that just went away. Guarded on the popover
+            // still being closed: this Task lands a turn late, and if the user
+            // reopened in that gap the queued reanchor now belongs to the NEW
+            // presentation, so cancelling it here would leave a fresh popover
+            // with a stale arrow until the next content change (review
+            // finding on the first cut of this fix).
+            if self.popover?.isShown != true {
+                self.pendingReanchor?.cancel()
+                self.pendingReanchor = nil
+            }
             // Drop to the idle cadence only if a menu-bar popover still exists.
             // This callback also fires when the popover is torn down to switch
             // into window mode: that close arrives late (after setUpWindowMode

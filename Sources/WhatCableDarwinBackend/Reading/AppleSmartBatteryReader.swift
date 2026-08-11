@@ -59,14 +59,29 @@ public enum AppleSmartBatteryReader {
         }
         defer { IOObjectRelease(iter) }
 
-        while case let service = IOIteratorNext(iter), service != 0 {
-            defer { IOObjectRelease(service) }
-            var props: Unmanaged<CFMutableDictionary>?
-            guard IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-                  let dict = props?.takeRetainedValue() as? [String: Any] else {
-                continue
+        var attempt = 0
+        while true {
+            attempt += 1
+            var sawAny = false
+            var next = IOIteratorNext(iter)
+            while next != 0 {
+                sawAny = true
+                let service = next
+                defer { IOObjectRelease(service) }
+                var props: Unmanaged<CFMutableDictionary>?
+                if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+                   let dict = props?.takeRetainedValue() as? [String: Any] {
+                    return dict
+                }
+                next = IOIteratorNext(iter)
             }
-            return dict
+            // Nothing usable was found in this pass. If the iterator was
+            // invalidated mid-walk (not just genuinely empty), retry from the
+            // start; IOIteratorReset rewinds it, so there is nothing collected
+            // here to discard.
+            let invalidatedMidWalk = sawAny && IOIteratorIsValid(iter) == 0
+            if !invalidatedMidWalk || attempt >= 3 { break }
+            IOIteratorReset(iter)
         }
         return nil
     }

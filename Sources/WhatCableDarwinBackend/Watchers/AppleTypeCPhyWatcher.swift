@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import WhatCableCore
+import os.log
 
 /// Watches `AppleT8132TypeCPhy` services for per-lane physical layer state.
 /// One instance per physical USB-C port. Provides the only way to see which
@@ -29,6 +30,8 @@ public final class AppleTypeCPhyWatcher: ObservableObject {
     private var iterators: [io_iterator_t] = []
     private var interestNotifications: [UInt64: io_object_t] = [:]
 
+    nonisolated private static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "typec-phy")
+
     public init() {}
 
     public func start() {
@@ -42,8 +45,17 @@ public final class AppleTypeCPhyWatcher: ObservableObject {
             guard let refcon else { return }
             let watcher = Unmanaged<AppleTypeCPhyWatcher>.fromOpaque(refcon).takeUnretainedValue()
             Task { @MainActor [weak watcher] in
-                while case let s = IOIteratorNext(iterator), s != 0 {
-                    IOObjectRelease(s)
+                // `wcDrainIterator` returning `false` means this
+                // notification iterator was still invalidated (registry
+                // changed mid-walk) after every retry, so this particular
+                // match notification may not be fully re-armed. There is no
+                // stronger recovery here: the caller (`DarwinSnapshotProvider`
+                // / `CableTimelineProvider`) already polls `refresh()` on a
+                // 1s timer independently of notifications, and that poll is
+                // the backstop that converges state even if this one
+                // notification stays deaf.
+                if !wcDrainIterator(iterator) {
+                    AppleTypeCPhyWatcher.log.error("AppleTypeCPhyWatcher: match-notification iterator stayed invalid after retries; relying on the 1s poll to converge")
                 }
                 watcher?.refresh()
             }
@@ -54,8 +66,8 @@ public final class AppleTypeCPhyWatcher: ObservableObject {
             if IOServiceAddMatchingNotification(port, kIOMatchedNotification,
                                                  IOServiceMatching(cls), cb, selfPtr, &iter) == KERN_SUCCESS {
                 iterators.append(iter)
-                while case let s = IOIteratorNext(iter), s != 0 {
-                    IOObjectRelease(s)
+                if !wcDrainIterator(iter) {
+                    Self.log.error("AppleTypeCPhyWatcher: initial drain for \(cls, privacy: .public) stayed invalid after retries; relying on the 1s poll to converge")
                 }
             }
         }
@@ -85,17 +97,25 @@ public final class AppleTypeCPhyWatcher: ObservableObject {
             }
             defer { IOObjectRelease(iter) }
 
-            while case let service = IOIteratorNext(iter), service != 0 {
-                defer { IOObjectRelease(service) }
-                if let phy = makePhy(from: service) {
-                    if !rebuilt.contains(where: { $0.id == phy.id }) {
-                        rebuilt.append(phy)
-                    }
-                    var entryID: UInt64 = 0
-                    if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                        liveEntryIDs.insert(entryID)
-                        registerInterest(for: service, entryID: entryID)
-                    }
+            // `registerInterest` inside the transform is idempotent, so it is
+            // safe to run again on a discarded, retried pass; only the
+            // `rebuilt`/`liveEntryIDs` merge needs to happen after the walk.
+            let results = wcDrainAllRetrying(iter) { service -> (phy: AppleTypeCPhy, entryID: UInt64?)? in
+                guard let phy = makePhy(from: service) else { return nil }
+                var entryID: UInt64 = 0
+                guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else {
+                    return (phy, nil)
+                }
+                registerInterest(for: service, entryID: entryID)
+                return (phy, entryID)
+            }
+            for result in results {
+                guard let result else { continue }
+                if !rebuilt.contains(where: { $0.id == result.phy.id }) {
+                    rebuilt.append(result.phy)
+                }
+                if let entryID = result.entryID {
+                    liveEntryIDs.insert(entryID)
                 }
             }
         }

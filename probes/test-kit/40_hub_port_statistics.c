@@ -314,12 +314,16 @@ static void dumpNode(io_service_t service, int depth, int forceOwnProperties) {
     io_iterator_t children;
     if (IORegistryEntryGetChildIterator(service, kIOServicePlane, &children) == KERN_SUCCESS) {
         io_service_t child;
+        int sawAny = 0;
         while ((child = IOIteratorNext(children))) {
+            sawAny = 1;
             // Stop walking, not just writing: see the note in probe 04.
             if (overBudget()) { IOObjectRelease(child); break; }
             dumpNode(child, depth + 1, 0);
             IOObjectRelease(child);
         }
+        if (sawAny && !IOIteratorIsValid(children))
+            emitf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(children);
     }
 }
@@ -353,6 +357,8 @@ static void dumpAllMatchingServices(const char *className) {
         IOObjectRelease(service);
     }
     if (idx == 0) emitf("\n(class %s matched but zero instances)\n", className);
+    if (idx > 0 && !IOIteratorIsValid(iter))
+        emitf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
 }
 
@@ -815,6 +821,8 @@ static void captureHubPortHints(const char *className) {
         idx++;
         IOObjectRelease(service);
     }
+    if (idx > 0 && !IOIteratorIsValid(iter))
+        emitf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
     if (idx == 0) {
         emitf("  (class %s matched but zero instances)\n", className);
@@ -846,6 +854,8 @@ static void captureAllHubDescriptors(void) {
             IOObjectRelease(service);
         }
         if (idx == 0) emitf("\n(class %s matched but zero instances)\n", hubClasses[c]);
+        if (idx > 0 && !IOIteratorIsValid(iter))
+            emitf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
 

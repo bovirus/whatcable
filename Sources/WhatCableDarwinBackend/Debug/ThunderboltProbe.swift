@@ -34,14 +34,37 @@ public enum ThunderboltProbe {
             }
             defer { IOObjectRelease(iter) }
 
-            while case let service = IOIteratorNext(iter), service != 0 {
-                defer { IOObjectRelease(service) }
-                var entryID: UInt64 = 0
-                IORegistryEntryGetRegistryEntryID(service, &entryID)
-                if !seen.insert(entryID).inserted { continue }
-                switchCount += 1
-                output += dumpSwitch(service, index: switchCount)
-                output += "\n"
+            var attempt = 0
+            while true {
+                attempt += 1
+                let seenSnapshot = seen
+                let outputSnapshot = output
+                let switchCountSnapshot = switchCount
+                var sawAny = false
+                var next = IOIteratorNext(iter)
+                while next != 0 {
+                    sawAny = true
+                    let service = next
+                    defer { IOObjectRelease(service) }
+                    var entryID: UInt64 = 0
+                    IORegistryEntryGetRegistryEntryID(service, &entryID)
+                    if seen.insert(entryID).inserted {
+                        switchCount += 1
+                        output += dumpSwitch(service, index: switchCount)
+                        output += "\n"
+                    }
+                    next = IOIteratorNext(iter)
+                }
+                let invalidatedMidWalk = sawAny && IOIteratorIsValid(iter) == 0
+                if !invalidatedMidWalk || attempt >= 3 { break }
+                // Discard this pass and re-walk from the start. IOIteratorReset
+                // rewinds to the beginning of the list, so keeping what this
+                // pass already added to `seen`/`output`/`switchCount` would
+                // double count everything once the re-walk reaches it again.
+                seen = seenSnapshot
+                output = outputSnapshot
+                switchCount = switchCountSnapshot
+                IOIteratorReset(iter)
             }
         }
 
@@ -74,18 +97,39 @@ public enum ThunderboltProbe {
         defer { IOObjectRelease(childIter) }
 
         var portIndex = 0
-        while case let child = IOIteratorNext(childIter), child != 0 {
-            defer { IOObjectRelease(child) }
-            let childClass = ioClassName(child) ?? "<unknown>"
-            // Filter to IOIOThunderboltPort and its subclasses. Skip the adapter
-            // children (AppleThunderboltUSBDownAdapter etc.) — they're driver
-            // matches, not link-state carriers.
-            guard childClass.contains("Port") else { continue }
-            portIndex += 1
-            output += "\n  ### Port @\(portIndex): \(TerminalFieldEncoder.encode(childClass))\n"
-            if let props = ioProperties(child) {
-                output += renderProperties(props, indent: "    ")
+        var attempt = 0
+        while true {
+            attempt += 1
+            let outputSnapshot = output
+            let portIndexSnapshot = portIndex
+            var sawAny = false
+            var next = IOIteratorNext(childIter)
+            while next != 0 {
+                sawAny = true
+                let child = next
+                defer { IOObjectRelease(child) }
+                let childClass = ioClassName(child) ?? "<unknown>"
+                // Filter to IOIOThunderboltPort and its subclasses. Skip the adapter
+                // children (AppleThunderboltUSBDownAdapter etc.) — they're driver
+                // matches, not link-state carriers.
+                if childClass.contains("Port") {
+                    portIndex += 1
+                    output += "\n  ### Port @\(portIndex): \(TerminalFieldEncoder.encode(childClass))\n"
+                    if let props = ioProperties(child) {
+                        output += renderProperties(props, indent: "    ")
+                    }
+                }
+                next = IOIteratorNext(childIter)
             }
+            let invalidatedMidWalk = sawAny && IOIteratorIsValid(childIter) == 0
+            if !invalidatedMidWalk || attempt >= 3 { break }
+            // Discard this pass and re-walk from the start. IOIteratorReset
+            // rewinds to the beginning of the list, so keeping what this pass
+            // already appended to `output`/`portIndex` would double count it
+            // once the re-walk reaches it again.
+            output = outputSnapshot
+            portIndex = portIndexSnapshot
+            IOIteratorReset(childIter)
         }
         return output
     }

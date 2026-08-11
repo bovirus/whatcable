@@ -74,36 +74,34 @@ public final class USBPDSOPWatcher: ObservableObject {
             var iter: io_iterator_t = 0
             if IOServiceGetMatchingServices(kIOMainPortDefault,
                 IOServiceMatching(className), &iter) == KERN_SUCCESS {
-                while case let service = IOIteratorNext(iter), service != 0 {
-                    if let identity = makeIdentity(from: service),
-                       !rebuilt.contains(where: { $0.id == identity.id }) {
-                        rebuilt.append(identity)
-                    }
-                    IOObjectRelease(service)
+                defer { IOObjectRelease(iter) }
+                let found = wcDrainAllRetrying(iter) { service in makeIdentity(from: service) }
+                for identity in found {
+                    guard let identity, !rebuilt.contains(where: { $0.id == identity.id }) else { continue }
+                    rebuilt.append(identity)
                 }
-                IOObjectRelease(iter)
             }
         }
         if rebuilt != identities { identities = rebuilt }
     }
 
     private func handleAdded(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
-            if let identity = makeIdentity(from: service),
-               !identities.contains(where: { $0.id == identity.id }) {
-                identities.append(identity)
-            }
-            IOObjectRelease(service)
+        let found = wcDrainAllRetrying(iter) { service in makeIdentity(from: service) }
+        for identity in found {
+            guard let identity, !identities.contains(where: { $0.id == identity.id }) else { continue }
+            identities.append(identity)
         }
     }
 
     private func handleRemoved(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
+        let removedEntryIDs = wcDrainAllRetrying(iter) { service -> UInt64? in
             var entryID: UInt64 = 0
-            if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                identities.removeAll { $0.id == entryID }
-            }
-            IOObjectRelease(service)
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
+            identities.removeAll { $0.id == entryID }
         }
     }
 

@@ -94,33 +94,33 @@ public final class TRMTransportWatcher: ObservableObject {
         for cls in Self.watchedClasses {
             var iter: io_iterator_t = 0
             if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching(cls), &iter) == KERN_SUCCESS {
-                while case let service = IOIteratorNext(iter), service != 0 {
-                    defer { IOObjectRelease(service) }
-
+                defer { IOObjectRelease(iter) }
+                let results = wcDrainAllRetrying(iter) { service -> (transport: TRMTransport?, cio: CIOCableCapability?)? in
                     var entryID: UInt64 = 0
-                    guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { continue }
+                    guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
 
                     func read(_ key: String) -> Any? {
                         IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
                     }
 
                     var classBuf = [CChar](repeating: 0, count: 128)
-                    guard IOObjectGetClass(service, &classBuf) == KERN_SUCCESS else { continue }
+                    guard IOObjectGetClass(service, &classBuf) == KERN_SUCCESS else { return nil }
                     let className = String(cString: classBuf)
                     let transportType = Self.transportType(from: className)
 
-                    if let t = makeTRMTransport(entryID: entryID, service: service, read: read, transportType: transportType),
-                       !rebuiltTransports.contains(where: { $0.id == t.id }) {
+                    let t = makeTRMTransport(entryID: entryID, service: service, read: read, transportType: transportType)
+                    let c = transportType == "CIO" ? makeCIOCapability(entryID: entryID, service: service, read: read) : nil
+                    return (t, c)
+                }
+                for result in results {
+                    guard let result else { continue }
+                    if let t = result.transport, !rebuiltTransports.contains(where: { $0.id == t.id }) {
                         rebuiltTransports.append(t)
                     }
-
-                    if transportType == "CIO",
-                       let c = makeCIOCapability(entryID: entryID, service: service, read: read),
-                       !rebuiltCIO.contains(where: { $0.id == c.id }) {
+                    if let c = result.cio, !rebuiltCIO.contains(where: { $0.id == c.id }) {
                         rebuiltCIO.append(c)
                     }
                 }
-                IOObjectRelease(iter)
             }
         }
         if rebuiltTransports != transports { transports = rebuiltTransports }
@@ -128,11 +128,9 @@ public final class TRMTransportWatcher: ObservableObject {
     }
 
     private func handleAdded(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
-            defer { IOObjectRelease(service) }
-
+        let results = wcDrainAllRetrying(iter) { service -> (transport: TRMTransport?, cio: CIOCableCapability?)? in
             var entryID: UInt64 = 0
-            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { continue }
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
 
             // Read keys individually rather than fetching the full property
             // dictionary. The bulk fetch (IORegistryEntryCreateCFProperties)
@@ -145,31 +143,35 @@ public final class TRMTransportWatcher: ObservableObject {
             }
 
             var classBuf = [CChar](repeating: 0, count: 128)
-            guard IOObjectGetClass(service, &classBuf) == KERN_SUCCESS else { continue }
+            guard IOObjectGetClass(service, &classBuf) == KERN_SUCCESS else { return nil }
             let className = String(cString: classBuf)
             let transportType = Self.transportType(from: className)
 
-            if let t = makeTRMTransport(entryID: entryID, service: service, read: read, transportType: transportType),
-               !transports.contains(where: { $0.id == t.id }) {
+            let t = makeTRMTransport(entryID: entryID, service: service, read: read, transportType: transportType)
+            let c = transportType == "CIO" ? makeCIOCapability(entryID: entryID, service: service, read: read) : nil
+            return (t, c)
+        }
+        for result in results {
+            guard let result else { continue }
+            if let t = result.transport, !transports.contains(where: { $0.id == t.id }) {
                 transports.append(t)
             }
-
-            if transportType == "CIO",
-               let c = makeCIOCapability(entryID: entryID, service: service, read: read),
-               !cioCapabilities.contains(where: { $0.id == c.id }) {
+            if let c = result.cio, !cioCapabilities.contains(where: { $0.id == c.id }) {
                 cioCapabilities.append(c)
             }
         }
     }
 
     private func handleRemoved(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
+        let removedEntryIDs = wcDrainAllRetrying(iter) { service -> UInt64? in
             var entryID: UInt64 = 0
-            if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                transports.removeAll { $0.id == entryID }
-                cioCapabilities.removeAll { $0.id == entryID }
-            }
-            IOObjectRelease(service)
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
+            transports.removeAll { $0.id == entryID }
+            cioCapabilities.removeAll { $0.id == entryID }
         }
     }
 

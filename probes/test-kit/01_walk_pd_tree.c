@@ -117,12 +117,16 @@ static void dumpService(io_service_t service, const char *label) {
     kr = IORegistryEntryGetChildIterator(service, kIOServicePlane, &childIter);
     if (kr == KERN_SUCCESS) {
         io_service_t child;
+        int sawAny = 0;
         while ((child = IOIteratorNext(childIter))) {
+            sawAny = 1;
             io_name_t childClass = {0};
             IOObjectGetClass(child, childClass);
             printf("  Child: %s\n", childClass);
             IOObjectRelease(child);
         }
+        if (sawAny && !IOIteratorIsValid(childIter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
     }
 }
@@ -270,6 +274,8 @@ int main(void) {
                 printf("\n--- %s: all %d already dumped ---\n", list[i], idx);
             else if (skipped)
                 printf("\n--- %s: %d dumped, %d already dumped ---\n", list[i], dumped, skipped);
+            if (idx > 0 && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
         }
     }

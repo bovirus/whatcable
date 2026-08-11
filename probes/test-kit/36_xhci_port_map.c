@@ -93,6 +93,8 @@ static void dumpPorts(const char *cls) {
         IOObjectRelease(s);
     }
     if (n == 0) printf("  (%s: none)\n", cls);
+    if (n > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
 }
 
@@ -140,12 +142,16 @@ static int findDescriptionWithLocation(io_service_t service, int depth, char *ou
     if (IORegistryEntryGetChildIterator(service, kIOServicePlane, &childIter) == KERN_SUCCESS) {
         io_service_t child;
         int found = 0;
+        int sawAny = 0;
         while ((child = IOIteratorNext(childIter))) {
+            sawAny = 1;
             if (!found && findDescriptionWithLocation(child, depth + 1, out, n)) {
                 found = 1;
             }
             IOObjectRelease(child);
         }
+        if (sawAny && !IOIteratorIsValid(childIter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
         if (found) return 1;
     }
@@ -164,7 +170,9 @@ static void resolvePort(io_service_t hpm, char *label, size_t labelN,
     }
 
     io_service_t child;
+    int sawAny = 0;
     while ((child = IOIteratorNext(childIter))) {
+        sawAny = 1;
         io_name_t name = {0};
         if (IORegistryEntryGetName(child, name) != KERN_SUCCESS) {
             IOObjectRelease(child);
@@ -188,6 +196,8 @@ static void resolvePort(io_service_t hpm, char *label, size_t labelN,
         }
         IOObjectRelease(child);
     }
+    if (sawAny && !IOIteratorIsValid(childIter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(childIter);
 }
 
@@ -223,6 +233,8 @@ static void dumpHPMUUIDMap(void) {
         idx++;
         IOObjectRelease(hpm);
     }
+    if (idx > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
 
     if (idx == 0) printf("(no power controllers matched)\n");
@@ -289,6 +301,8 @@ static void dumpUsbIOPortHPMJoin(const char *cls) {
         IOObjectRelease(s);
     }
     if (n == 0) printf("  (%s: none)\n", cls);
+    if (n > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
 }
 
@@ -322,6 +336,8 @@ int main(void) {
             IOObjectRelease(s);
         }
         if (n == 0) printf("  (none connected)\n");
+        if (n > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
 

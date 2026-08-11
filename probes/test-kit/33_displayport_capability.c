@@ -165,6 +165,8 @@ int main(void) {
         printf("\n");
         IOObjectRelease(svc);
     }
+    if (count > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
 
     if (count == 0) printf("(no DisplayPort nodes; likely no display attached)\n");

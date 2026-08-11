@@ -93,16 +93,24 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
             let matching = IOServiceMatching(cls)
             var iter: io_iterator_t = 0
             if IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iter) == KERN_SUCCESS {
-                while case let service = IOIteratorNext(iter), service != 0 {
-                    if let port = makePort(from: service),
-                       !rebuilt.contains(where: { $0.id == port.id }) {
+                defer { IOObjectRelease(iter) }
+                // `registerInterest` runs inside the transform: it is
+                // idempotent (guarded by `interestNotifications[entryID] ==
+                // nil`), so it is safe to run again on a discarded, retried
+                // pass. Only `rebuilt`/`liveEntryIDs` need the retry-safe
+                // merge-after-walk treatment.
+                let ports = wcDrainAllRetrying(iter) { service -> AppleHPMInterface? in
+                    guard let port = makePort(from: service) else { return nil }
+                    registerInterest(for: service, entryID: port.id)
+                    return port
+                }
+                for port in ports {
+                    guard let port else { continue }
+                    if !rebuilt.contains(where: { $0.id == port.id }) {
                         rebuilt.append(port)
                         liveEntryIDs.insert(port.id)
-                        registerInterest(for: service, entryID: port.id)
                     }
-                    IOObjectRelease(service)
                 }
-                IOObjectRelease(iter)
             }
         }
 
@@ -127,12 +135,17 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
     }
 
     private func drain(iterator: io_iterator_t) {
-        while case let service = IOIteratorNext(iterator), service != 0 {
-            if let port = makePort(from: service), !ports.contains(where: { $0.id == port.id }) {
-                ports.append(port)
-                registerInterest(for: service, entryID: port.id)
-            }
-            IOObjectRelease(service)
+        // Same treatment as `refresh()`: `registerInterest` inside the
+        // transform is idempotent, so a discarded retry pass calling it again
+        // is harmless; only the `ports` merge needs to happen after the walk.
+        let found = wcDrainAllRetrying(iterator) { service -> AppleHPMInterface? in
+            guard let port = makePort(from: service) else { return nil }
+            registerInterest(for: service, entryID: port.id)
+            return port
+        }
+        for port in found {
+            guard let port, !ports.contains(where: { $0.id == port.id }) else { continue }
+            ports.append(port)
         }
         // Active connections first, then alphabetically within each group.
         ports.sort { lhs, rhs in

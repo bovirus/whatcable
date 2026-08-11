@@ -93,14 +93,13 @@ public final class DisplayPortTransportWatcher: ObservableObject {
         var rebuilt: [DisplayPortUpdate] = []
         var iter: io_iterator_t = 0
         if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPortTransportStateDisplayPort"), &iter) == KERN_SUCCESS {
-            while case let service = IOIteratorNext(iter), service != 0 {
-                if let update = makeUpdate(from: service) {
-                    rebuilt.removeAll { $0.entryID == update.entryID }
-                    rebuilt.append(update)
-                }
-                IOObjectRelease(service)
+            defer { IOObjectRelease(iter) }
+            let updates = wcDrainAllRetrying(iter) { service in makeUpdate(from: service) }
+            for update in updates {
+                guard let update else { continue }
+                rebuilt.removeAll { $0.entryID == update.entryID }
+                rebuilt.append(update)
             }
-            IOObjectRelease(iter)
         }
         let next = enrichedWithLiveMode(rebuilt)
         if next != statuses { statuses = next }
@@ -108,13 +107,12 @@ public final class DisplayPortTransportWatcher: ObservableObject {
 
     private func handleAdded(_ iterator: io_iterator_t) {
         var changed = false
-        while case let service = IOIteratorNext(iterator), service != 0 {
-            if let update = makeUpdate(from: service) {
-                statuses.removeAll { $0.entryID == update.entryID }
-                statuses.append(update)
-                changed = true
-            }
-            IOObjectRelease(service)
+        let updates = wcDrainAllRetrying(iterator) { service in makeUpdate(from: service) }
+        for update in updates {
+            guard let update else { continue }
+            statuses.removeAll { $0.entryID == update.entryID }
+            statuses.append(update)
+            changed = true
         }
         // Attach the live on-screen mode to the newly added display(s) so the
         // popover, widget, CLI, and Diagnostics window all agree.
@@ -145,15 +143,18 @@ public final class DisplayPortTransportWatcher: ObservableObject {
     }
 
     private func handleRemoved(_ iterator: io_iterator_t) {
-        while case let service = IOIteratorNext(iterator), service != 0 {
-            defer { IOObjectRelease(service) }
-            // Remove by registry entry id, the same per-node key makeUpdate
-            // stores. The entry id is kernel-assigned and readable even while
-            // the service is being torn down, so it matches exactly the node
-            // that went away and never the other display on the same port when
-            // a dock drives two monitors through one port (issue #271).
+        // Remove by registry entry id, the same per-node key makeUpdate
+        // stores. The entry id is kernel-assigned and readable even while
+        // the service is being torn down, so it matches exactly the node
+        // that went away and never the other display on the same port when
+        // a dock drives two monitors through one port (issue #271).
+        let removedEntryIDs = wcDrainAllRetrying(iterator) { service -> UInt64? in
             var entryID: UInt64 = 0
-            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { continue }
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
             statuses.removeAll { $0.entryID == entryID }
         }
     }

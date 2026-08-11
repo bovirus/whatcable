@@ -122,8 +122,10 @@ static int shouldSkipDeviceClass(io_service_t service) {
         return 0;
     }
     int found = 0;
+    int sawAny = 0;
     io_service_t child;
     while ((child = IOIteratorNext(children)) != 0) {
+        sawAny = 1;
         long childInterfaceClass = 0;
         if (readIntProperty(child, "bInterfaceClass", &childInterfaceClass) &&
             (childInterfaceClass == kUSBMassStorageClass || childInterfaceClass == kUSBHIDClass)) {
@@ -132,6 +134,8 @@ static int shouldSkipDeviceClass(io_service_t service) {
         IOObjectRelease(child);
         if (found) break;
     }
+    if (sawAny && !IOIteratorIsValid(children))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(children);
     return found;
 }
@@ -276,6 +280,8 @@ int main(void) {
                 break;
             }
         }
+        if (count > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         if (count == 0) printf("  (no instances)\n");
         printf("\n");

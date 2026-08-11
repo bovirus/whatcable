@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import WhatCableCore
+import os.log
 
 @MainActor
 public final class PortDiagnosticsWatcher: ObservableObject {
@@ -32,6 +33,8 @@ public final class PortDiagnosticsWatcher: ObservableObject {
     /// reflects it. Only runs while the Cable Diagnostics window is open.
     private static let pollInterval: Duration = .seconds(2)
 
+    nonisolated private static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "port-diagnostics")
+
     public init() {
         var continuation: AsyncStream<PortDiagnosticsSnapshot>.Continuation?
         snapshots = AsyncStream { continuation = $0 }
@@ -53,8 +56,14 @@ public final class PortDiagnosticsWatcher: ObservableObject {
             // task runs, it becomes a no-op rather than touching freed memory.
             Task { @MainActor [weak watcher] in
                 guard let watcher else { return }
-                while case let service = IOIteratorNext(iterator), service != 0 {
-                    IOObjectRelease(service)
+                // A `false` return means this notification iterator
+                // was still invalidated (registry changed mid-walk) after
+                // every retry. No stronger recovery is needed: `pollTask`
+                // below already re-runs `refresh()` every 2 seconds
+                // regardless of notifications, which is the backstop that
+                // converges state even if this one notification stays deaf.
+                if !wcDrainIterator(iterator) {
+                    PortDiagnosticsWatcher.log.error("PortDiagnosticsWatcher: match-notification iterator stayed invalid after retries; relying on the 2s poll to converge")
                 }
                 watcher.refresh()
             }
@@ -68,8 +77,10 @@ public final class PortDiagnosticsWatcher: ObservableObject {
             selfPtr,
             &matchIterator
         ) == KERN_SUCCESS {
-            while case let service = IOIteratorNext(matchIterator), service != 0 {
-                IOObjectRelease(service)
+            // Same recovery note as above: the 2s poll started below is the
+            // backstop on terminal invalidation.
+            if !wcDrainIterator(matchIterator) {
+                Self.log.error("PortDiagnosticsWatcher: initial drain stayed invalid after retries; relying on the 2s poll to converge")
             }
             refresh()
         }

@@ -252,8 +252,10 @@ static int deviceHasMassStorageInterface(io_service_t device) {
         return 0;
     }
     int found = 0;
+    int sawAny = 0;
     io_service_t child;
     while ((child = IOIteratorNext(children)) != 0) {
+        sawAny = 1;
         long interfaceClass = 0;
         if (readIntProperty(child, "bInterfaceClass", &interfaceClass) &&
             interfaceClass == kUSBMassStorageClass) {
@@ -262,6 +264,8 @@ static int deviceHasMassStorageInterface(io_service_t device) {
         IOObjectRelease(child);
         if (found) break;
     }
+    if (sawAny && !IOIteratorIsValid(children))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(children);
     return found;
 }
@@ -466,6 +470,8 @@ int main(void) {
             IOObjectRelease(svc);
             count++;
         }
+        if (count > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         printf("\nTotal IOUSBHostDevice services: %d\n", count);
     }
@@ -490,6 +496,8 @@ int main(void) {
                 IOObjectRelease(svc);
                 count++;
             }
+            if (count > 0 && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
             if (count > 0) printf("  Found %d %s\n", count, usb4Classes[c]);
         }
@@ -511,7 +519,9 @@ int main(void) {
             IOServiceMatching(billboardClasses[bc]), &iter);
         if (kr != KERN_SUCCESS) continue;
         io_service_t svc;
+        int sawAny = 0;
         while ((svc = IOIteratorNext(iter)) != 0) {
+            sawAny = 1;
             // Class matching includes subclasses, so if AppleUSBHostBillboardDevice
             // is a subclass of IOUSBHostBillboardDevice the two iterators can return
             // the same service. Dedupe by registry entry ID before counting/dumping.
@@ -532,6 +542,8 @@ int main(void) {
             }
             IOObjectRelease(svc);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
     printf("  Found %d billboard devices\n", billboardCount);

@@ -163,10 +163,14 @@ static void walkTree(io_service_t service, int depth, const char *plane, int sup
     kern_return_t kr = IORegistryEntryGetChildIterator(service, plane, &childIter);
     if (kr == KERN_SUCCESS) {
         io_service_t child;
+        int sawAny = 0;
         while ((child = IOIteratorNext(childIter))) {
+            sawAny = 1;
             walkTree(child, depth + 1, plane, suppress);
             IOObjectRelease(child);
         }
+        if (sawAny && !IOIteratorIsValid(childIter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
     }
 }
@@ -183,10 +187,14 @@ int main(void) {
 
     if (kr == KERN_SUCCESS) {
         io_service_t service;
+        int sawAny = 0;
         while ((service = IOIteratorNext(iter))) {
+            sawAny = 1;
             walkTree(service, 0, kIOServicePlane, 0);
             IOObjectRelease(service);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     } else {
         printf("No AppleHPMARMSPMI found\n");
@@ -201,10 +209,14 @@ int main(void) {
     );
     if (kr == KERN_SUCCESS) {
         io_service_t service;
+        int sawAny = 0;
         while ((service = IOIteratorNext(iter))) {
+            sawAny = 1;
             walkTree(service, 0, "IOPower", 0);
             IOObjectRelease(service);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
 
@@ -217,7 +229,9 @@ int main(void) {
     );
     if (kr == KERN_SUCCESS) {
         io_service_t service;
+        int sawAny = 0;
         while ((service = IOIteratorNext(iter))) {
+            sawAny = 1;
             // Try to register for interest notifications
             IONotificationPortRef notifyPort = IONotificationPortCreate(kIOMainPortDefault);
             if (notifyPort) {
@@ -244,6 +258,8 @@ int main(void) {
             }
             IOObjectRelease(service);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
 
@@ -281,10 +297,14 @@ int main(void) {
     );
     if (kr == KERN_SUCCESS) {
         io_service_t service;
+        int sawAny = 0;
         while ((service = IOIteratorNext(iter))) {
+            sawAny = 1;
             walkTree(service, 0, kIOServicePlane, 1);
             IOObjectRelease(service);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     } else {
         printf("No IOAccessoryManager found\n");

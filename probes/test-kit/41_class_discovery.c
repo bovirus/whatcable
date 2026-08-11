@@ -97,14 +97,27 @@ int main(void) {
     // while it was being walked. When that happens the capture is PARTIAL, and
     // a partial capture that looks complete is how a missing class gets read as
     // absent hardware. Report it rather than let a reader assume completeness.
+    //
+    // IOIteratorIsValid also reads false for an iterator that matched nothing
+    // at all (see 42_typec_phy_subtree.c), but this iterator walks the whole
+    // IOService plane, so it always sees at least the root: nodes==0 here would
+    // itself be a bigger problem than a false-positive stale read, so no extra
+    // guard is needed on that account.
     int stale = !IOIteratorIsValid(iter);
     IOObjectRelease(iter);
 
     printf("=== REGISTRY CLASS DISCOVERY ===\n");
     printf("nodes=%lld\n", nodes);
     printf("classes=%d\n", g_classCount);
+    // iterator_stale is the numeric field scripts/inspect-probe.py's classes()
+    // parses; the TRUNCATED line is the same marker every other probe in this
+    // kit prints, so a generic scan for it (not just this probe's own field)
+    // also catches this capture.
     printf("iterator_stale=%d%s\n", stale,
            stale ? "  (registry changed mid-walk: capture is PARTIAL)" : "");
+    if (stale) {
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
+    }
     printf("class_table_overflow=%d\n", g_classOverflow);
     printf("\n");
 

@@ -82,7 +82,9 @@ int main(void) {
     kr = IOServiceGetMatchingServices(kIOMainPortDefault,
         IOServiceMatching("AppleSmartBattery"), &iter);
     if (kr == KERN_SUCCESS) {
+        int sawAny = 0;
         while ((svc = IOIteratorNext(iter)) != 0) {
+            sawAny = 1;
             CFMutableDictionaryRef props = NULL;
             kr = IORegistryEntryCreateCFProperties(svc, &props, kCFAllocatorDefault, 0);
             if (kr == KERN_SUCCESS && props) {
@@ -106,6 +108,8 @@ int main(void) {
             }
             IOObjectRelease(svc);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     } else {
         printf("  (not found)\n");
@@ -116,7 +120,9 @@ int main(void) {
     kr = IOServiceGetMatchingServices(kIOMainPortDefault,
         IOServiceMatching("AppleSmartBatteryManager"), &iter);
     if (kr == KERN_SUCCESS) {
+        int sawAny = 0;
         while ((svc = IOIteratorNext(iter)) != 0) {
+            sawAny = 1;
             CFMutableDictionaryRef props = NULL;
             kr = IORegistryEntryCreateCFProperties(svc, &props, kCFAllocatorDefault, 0);
             if (kr == KERN_SUCCESS && props) {
@@ -137,6 +143,8 @@ int main(void) {
             }
             IOObjectRelease(svc);
         }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     } else {
         printf("  (not found)\n");
@@ -151,7 +159,9 @@ int main(void) {
         kr = IOServiceGetMatchingServices(kIOMainPortDefault,
             IOServiceMatching(chargerClasses[c]), &iter);
         if (kr == KERN_SUCCESS) {
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter)) != 0) {
+                sawAny = 1;
                 io_name_t name = {0};
                 IORegistryEntryGetName(svc, name);
                 printf("\n  --- %s \"%s\" ---\n", chargerClasses[c], name);
@@ -174,6 +184,8 @@ int main(void) {
                 }
                 IOObjectRelease(svc);
             }
+            if (sawAny && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
         }
     }

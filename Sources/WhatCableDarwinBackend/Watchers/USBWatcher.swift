@@ -95,24 +95,23 @@ public final class USBWatcher: ObservableObject {
     }
 
     private func handleAdded(iterator: io_iterator_t) {
-        while case let service = IOIteratorNext(iterator), service != 0 {
-            if let device = makeDevice(from: service) {
-                if !devices.contains(where: { $0.id == device.id }) {
-                    devices.append(device)
-                }
-            }
-            IOObjectRelease(service)
+        let found = wcDrainAllRetrying(iterator) { service in makeDevice(from: service) }
+        for device in found {
+            guard let device, !devices.contains(where: { $0.id == device.id }) else { continue }
+            devices.append(device)
         }
         devices.sort { ($0.productName ?? "") < ($1.productName ?? "") }
     }
 
     private func handleRemoved(iterator: io_iterator_t) {
-        while case let service = IOIteratorNext(iterator), service != 0 {
+        let removedEntryIDs = wcDrainAllRetrying(iterator) { service -> UInt64? in
             var entryID: UInt64 = 0
-            if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                devices.removeAll { $0.id == entryID }
-            }
-            IOObjectRelease(service)
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
+            devices.removeAll { $0.id == entryID }
         }
     }
 

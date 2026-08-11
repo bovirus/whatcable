@@ -166,6 +166,8 @@ int main(void) {
             IOObjectRelease(svc);
             count++;
         }
+        if (count > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         if (found == 0 && count > 0) printf("  (%d services, no power properties)\n", count);
         printf("\n");
@@ -191,6 +193,8 @@ int main(void) {
                 IOObjectRelease(svc);
                 count++;
             }
+            if (count > 0 && !IOIteratorIsValid(childIter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(childIter);
             printf("  Total IOPower root children: %d\n", count);
         } else {

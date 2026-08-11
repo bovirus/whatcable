@@ -363,25 +363,23 @@ public final class PowerSourceWatcher: ObservableObject {
         var rebuilt: [PowerSource] = []
         var iter: io_iterator_t = 0
         if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPortFeaturePowerSource"), &iter) == KERN_SUCCESS {
-            while case let service = IOIteratorNext(iter), service != 0 {
-                if let s = makeSource(from: service), !rebuilt.contains(where: { $0.id == s.id }) {
-                    rebuilt.append(s)
-                }
-                IOObjectRelease(service)
+            defer { IOObjectRelease(iter) }
+            let found = wcDrainAllRetrying(iter) { service in makeSource(from: service) }
+            for s in found {
+                guard let s, !rebuilt.contains(where: { $0.id == s.id }) else { continue }
+                rebuilt.append(s)
             }
-            IOObjectRelease(iter)
         }
         return rebuilt
     }
 
     private func handleAdded(_ iter: io_iterator_t) {
         var addedRealUSBCSource = false
-        while case let service = IOIteratorNext(iter), service != 0 {
-            if let s = Self.makeSource(from: service), !sources.contains(where: { $0.id == s.id }) {
-                sources.append(s)
-                if s.parentPortType == 2 { addedRealUSBCSource = true }
-            }
-            IOObjectRelease(service)
+        let found = wcDrainAllRetrying(iter) { service in Self.makeSource(from: service) }
+        for s in found {
+            guard let s, !sources.contains(where: { $0.id == s.id }) else { continue }
+            sources.append(s)
+            if s.parentPortType == 2 { addedRealUSBCSource = true }
         }
         // A real USB-C-parented node just arrived: gate 2b in
         // PowerSourceSynthesis means synthesis must stop for this machine
@@ -393,12 +391,14 @@ public final class PowerSourceWatcher: ObservableObject {
     }
 
     private func handleRemoved(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
+        let removedEntryIDs = wcDrainAllRetrying(iter) { service -> UInt64? in
             var entryID: UInt64 = 0
-            if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                sources.removeAll { $0.id == entryID }
-            }
-            IOObjectRelease(service)
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
+            sources.removeAll { $0.id == entryID }
         }
     }
 

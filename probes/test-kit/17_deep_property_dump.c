@@ -184,15 +184,25 @@ static void dumpServiceFull(io_service_t service, int depth) {
     kr = IORegistryEntryGetChildIterator(service, kIOServicePlane, &childIter);
     if (kr == KERN_SUCCESS) {
         io_service_t child;
+        int sawAnyChild = 0;
         while ((child = IOIteratorNext(childIter))) {
+            sawAnyChild = 1;
             dumpServiceFull(child, depth + 1);
             IOObjectRelease(child);
+        }
+        // IOIteratorIsValid reads false for an iterator that matched nothing
+        // at all (measured on macOS 26, see 42_typec_phy_subtree.c), not only
+        // for one invalidated mid-walk, so a leaf node with zero children must
+        // not be treated as truncated: only sawAnyChild-and-invalid counts.
+        if (sawAnyChild && !IOIteratorIsValid(childIter)) {
+            printIndent(depth + 1);
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         }
         // Only a completed walk counts. If the registry changed underneath us
         // the iterator goes invalid and we may have seen only part of the
         // subtree, so this node must stay eligible for a later root to emit in
         // full rather than be marked covered.
-        childrenWalked = IOIteratorIsValid(childIter);
+        childrenWalked = !sawAnyChild || IOIteratorIsValid(childIter);
         IOObjectRelease(childIter);
     }
 
@@ -247,11 +257,16 @@ int main(void) {
 
         io_service_t svc;
         int idx = 0;
+        int sawAny = 0;
         while ((svc = IOIteratorNext(iter))) {
+            sawAny = 1;
             printf("\n--- %s[%d] ---\n", roots[c], idx);
             dumpServiceFull(svc, 0);
             IOObjectRelease(svc);
             idx++;
+        }
+        if (sawAny && !IOIteratorIsValid(iter)) {
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         }
         IOObjectRelease(iter);
     }
@@ -275,7 +290,9 @@ int main(void) {
         if (kr == KERN_SUCCESS) {
             io_service_t svc;
             int idx = 0;
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter))) {
+                sawAny = 1;
                 printf("--- DeviceHAL[%d] ---\n", idx);
 
                 CFMutableDictionaryRef props = NULL;
@@ -288,6 +305,9 @@ int main(void) {
 
                 IOObjectRelease(svc);
                 idx++;
+            }
+            if (sawAny && !IOIteratorIsValid(iter)) {
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             }
             IOObjectRelease(iter);
         }
@@ -305,7 +325,9 @@ int main(void) {
             &iter);
         if (kr == KERN_SUCCESS) {
             io_service_t svc;
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter))) {
+                sawAny = 1;
                 io_name_t className = {0};
                 IOObjectGetClass(svc, className);
 
@@ -336,6 +358,9 @@ int main(void) {
 
                 IOObjectRelease(svc);
             }
+            if (sawAny && !IOIteratorIsValid(iter)) {
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
+            }
             IOObjectRelease(iter);
         }
     }
@@ -365,7 +390,9 @@ int main(void) {
 
             io_service_t svc;
             int idx = 0;
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter))) {
+                sawAny = 1;
                 printf("--- %s[%d] ---\n", transportClasses[i], idx);
                 CFMutableDictionaryRef props = NULL;
                 kr = IORegistryEntryCreateCFProperties(
@@ -380,7 +407,9 @@ int main(void) {
                 kr = IORegistryEntryGetChildIterator(svc, kIOServicePlane, &childIter);
                 if (kr == KERN_SUCCESS) {
                     io_service_t child;
+                    int sawAnyChild = 0;
                     while ((child = IOIteratorNext(childIter))) {
+                        sawAnyChild = 1;
                         io_name_t childClass = {0};
                         IOObjectGetClass(child, childClass);
                         printf("  child: %s\n", childClass);
@@ -393,11 +422,17 @@ int main(void) {
                         }
                         IOObjectRelease(child);
                     }
+                    if (sawAnyChild && !IOIteratorIsValid(childIter)) {
+                        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
+                    }
                     IOObjectRelease(childIter);
                 }
 
                 IOObjectRelease(svc);
                 idx++;
+            }
+            if (sawAny && !IOIteratorIsValid(iter)) {
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             }
             IOObjectRelease(iter);
         }
@@ -425,7 +460,9 @@ int main(void) {
 
             io_service_t svc;
             int idx = 0;
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter))) {
+                sawAny = 1;
                 printf("--- %s[%d] ---\n", featureClasses[i], idx);
                 CFMutableDictionaryRef props = NULL;
                 kr = IORegistryEntryCreateCFProperties(
@@ -436,6 +473,9 @@ int main(void) {
                 }
                 IOObjectRelease(svc);
                 idx++;
+            }
+            if (sawAny && !IOIteratorIsValid(iter)) {
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             }
             IOObjectRelease(iter);
         }

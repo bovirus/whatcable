@@ -205,7 +205,9 @@ static void dumpCFType(CFTypeRef value, int depth) {
 // Matching callback for new services appearing
 static void matchingCallback(void *refcon, io_iterator_t iterator) {
     io_service_t svc;
+    int sawAny = 0;
     while ((svc = IOIteratorNext(iterator))) {
+        sawAny = 1;
         io_name_t name = {0};
         IOObjectGetClass(svc, name);
         printf("\n>>> NEW SERVICE: %s\n", name);
@@ -220,6 +222,8 @@ static void matchingCallback(void *refcon, io_iterator_t iterator) {
 
         IOObjectRelease(svc);
     }
+    if (sawAny && !IOIteratorIsValid(iterator))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
 }
 
 // Interest callback for HPM property changes
@@ -301,7 +305,9 @@ int main(void) {
             &iter);
         if (kr == KERN_SUCCESS) {
             io_service_t svc;
+            int sawAny = 0;
             while ((svc = IOIteratorNext(iter))) {
+                sawAny = 1;
                 CFArrayRef pcInfo = (CFArrayRef)IORegistryEntryCreateCFProperty(
                     svc, CFSTR("PortControllerInfo"), kCFAllocatorDefault, 0);
                 if (pcInfo && CFGetTypeID(pcInfo) == CFArrayGetTypeID()) {
@@ -423,6 +429,8 @@ int main(void) {
 
                 IOObjectRelease(svc);
             }
+            if (sawAny && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
         }
     }
@@ -451,6 +459,8 @@ int main(void) {
                 IOObjectRelease(svc);
                 idx++;
             }
+            if (idx > 0 && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
             if (idx == 0) printf("  (none present - plug in a USB3 device!)\n");
         }
@@ -480,6 +490,8 @@ int main(void) {
                 IOObjectRelease(svc);
                 idx++;
             }
+            if (idx > 0 && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
             if (idx == 0) printf("  (none present - appears with TB/USB4 devices)\n");
         }

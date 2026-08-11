@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import WhatCableCore
+import os.log
 
 /// Watches `IOIOThunderboltSwitch` services and assembles them into a normalised
 /// list of `IOThunderboltSwitch` models. Modelled on `AppleHPMInterfaceWatcher`:
@@ -29,6 +30,8 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
     private var matchIterators: [io_iterator_t] = []
     private var interestNotifications: [UInt64: io_object_t] = [:]
 
+    nonisolated private static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "tb-switch")
+
     public init() {}
 
     public func start() {
@@ -48,8 +51,16 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
                 // Drain the iterator so the kernel re-arms the notification,
                 // then do a full re-walk so we pick up parent linkage and
                 // sort consistently.
-                while case let s = IOIteratorNext(iterator), s != 0 {
-                    IOObjectRelease(s)
+                //
+                // A `false` return means this iterator was still
+                // invalidated (registry changed mid-walk) after every retry,
+                // so this notification may not be fully re-armed. No
+                // stronger recovery is needed here: `WatcherHub.refreshAll()`
+                // polls `refresh()` on this watcher independently (1s active
+                // / 30s idle), which is the backstop that converges state
+                // even if this one notification stays deaf.
+                if !wcDrainIterator(iterator) {
+                    IOIOThunderboltSwitchWatcher.log.error("IOThunderboltSwitchWatcher: match-notification iterator stayed invalid after retries; relying on WatcherHub's poll to converge")
                 }
                 watcher?.refresh()
             }
@@ -73,8 +84,10 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
                 matchIterators.append(iter)
                 // Drain the initial set the kernel hands back so the
                 // notification re-arms. The model build happens in refresh().
-                while case let s = IOIteratorNext(iter), s != 0 {
-                    IOObjectRelease(s)
+                // Same recovery note as above: WatcherHub's poll is the
+                // backstop on terminal invalidation.
+                if !wcDrainIterator(iter) {
+                    Self.log.error("IOThunderboltSwitchWatcher: initial drain for \(className, privacy: .public) stayed invalid after retries; relying on WatcherHub's poll to converge")
                 }
             }
         }
@@ -144,49 +157,83 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
             }
             defer { IOObjectRelease(iter) }
 
-            while case let service = IOIteratorNext(iter), service != 0 {
-                // Read class name and entry ID up front.
-                var className = "<unknown>"
-                var nameBuf = [CChar](repeating: 0, count: 128)
-                if IOObjectGetClass(service, &nameBuf) == KERN_SUCCESS {
-                    className = String(cString: nameBuf)
+            // Note this class's io_service_t handles are NOT released as
+            // they're read: unlike most watchers, `raw` keeps them alive
+            // (for the second pass below) and the `defer` at the top of
+            // `refresh()` releases all of them together once every class
+            // has been walked. So a discarded, retried pass here must
+            // release the handles it already put into `raw` itself, and roll
+            // back `seenEntryIDs`, before re-walking.
+            var attempt = 0
+            while true {
+                attempt += 1
+                let rawCountBefore = raw.count
+                var sawAny = false
+                var next = IOIteratorNext(iter)
+                while next != 0 {
+                    sawAny = true
+                    let service = next
+
+                    // Read class name and entry ID up front.
+                    var className = "<unknown>"
+                    var nameBuf = [CChar](repeating: 0, count: 128)
+                    if IOObjectGetClass(service, &nameBuf) == KERN_SUCCESS {
+                        className = String(cString: nameBuf)
+                    }
+
+                    var entryID: UInt64 = 0
+                    IORegistryEntryGetRegistryEntryID(service, &entryID)
+
+                    // Dedup: a service that matched a previous class iteration
+                    // shouldn't be added twice. Release the duplicate handle.
+                    if !seenEntryIDs.insert(entryID).inserted {
+                        IOObjectRelease(service)
+                        next = IOIteratorNext(iter)
+                        continue
+                    }
+
+                    // Read keys individually rather than fetching the full
+                    // property dictionary. The bulk fetch can abort the process
+                    // from inside IOCFUnserializeBinary when the kernel returns
+                    // a malformed serialised properties blob (issue #181).
+                    func readProp(_ key: String) -> Any? {
+                        IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+                    }
+                    let uid = (readProp("UID") as? NSNumber)?.int64Value
+
+                    // Walk up to the nearest Thunderbolt switch ancestor (skipping
+                    // adapter / port intermediaries). On Apple Silicon, downstream
+                    // switches sit below their parent switch in the IOService
+                    // plane, so this gives us the parent linkage for free. For a
+                    // host root (no switch ancestor), the same walk also surfaces
+                    // the acioN root name (port-scoping join, see `switchAncestry`).
+                    let ancestry = switchAncestry(of: service)
+
+                    raw.append(RawEntry(
+                        service: service,
+                        className: className,
+                        uid: uid,
+                        entryID: entryID,
+                        parentEntryID: ancestry.parentEntryID,
+                        acioRootName: ancestry.acioRootName
+                    ))
+                    next = IOIteratorNext(iter)
                 }
-
-                var entryID: UInt64 = 0
-                IORegistryEntryGetRegistryEntryID(service, &entryID)
-
-                // Dedup: a service that matched a previous class iteration
-                // shouldn't be added twice. Release the duplicate handle.
-                if !seenEntryIDs.insert(entryID).inserted {
-                    IOObjectRelease(service)
-                    continue
+                let invalidatedMidWalk = sawAny && IOIteratorIsValid(iter) == 0
+                if !invalidatedMidWalk || attempt >= 3 { break }
+                // Discard everything this attempt added to `raw`: release
+                // the io_service_t handles it holds (they were never
+                // released above, unlike most watchers) and undo the
+                // matching `seenEntryIDs` inserts. IOIteratorReset rewinds
+                // to the start of the list, so keeping this attempt's
+                // entries would double count them once the re-walk reaches
+                // them again.
+                for entry in raw[rawCountBefore...] {
+                    IOObjectRelease(entry.service)
+                    seenEntryIDs.remove(entry.entryID)
                 }
-
-                // Read keys individually rather than fetching the full
-                // property dictionary. The bulk fetch can abort the process
-                // from inside IOCFUnserializeBinary when the kernel returns
-                // a malformed serialised properties blob (issue #181).
-                func readProp(_ key: String) -> Any? {
-                    IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
-                }
-                let uid = (readProp("UID") as? NSNumber)?.int64Value
-
-                // Walk up to the nearest Thunderbolt switch ancestor (skipping
-                // adapter / port intermediaries). On Apple Silicon, downstream
-                // switches sit below their parent switch in the IOService
-                // plane, so this gives us the parent linkage for free. For a
-                // host root (no switch ancestor), the same walk also surfaces
-                // the acioN root name (port-scoping join, see `switchAncestry`).
-                let ancestry = switchAncestry(of: service)
-
-                raw.append(RawEntry(
-                    service: service,
-                    className: className,
-                    uid: uid,
-                    entryID: entryID,
-                    parentEntryID: ancestry.parentEntryID,
-                    acioRootName: ancestry.acioRootName
-                ))
+                raw.removeSubrange(rawCountBefore...)
+                IOIteratorReset(iter)
             }
         }
 
@@ -276,24 +323,21 @@ public final class IOIOThunderboltSwitchWatcher: ObservableObject {
         }
         defer { IOObjectRelease(childIter) }
 
-        while case let child = IOIteratorNext(childIter), child != 0 {
-            defer { IOObjectRelease(child) }
-
+        let results = wcDrainAllRetrying(childIter) { child -> IOThunderboltPort? in
             // Class name must contain "Port" to qualify; this filters out
             // the adapter shims (AppleThunderboltUSBDownAdapter etc.) which
             // are driver matches rather than registry-backed ports.
             var classBuf = [CChar](repeating: 0, count: 128)
-            guard IOObjectGetClass(child, &classBuf) == KERN_SUCCESS else { continue }
+            guard IOObjectGetClass(child, &classBuf) == KERN_SUCCESS else { return nil }
             let className = String(cString: classBuf)
-            guard className.contains("Port") else { continue }
+            guard className.contains("Port") else { return nil }
 
             func read(_ key: String) -> Any? {
                 IORegistryEntryCreateCFProperty(child, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
             }
-            if let port = IOThunderboltPort.from(read: read) {
-                ports.append(port)
-            }
+            return IOThunderboltPort.from(read: read)
         }
+        ports.append(contentsOf: results.compactMap { $0 })
         ports.sort { $0.portNumber < $1.portNumber }
         return ports
     }

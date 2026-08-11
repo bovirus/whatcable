@@ -113,6 +113,8 @@ static void dumpServiceFull(io_service_t service, const char *label) {
             IOObjectRelease(child);
             childIdx++;
         }
+        if (childIdx > 0 && !IOIteratorIsValid(childIter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
     }
 }
@@ -155,6 +157,8 @@ int main(void) {
             IOObjectRelease(svc);
             count++;
         }
+        if (count > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         if (count == 0) printf("  (no instances)\n");
         printf("\n");

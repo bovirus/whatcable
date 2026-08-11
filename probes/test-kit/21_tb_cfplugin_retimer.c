@@ -228,6 +228,8 @@ static void check_all_tb_properties(void) {
             }
             IOObjectRelease(svc);
         }
+        if (idx > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
     }
 }
@@ -257,6 +259,8 @@ int main(void) {
                 IOObjectRelease(svc);
                 break; /* Just try the first controller */
             }
+            if (idx > 0 && !IOIteratorIsValid(iter))
+                printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
             IOObjectRelease(iter);
         }
     }

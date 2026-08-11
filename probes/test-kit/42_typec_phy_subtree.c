@@ -215,7 +215,7 @@ static void dumpSubtree(io_service_t service, int depth) {
          * matched nothing at all, so only a warn when something WAS seen
          * distinguishes a mid-walk registry change from an empty result. */
         if (childCount > 0 && !IOIteratorIsValid(childIter))
-            outf("  WARNING: child iterator invalidated mid-walk (registry changed); subtree incomplete\n");
+            outf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
     }
 }
@@ -242,7 +242,7 @@ static void matchAndDump(const char *className, int withParentChain) {
     }
     /* Same zero-match IOIteratorIsValid quirk as the child walk above. */
     if (count > 0 && !IOIteratorIsValid(iter))
-        outf("  WARNING: match iterator invalidated mid-walk (registry changed); results incomplete\n");
+        outf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
     outf("\nmatched instances: %d\n\n", count);
 }

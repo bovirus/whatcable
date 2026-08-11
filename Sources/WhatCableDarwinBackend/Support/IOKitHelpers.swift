@@ -47,6 +47,107 @@ public func wcData(_ value: Any?) -> Data? {
     value as? Data
 }
 
+/// Drains an IOKit iterator into an array, retrying the whole pass from the
+/// start when the iterator was invalidated partway through the walk (the
+/// registry changed under us mid-read, e.g. a cable was unplugged while we
+/// were iterating).
+///
+/// `IOIteratorIsValid` returning false is ambiguous on its own: Apple
+/// documents it as "the iterator is no longer valid", but it is also what a
+/// perfectly normal empty match reports (measured directly on macOS 26 by
+/// `probes/test-kit/42_typec_phy_subtree.c`: an iterator that matched
+/// nothing at all reports invalid too). So invalidity is only treated as a
+/// signal worth retrying on when this pass actually produced at least one
+/// item; `sawAny` is what tells the two cases apart.
+///
+/// On a retry, `IOIteratorReset` rewinds the iterator back to the start of
+/// its list, so anything this pass already collected would be seen again
+/// and double counted if it were kept. The whole pass's results are
+/// discarded and the walk restarts from scratch. `transform` is called once
+/// per item and the item is released immediately afterwards, whether or not
+/// this pass ends up being the one that gets kept, so a discarded pass never
+/// leaks the objects it obtained.
+///
+/// Retries are capped at `maxAttempts` (default 3, i.e. up to 2 resets).
+/// After the final attempt this returns whatever that attempt collected
+/// even if the iterator is still reporting invalid: an occasionally
+/// incomplete result is acceptable here, an unbounded retry loop is not.
+///
+/// `onTerminalInvalidation` fires at most once, only when the very last
+/// attempt still saw the iterator invalidated mid-walk (i.e. the same
+/// condition that would otherwise trigger one more retry, but the retry
+/// budget is spent). It is a no-op by default so the 30+ existing call
+/// sites that only want the collected array are unaffected. For a
+/// notification-backed iterator (one obtained from
+/// `IOServiceAddMatchingNotification`), this is the caller's only signal
+/// that the notification may not have been fully re-armed for future
+/// deliveries; see `wcDrainIterator`'s doc comment for what "may" means
+/// here.
+public func wcDrainAllRetrying<T>(
+    _ iterator: io_iterator_t,
+    maxAttempts: Int = 3,
+    transform: (io_service_t) -> T,
+    onTerminalInvalidation: () -> Void = {}
+) -> [T] {
+    var attempt = 0
+    while true {
+        attempt += 1
+        var results: [T] = []
+        var sawAny = false
+        var next = IOIteratorNext(iterator)
+        while next != 0 {
+            sawAny = true
+            results.append(transform(next))
+            IOObjectRelease(next)
+            next = IOIteratorNext(iterator)
+        }
+        let invalidatedMidWalk = sawAny && IOIteratorIsValid(iterator) == 0
+        if !invalidatedMidWalk {
+            return results
+        }
+        if attempt >= maxAttempts {
+            onTerminalInvalidation()
+            return results
+        }
+        // Discard `results`. IOIteratorReset rewinds to the start of the
+        // list, so anything already collected in this pass would be seen
+        // again, and double counted, once the re-walk reaches it a second
+        // time.
+        IOIteratorReset(iterator)
+    }
+}
+
+/// Drains an IOKit iterator with no per-item work beyond releasing each
+/// object, retrying on the same policy as `wcDrainAllRetrying`.
+///
+/// This is the shape needed to consume (and thereby re-arm) an
+/// `IOServiceAddMatchingNotification` iterator where the items themselves
+/// carry no useful data for the caller, just released and discarded. See
+/// `wcDrainAllRetrying`'s doc comment for the retry policy and why it is
+/// safe against both meanings of an invalid iterator.
+///
+/// Returns `true` when the drain completed with the iterator in a valid
+/// state (the ordinary case: either it matched nothing at all, or it
+/// matched everything and the final `IOIteratorNext` cleanly returned 0).
+/// Returns `false` only when the iterator saw at least one item and was
+/// still reporting invalid after every retry was exhausted -- the case
+/// where the caller cannot assume future notifications on this iterator
+/// will keep arriving. (Before this fix the polarity was inverted --
+/// `true` meant "still invalid" -- and every call site discarded the
+/// result regardless, so a terminal invalidation was never noticed
+/// anywhere. `@discardableResult` stays because most call sites still have
+/// nothing useful to do with it directly; the ones that do now check it
+/// explicitly. See `research/iokit-data-sources.md` for the background on
+/// why `IOIteratorIsValid` needs this treatment at all.)
+@discardableResult
+public func wcDrainIterator(_ iterator: io_iterator_t, maxAttempts: Int = 3) -> Bool {
+    var completedCleanly = true
+    _ = wcDrainAllRetrying(iterator, maxAttempts: maxAttempts, transform: { _ in true }) {
+        completedCleanly = false
+    }
+    return completedCleanly
+}
+
 public func wcRegistryEntryID(_ service: io_service_t) -> UInt64 {
     var entryID: UInt64 = 0
     IORegistryEntryGetRegistryEntryID(service, &entryID)

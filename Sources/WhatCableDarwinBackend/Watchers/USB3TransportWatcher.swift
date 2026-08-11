@@ -63,33 +63,33 @@ public final class USB3TransportWatcher: ObservableObject {
         var rebuilt: [USB3Transport] = []
         var iter: io_iterator_t = 0
         if IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPortTransportStateUSB3"), &iter) == KERN_SUCCESS {
-            while case let service = IOIteratorNext(iter), service != 0 {
-                if let t = makeTransport(from: service), !rebuilt.contains(where: { $0.id == t.id }) {
-                    rebuilt.append(t)
-                }
-                IOObjectRelease(service)
+            defer { IOObjectRelease(iter) }
+            let found = wcDrainAllRetrying(iter) { service in makeTransport(from: service) }
+            for t in found {
+                guard let t, !rebuilt.contains(where: { $0.id == t.id }) else { continue }
+                rebuilt.append(t)
             }
-            IOObjectRelease(iter)
         }
         if rebuilt != transports { transports = rebuilt }
     }
 
     private func handleAdded(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
-            if let t = makeTransport(from: service), !transports.contains(where: { $0.id == t.id }) {
-                transports.append(t)
-            }
-            IOObjectRelease(service)
+        let found = wcDrainAllRetrying(iter) { service in makeTransport(from: service) }
+        for t in found {
+            guard let t, !transports.contains(where: { $0.id == t.id }) else { continue }
+            transports.append(t)
         }
     }
 
     private func handleRemoved(_ iter: io_iterator_t) {
-        while case let service = IOIteratorNext(iter), service != 0 {
+        let removedEntryIDs = wcDrainAllRetrying(iter) { service -> UInt64? in
             var entryID: UInt64 = 0
-            if IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS {
-                transports.removeAll { $0.id == entryID }
-            }
-            IOObjectRelease(service)
+            guard IORegistryEntryGetRegistryEntryID(service, &entryID) == KERN_SUCCESS else { return nil }
+            return entryID
+        }
+        for entryID in removedEntryIDs {
+            guard let entryID else { continue }
+            transports.removeAll { $0.id == entryID }
         }
     }
 

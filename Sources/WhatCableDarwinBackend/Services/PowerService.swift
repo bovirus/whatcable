@@ -567,23 +567,32 @@ public final class PowerService: ObservableObject {
                 continue
             }
             defer { IOObjectRelease(iter) }
-            while case let service = IOIteratorNext(iter), service != 0 {
-                defer { IOObjectRelease(service) }
+
+            // Collect this class's entries with the retry-safe helper first,
+            // then merge into `found` once the walk is done. Doing the merge
+            // (and its cross-class dedup check) after keeps the walk itself
+            // side-effect free, so a discarded, retried pass never partially
+            // populates `found`.
+            let classEntries = wcDrainAllRetrying(iter) { service -> (key: String, rid: Int?)? in
                 func read(_ key: String) -> Any? {
                     IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
                 }
                 let portType = read("PortTypeDescription") as? String
                 let isRealPort = (portType == "USB-C" || portType?.hasPrefix("MagSafe") == true)
-                guard isRealPort else { continue }
+                guard isRealPort else { return nil }
                 let portNumber = wcPortIndex(read: read, service: service)
-                guard portNumber != 0 else { continue }
+                guard portNumber != 0 else { return nil }
                 let key = PortIdentity.from(
                     typeDescription: portType,
                     reportedTypeCode: read("PortType") as? Int,
                     number: portNumber
                 ).key
-                if !found.contains(where: { $0.key == key }) {
-                    found.append((key: key, rid: wcHPMControllerRID(for: service)))
+                return (key: key, rid: wcHPMControllerRID(for: service))
+            }
+            for entry in classEntries {
+                guard let entry else { continue }
+                if !found.contains(where: { $0.key == entry.key }) {
+                    found.append(entry)
                 }
             }
         }

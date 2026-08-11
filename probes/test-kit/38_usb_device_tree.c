@@ -209,6 +209,8 @@ int main(void) {
         IOObjectRelease(s);
     }
     if (n == 0) printf("(no USB devices connected)\n");
+    if (n > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
     IOObjectRelease(iter);
     return 0;
 }

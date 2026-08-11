@@ -238,10 +238,14 @@ static void walk(io_service_t service, int depth, uint64_t parentEntryID, int su
     io_iterator_t childIter;
     if (IORegistryEntryGetChildIterator(service, kIOServicePlane, &childIter) == KERN_SUCCESS) {
         io_service_t child;
+        int sawAny = 0;
         while ((child = IOIteratorNext(childIter))) {
+            sawAny = 1;
             walk(child, depth + 1, entryID, suppress);
             IOObjectRelease(child);
         }
+        if (sawAny && !IOIteratorIsValid(childIter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(childIter);
     }
 }
@@ -276,6 +280,8 @@ int main(void) {
             IOObjectRelease(svc);
             n++;
         }
+        if (n > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         if (n == 0) printf("  (no instances)\n");
         printf("\n");
@@ -319,6 +325,8 @@ int main(void) {
             IOObjectRelease(svc);
             n++;
         }
+        if (n > 0 && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
         IOObjectRelease(iter);
         if (n == 0) printf("  (no instances)\n");
         printf("\n");

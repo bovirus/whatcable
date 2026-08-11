@@ -70,17 +70,25 @@ public enum HPMPortUUIDMap {
         }
         defer { IOObjectRelease(iterator) }
 
-        while case let controller = IOIteratorNext(iterator), controller != 0 {
-            defer { IOObjectRelease(controller) }
+        // Collect (uuid, portKey) pairs via the shared retry-safe drain, then
+        // apply the first-controller-wins rule after the walk is finished.
+        // Doing the dedup here rather than inside the transform keeps the
+        // walk itself side-effect free, so a discarded, retried pass (see
+        // `wcDrainAllRetrying`) can never partially populate `map`.
+        let entries = wcDrainAllRetrying(iterator) { controller -> (uuid: String, portKey: String)? in
             // Read the controller's own UUID, never a descendant's. The PD
             // power options in the same subtree each carry their own UUID; that
             // one identifies a PDO option, not the port.
-            guard let rawUUID = readString(controller, "UUID") else { continue }
+            guard let rawUUID = readString(controller, "UUID") else { return nil }
             let uuid = normalise(rawUUID)
-            guard isValidNormalised(uuid) else { continue }
-            guard let portKey = portKey(forController: controller) else { continue }
+            guard isValidNormalised(uuid) else { return nil }
+            guard let portKey = portKey(forController: controller) else { return nil }
+            return (uuid, portKey)
+        }
+        for entry in entries {
+            guard let entry else { continue }
             // First controller wins on the off chance two report the same UUID.
-            if map[uuid] == nil { map[uuid] = portKey }
+            if map[entry.uuid] == nil { map[entry.uuid] = entry.portKey }
         }
         return map
     }
@@ -95,20 +103,46 @@ public enum HPMPortUUIDMap {
         }
         defer { IOObjectRelease(childIterator) }
 
-        while case let child = IOIteratorNext(childIterator), child != 0 {
-            defer { IOObjectRelease(child) }
-            var name = [CChar](repeating: 0, count: 128)
-            guard IORegistryEntryGetName(child, &name) == KERN_SUCCESS else { continue }
-            let childName = String(cString: name)
-            guard childName.hasPrefix("Port-") else { continue }
+        // The first "Port-" child found decides the answer (success or nil),
+        // so this is a find-first walk, not a collect-all one; the shared
+        // array-collecting helper would change that behaviour (it would try
+        // later children after a failed number lookup on the first match).
+        // A local retry loop preserves the original early-return shape.
+        var attempt = 0
+        while true {
+            attempt += 1
+            var sawAny = false
+            var next = IOIteratorNext(childIterator)
+            while next != 0 {
+                sawAny = true
+                let child = next
+                defer { IOObjectRelease(child) }
+                var name = [CChar](repeating: 0, count: 128)
+                guard IORegistryEntryGetName(child, &name) == KERN_SUCCESS else {
+                    next = IOIteratorNext(childIterator)
+                    continue
+                }
+                let childName = String(cString: name)
+                guard childName.hasPrefix("Port-") else {
+                    next = IOIteratorNext(childIterator)
+                    continue
+                }
 
-            // Port number comes from the entry's location in the service plane
-            // (the "@N" suffix), falling back to a descendant "Description".
-            let number = portNumber(from: child)
-            guard let number else { return nil }
-            // A registry walk has the node's name but not its `PortType`
-            // property, so this is the name-only form of the shared rule.
-            return PortIdentity.from(serviceName: childName, number: number).key
+                // Port number comes from the entry's location in the service plane
+                // (the "@N" suffix), falling back to a descendant "Description".
+                let number = portNumber(from: child)
+                guard let number else { return nil }
+                // A registry walk has the node's name but not its `PortType`
+                // property, so this is the name-only form of the shared rule.
+                return PortIdentity.from(serviceName: childName, number: number).key
+            }
+            // Reached the end of the list without finding a "Port-" child at
+            // all. If that's because the iterator was invalidated mid-walk
+            // (not just genuinely empty), retry from the start; IOIteratorReset
+            // rewinds it, so there is nothing collected here to discard.
+            let invalidatedMidWalk = sawAny && IOIteratorIsValid(childIterator) == 0
+            if !invalidatedMidWalk || attempt >= 3 { break }
+            IOIteratorReset(childIterator)
         }
         return nil
     }
@@ -145,9 +179,25 @@ public enum HPMPortUUIDMap {
             return nil
         }
         defer { IOObjectRelease(childIterator) }
-        while case let child = IOIteratorNext(childIterator), child != 0 {
-            defer { IOObjectRelease(child) }
-            if let value = findDescriptionLocation(child, depth: depth + 1) { return value }
+
+        // Find-first, same as `portKey(forController:)` above: the first
+        // child whose recursive search succeeds decides the answer, so a
+        // local retry loop is used rather than the array-collecting helper.
+        var attempt = 0
+        while true {
+            attempt += 1
+            var sawAny = false
+            var next = IOIteratorNext(childIterator)
+            while next != 0 {
+                sawAny = true
+                let child = next
+                defer { IOObjectRelease(child) }
+                if let value = findDescriptionLocation(child, depth: depth + 1) { return value }
+                next = IOIteratorNext(childIterator)
+            }
+            let invalidatedMidWalk = sawAny && IOIteratorIsValid(childIterator) == 0
+            if !invalidatedMidWalk || attempt >= 3 { break }
+            IOIteratorReset(childIterator)
         }
         return nil
     }

@@ -88,6 +88,14 @@ struct RegressionAccumulator {
     /// The last ACCEPTED (volts, amps, watts) tuple, for the distinct-tuple
     /// rule. Reset with the buffer.
     private var lastTuple: SMCSystemPowerInput?
+    /// The most recent `stable` fit for the CURRENT fingerprint. A converged
+    /// reading stays valid until the path itself changes (cable, charger,
+    /// port, contract): the rolling buffer ages varied samples out during
+    /// idle, and without this latch the UI would drop a good reading back to
+    /// "measuring" a few minutes after the workload flattens (owner decision,
+    /// 2026-08-11). Refreshed whenever a newer fit reaches `stable`; cleared
+    /// wherever the buffer resets.
+    private var latchedStable: CableResistanceEstimate?
     /// Consecutive ticks with an eligible fingerprint but no SMC input. A
     /// short blip is tolerated; a sustained outage clears the buffer so a
     /// converged estimate cannot sit on screen as fresh while the data
@@ -129,6 +137,7 @@ struct RegressionAccumulator {
         settleCountdown = 0
         lastTuple = nil
         missedInputStreak = 0
+        latchedStable = nil
     }
 
     // MARK: - Core logic
@@ -157,6 +166,7 @@ struct RegressionAccumulator {
                 samples.removeAll()
                 lastFingerprint = nil
                 lastTuple = nil
+                latchedStable = nil
             }
             if settleCountdown > 0 { settleCountdown -= 1 }
             return false
@@ -168,6 +178,7 @@ struct RegressionAccumulator {
             lastTuple = nil
             settleCountdown = settleSkipCount
             missedInputStreak = 0
+            latchedStable = nil
         }
 
         if settleCountdown > 0 {
@@ -183,6 +194,7 @@ struct RegressionAccumulator {
             if missedInputStreak >= Self.maxMissedInputTicks {
                 samples.removeAll()
                 lastTuple = nil
+                latchedStable = nil
             }
             return false
         }
@@ -217,6 +229,19 @@ struct RegressionAccumulator {
     /// Attribution for the current estimate: the display port key of the
     /// charging path the samples belong to, or nil when none is resolved.
     var attributedPortKey: String? { lastFingerprint?.portKey }
+
+    /// What the snapshot reports: the latest `stable` fit for this path if
+    /// one has been achieved (see `latchedStable`), else the live fit.
+    /// Mutating because a fresh `stable` fit updates the latch here, on the
+    /// same tick every consumer reads.
+    mutating func reportedEstimate() -> CableResistanceEstimate {
+        let live = estimate()
+        if live.status == .stable {
+            latchedStable = live
+            return live
+        }
+        return latchedStable ?? live
+    }
 
     /// The regression over the current buffer.
     ///

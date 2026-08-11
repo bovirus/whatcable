@@ -179,7 +179,8 @@
 "Display Output" = "顯示輸出";
 "Enabled" = "已啟用";
 "Enter your licence key to unlock pro features." = "輸入授權金鑰以解鎖 Pro 功能。";
-"Measuring charging path…" = "正在測量充電路徑…";
+"Measuring while your Mac charges…" = "正在測量,Mac 充電中…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "等待充電負載變化。請正常使用 Mac 以完成測量。";
 "Event Log" = "事件記錄";
 "FET enable failures" = "FET 啟用失敗次數";
 "FET status" = "FET 狀態";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "製造年份";
 "Yes" = "是";
-"Experimental charging-path estimate" = "充電路徑實驗性估算";
+"Charging resistance" = "充電電阻";
+"experimental" = "實驗性";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "整個充電路徑的電阻:線材、接頭與充電器的總和。數值越低越好。要判斷線材,請在同一充電器與同一連接埠上比較不同線材。";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ 連接埠 %2$lld";

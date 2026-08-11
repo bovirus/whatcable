@@ -209,19 +209,66 @@ struct RegressionAccumulatorTests {
     func sustainedOutageClearsBuffer() {
         var acc = RegressionAccumulator(settleSkipCount: 0)
         feedRamp(&acc, milliohms: 180, from: 0.3, to: 1.4, count: 40)
-        #expect(acc.estimate().status == .stable)
+        #expect(acc.reportedEstimate().status == .stable)
         // Eligible fingerprint, but the SMC stops answering. A short blip
-        // keeps the estimate; a sustained outage must degrade it.
+        // keeps the estimate; a sustained outage must degrade it, INCLUDING
+        // the latch: a frozen data source must not keep a "fresh" reading up.
         for _ in 0..<(RegressionAccumulator.maxMissedInputTicks - 1) {
             acc.append(input: nil, fingerprint: fp())
         }
-        #expect(acc.estimate().status == .stable, "a brief blip must not discard a good fit")
+        #expect(acc.reportedEstimate().status == .stable, "a brief blip must not discard a good fit")
         acc.append(input: nil, fingerprint: fp())
         #expect(acc.samples.isEmpty)
-        #expect(acc.estimate().status == .insufficient)
+        #expect(acc.reportedEstimate().status == .insufficient)
         // Recovery accumulates fresh samples from scratch.
         let ok = acc.append(input: input(volts: 20.0, amps: 1.0), fingerprint: fp())
         #expect(ok)
+    }
+
+    // MARK: - Latch (owner decision 2026-08-11)
+
+    @Test("A converged reading persists through an idle spell instead of degrading")
+    func latchSurvivesIdleFlattening() {
+        var acc = RegressionAccumulator(settleSkipCount: 0, maxSamples: 240)
+        feedRamp(&acc, milliohms: 180, from: 0.3, to: 1.4, count: 40)
+        let converged = acc.reportedEstimate()
+        #expect(converged.status == .stable)
+
+        // Idle spell: 240 distinct near-flat samples age every varied sample
+        // out of the rolling buffer, so the LIVE fit loses its span and goes
+        // unreliable. The reported estimate must stay the converged one.
+        for i in 0..<240 {
+            let amps = 0.25 + Double(i % 7) * 0.001
+            let volts = 20.1 - 0.18 * amps
+            acc.append(input: input(volts: volts, amps: amps), fingerprint: fp())
+        }
+        #expect(acc.estimate().status == .unreliable, "the live fit must have lost its span (test setup check)")
+        let reported = acc.reportedEstimate()
+        #expect(reported.status == .stable)
+        #expect(abs(reported.milliohms - converged.milliohms) < 0.001, "the latched reading, not a new fit")
+    }
+
+    @Test("The latch clears on a fingerprint change")
+    func latchClearsOnPathChange() {
+        var acc = RegressionAccumulator(settleSkipCount: 0)
+        feedRamp(&acc, milliohms: 180, from: 0.3, to: 1.4, count: 40)
+        #expect(acc.reportedEstimate().status == .stable)
+        // New connection (replug): the old cable's reading must not carry over.
+        acc.append(input: input(volts: 20.0, amps: 1.0), fingerprint: fp(sourceID: 99))
+        #expect(acc.reportedEstimate().status == .insufficient)
+    }
+
+    @Test("A newer stable fit refreshes the latch")
+    func latchRefreshes() {
+        var acc = RegressionAccumulator(settleSkipCount: 0, maxSamples: 240)
+        feedRamp(&acc, milliohms: 180, from: 0.3, to: 1.4, count: 40)
+        #expect(Int(acc.reportedEstimate().milliohms.rounded()) == 180)
+        // The path warms up (resistance rises) and a fresh varied window
+        // converges again: the newer fit must win. 240 samples fully evict
+        // the old 180 mOhm window (test setup guarded by the count check).
+        feedRamp(&acc, milliohms: 220, from: 0.3, to: 1.4, count: 240)
+        #expect(acc.samples.count == 240)
+        #expect(Int(acc.reportedEstimate().milliohms.rounded()) == 220)
     }
 
     @Test("PDTR gate is skipped honestly when watts is the computed fallback")

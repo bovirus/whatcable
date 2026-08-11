@@ -302,7 +302,7 @@ public final class PowerService: ObservableObject {
             timestamp: timestamp,
             systemSample: system,
             portSamples: portSamples,
-            resistanceEstimate: accumulator.estimate(),
+            resistanceEstimate: accumulator.reportedEstimate(),
             resistancePortKey: accumulator.attributedPortKey,
             externalConnected: externalConnected,
             batteryInstalled: batteryInstalled,

@@ -179,7 +179,8 @@
 "Display Output" = "Ekran Çıkışı";
 "Enabled" = "Etkin";
 "Enter your licence key to unlock pro features." = "Pro özellikleri açmak için lisans anahtarınızı girin.";
-"Measuring charging path…" = "Şarj yolu ölçülüyor…";
+"Measuring while your Mac charges…" = "Mac'iniz şarj olurken ölçülüyor…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Şarj yükünün değişmesi bekleniyor. Ölçümü tamamlamak için Mac'inizi normal şekilde kullanın.";
 "Event Log" = "Olay Günlüğü";
 "FET enable failures" = "FET etkinleştirme hataları";
 "FET status" = "FET durumu";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Üretim yılı";
 "Yes" = "Evet";
-"Experimental charging-path estimate" = "Deneysel şarj yolu tahmini";
+"Charging resistance" = "Şarj direnci";
+"experimental" = "deneysel";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Tüm şarj yolunun direnci: kablo, konektörler ve şarj aleti birlikte. Ne kadar düşükse o kadar iyi. Bir kabloyu değerlendirmek için kabloları aynı şarj aleti ve aynı bağlantı noktasıyla karşılaştırın.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

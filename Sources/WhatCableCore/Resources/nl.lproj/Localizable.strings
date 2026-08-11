@@ -179,7 +179,8 @@
 "Display Output" = "Schermuitvoer";
 "Enabled" = "Ingeschakeld";
 "Enter your licence key to unlock pro features." = "Voer uw licentiesleutel in om pro-functies te ontgrendelen.";
-"Measuring charging path…" = "Laadpad wordt gemeten…";
+"Measuring while your Mac charges…" = "Meten terwijl je Mac oplaadt…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Wachten tot de laadbelasting varieert. Gebruik je Mac normaal om de meting af te ronden.";
 "Event Log" = "Gebeurtenissenlog";
 "FET enable failures" = "FET-activeringsproblemen";
 "FET status" = "FET-status";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Fabricagejaar";
 "Yes" = "Ja";
-"Experimental charging-path estimate" = "Experimentele schatting van het laadpad";
+"Charging resistance" = "Laadweerstand";
+"experimental" = "experimenteel";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Weerstand van het hele laadpad: kabel, stekkers en oplader samen. Lager is beter. Vergelijk kabels op dezelfde oplader en poort om een kabel te beoordelen.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Poort %2$lld";

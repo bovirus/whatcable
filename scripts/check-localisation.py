@@ -284,6 +284,7 @@ ALLOWED_IDENTICAL = {
             "WhatCable Pro",
         },
         "es": {
+            "experimental",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
             "Battery, %@ to %@, %@", "Built-in %1$@ port %2$lld", "Cable",
@@ -477,6 +478,7 @@ ALLOWED_IDENTICAL = {
             "USB4 Gen 4 (80 Gbps)", "Variable, %@ to %@ @ %@", "WhatCable Pro", "adapter %lld",
         },
         "pt-BR": {
+            "experimental",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
             "Battery, %@ to %@, %@", "Built-in %1$@ port %2$lld",

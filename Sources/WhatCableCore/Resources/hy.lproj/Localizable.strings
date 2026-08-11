@@ -180,7 +180,8 @@
 "Display Output" = "Տեսանյութի ելք";
 "Enabled" = "Միացված";
 "Enter your licence key to unlock pro features." = "Մուտքագրեք ձեր լիցենզիայի բանալին՝ Pro-ի հնարավորությունները բացելու համար:";
-"Measuring charging path…" = "Լիցքավորման ուղին չափվում է…";
+"Measuring while your Mac charges…" = "Չափվում է, քանի դեռ ձեր Mac-ը լիցքավորվում է…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Սպասում է լիցքավորման ծանրաբեռնվածության փոփոխության։ Չափումն ավարտելու համար օգտագործեք ձեր Mac-ը սովորական ձևով։";
 "Event Log" = "Իրադարձությունների գրանցամատյան";
 "FET enable failures" = "FET միացման ձախողումներ";
 "FET status" = "FET վիճակ";
@@ -295,7 +296,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Արտադրման տարի";
 "Yes" = "Այո";
-"Experimental charging-path estimate" = "Լիցքավորման ուղու փորձնական գնահատում";
+"Charging resistance" = "Լիցքավորման դիմադրություն";
+"experimental" = "փորձնական";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Ամբողջ լիցքավորման ուղու դիմադրությունը՝ մալուխ, միակցիչներ և լիցքավորիչ միասին։ Որքան ցածր, այնքան լավ։ Մալուխը գնահատելու համար համեմատեք մալուխները նույն լիցքավորիչով և նույն պորտով։";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ պորտ %2$lld";

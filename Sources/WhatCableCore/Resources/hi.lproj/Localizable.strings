@@ -179,7 +179,8 @@
 "Display Output" = "वीडियो आउटपुट";
 "Enabled" = "सक्षम";
 "Enter your licence key to unlock pro features." = "Pro सुविधाएँ अनलॉक करने के लिए अपनी लाइसेंस कुंजी दर्ज करें।";
-"Measuring charging path…" = "चार्जिंग पथ मापा जा रहा है…";
+"Measuring while your Mac charges…" = "आपके Mac के चार्ज होते समय माप जारी है…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "चार्जिंग लोड बदलने की प्रतीक्षा है। माप पूरा करने के लिए अपना Mac सामान्य रूप से इस्तेमाल करें।";
 "Event Log" = "इवेंट लॉग";
 "FET enable failures" = "FET सक्रियण विफलताएँ";
 "FET status" = "FET स्थिति";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "निर्माण वर्ष";
 "Yes" = "हाँ";
-"Experimental charging-path estimate" = "प्रायोगिक चार्जिंग-पथ अनुमान";
+"Charging resistance" = "चार्जिंग प्रतिरोध";
+"experimental" = "प्रायोगिक";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "पूरे चार्जिंग पथ का प्रतिरोध: केबल, कनेक्टर और चार्जर मिलाकर। कम बेहतर है। किसी केबल को परखने के लिए एक ही चार्जर और पोर्ट पर केबलों की तुलना करें।";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ पोर्ट %2$lld";

@@ -179,7 +179,8 @@
 "Display Output" = "영상 출력";
 "Enabled" = "사용 중";
 "Enter your licence key to unlock pro features." = "라이선스 키를 입력하면 Pro 기능이 잠금 해제됩니다.";
-"Measuring charging path…" = "충전 경로 측정 중…";
+"Measuring while your Mac charges…" = "Mac이 충전되는 동안 측정 중…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "충전 부하 변화를 기다리는 중입니다. 측정을 마치려면 Mac을 평소처럼 사용하세요.";
 "Event Log" = "이벤트 로그";
 "FET enable failures" = "FET 활성화 실패";
 "FET status" = "FET 상태";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "제조 연도";
 "Yes" = "예";
-"Experimental charging-path estimate" = "실험적 충전 경로 추정값";
+"Charging resistance" = "충전 저항";
+"experimental" = "실험적";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "전체 충전 경로의 저항: 케이블, 커넥터, 충전기를 합친 값입니다. 낮을수록 좋습니다. 케이블을 판단하려면 같은 충전기와 같은 포트에서 케이블을 비교하세요.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ 포트 %2$lld";

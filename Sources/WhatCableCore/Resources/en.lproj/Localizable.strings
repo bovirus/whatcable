@@ -179,7 +179,8 @@
 "Display Output" = "Display Output";
 "Enabled" = "Enabled";
 "Enter your licence key to unlock pro features." = "Enter your licence key to unlock pro features.";
-"Measuring charging path…" = "Measuring charging path…";
+"Measuring while your Mac charges…" = "Measuring while your Mac charges…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Waiting for charging load to vary. Use your Mac normally to finish the reading.";
 "Event Log" = "Event Log";
 "FET enable failures" = "FET enable failures";
 "FET status" = "FET status";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Year of manufacture";
 "Yes" = "Yes";
-"Experimental charging-path estimate" = "Experimental charging-path estimate";
+"Charging resistance" = "Charging resistance";
+"experimental" = "experimental";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

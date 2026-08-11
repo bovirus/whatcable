@@ -179,7 +179,8 @@
 "Display Output" = "Uscita video";
 "Enabled" = "Attivato";
 "Enter your licence key to unlock pro features." = "Inserisci la tua chiave di licenza per sbloccare le funzioni Pro.";
-"Measuring charging path…" = "Misurazione del percorso di ricarica…";
+"Measuring while your Mac charges…" = "Misurazione in corso mentre il Mac è in carica…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "In attesa di variazioni del carico. Usa il Mac normalmente per completare la misurazione.";
 "Event Log" = "Registro eventi";
 "FET enable failures" = "Errori di attivazione FET";
 "FET status" = "Stato FET";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Anno di produzione";
 "Yes" = "Sì";
-"Experimental charging-path estimate" = "Stima sperimentale del percorso di ricarica";
+"Charging resistance" = "Resistenza di ricarica";
+"experimental" = "sperimentale";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Resistenza dell'intero percorso di ricarica: cavo, connettori e caricatore insieme. Più è bassa, meglio è. Per giudicare un cavo, confronta i cavi con lo stesso caricatore e la stessa porta.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Porta %2$lld";

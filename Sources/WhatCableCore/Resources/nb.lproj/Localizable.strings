@@ -180,7 +180,8 @@
 "Display Output" = "Videoutgang";
 "Enabled" = "Aktivert";
 "Enter your licence key to unlock pro features." = "Skriv inn lisensnøkkelen din for å låse opp Pro-funksjoner.";
-"Measuring charging path…" = "Måler ladebanen…";
+"Measuring while your Mac charges…" = "Måler mens Macen lades…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Venter på at ladebelastningen skal variere. Bruk Macen som normalt for å fullføre målingen.";
 "Event Log" = "Hendelseslogg";
 "FET enable failures" = "FET-aktiveringsfeil";
 "FET status" = "FET-status";
@@ -295,7 +296,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Produksjonsår";
 "Yes" = "Ja";
-"Experimental charging-path estimate" = "Eksperimentelt estimat av ladebanen";
+"Charging resistance" = "Lademotstand";
+"experimental" = "eksperimentell";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Motstand i hele ladebanen: kabel, kontakter og lader til sammen. Lavere er bedre. For å vurdere en kabel, sammenlign kabler på samme lader og port.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Port %2$lld";

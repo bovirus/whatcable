@@ -179,7 +179,8 @@
 "Display Output" = "Displeja izeja";
 "Enabled" = "Iespējots";
 "Enter your licence key to unlock pro features." = "Ievadiet licences atslēgu, lai atbloķētu Pro funkcijas.";
-"Measuring charging path…" = "Mēra uzlādes ceļu…";
+"Measuring while your Mac charges…" = "Mēra, kamēr jūsu Mac uzlādējas…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Gaida uzlādes slodzes izmaiņas. Lai pabeigtu mērījumu, lietojiet Mac kā parasti.";
 "Event Log" = "Notikumu žurnāls";
 "FET enable failures" = "FET iespējošanas kļūmes";
 "FET status" = "FET statuss";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Ražošanas gads";
 "Yes" = "Jā";
-"Experimental charging-path estimate" = "Eksperimentāls uzlādes ceļa novērtējums";
+"Charging resistance" = "Uzlādes pretestība";
+"experimental" = "eksperimentāls";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Visa uzlādes ceļa pretestība: kabelis, savienotāji un lādētājs kopā. Jo zemāka, jo labāk. Lai novērtētu kabeli, salīdziniet kabeļus ar to pašu lādētāju un portu.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ ports %2$lld";

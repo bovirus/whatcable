@@ -179,7 +179,8 @@
 "Display Output" = "Виведення зображення";
 "Enabled" = "Увімкнено";
 "Enter your licence key to unlock pro features." = "Введіть ключ ліцензії для розблокування Pro-функцій.";
-"Measuring charging path…" = "Вимірювання шляху заряджання…";
+"Measuring while your Mac charges…" = "Вимірювання під час заряджання Mac…";
+"Waiting for charging load to vary. Use your Mac normally to finish the reading." = "Очікування зміни навантаження заряджання. Щоб завершити вимірювання, користуйтеся Mac як звичайно.";
 "Event Log" = "Журнал подій";
 "FET enable failures" = "Збої увімкнення FET";
 "FET status" = "Стан FET";
@@ -294,7 +295,9 @@
 "WhatCable Pro" = "WhatCable Pro";
 "Year of manufacture" = "Рік виробництва";
 "Yes" = "Так";
-"Experimental charging-path estimate" = "Експериментальна оцінка шляху заряджання";
+"Charging resistance" = "Опір заряджання";
+"experimental" = "експериментально";
+"Resistance of the whole charging path: cable, plugs and charger together. Lower is better. To judge a cable, compare cables on the same charger and port." = "Опір усього шляху заряджання: кабель, роз'єми та зарядний пристрій разом. Що нижчий, то краще. Щоб оцінити кабель, порівняйте кабелі з тим самим зарядним пристроєм і портом.";
 
 /* Pro plugin format strings */
 "%@ Port %lld" = "%1$@ Порт %2$lld";

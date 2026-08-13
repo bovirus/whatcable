@@ -554,7 +554,8 @@ ALLOWED_IDENTICAL = {
         "zh-Hant": {
             "%lld × %lld", "0.2-0.5 mW", "0.5-1 mW", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "CC Advertisement", "DisplayPort Alt Mode",
-            "Live", "MagSafe 3", "Product ID", "Re-driver", "Re-timer", "Source PDOs",
+            "Live", "MagSafe 3", "Product ID", "Raw VDOs", "Raw cable VDOs",
+            "Re-driver", "Re-timer", "Source PDOs",
             "Thunderbolt", "Thunderbolt / USB4", "USB 2.0 (480 Mbps)",
             "USB 3.2 Gen 1 (5 Gbps)", "USB 3.2 Gen 2 (10 Gbps)", "USB Hub",
             "USB4 Gen 3 (20 / 40 Gbps)", "USB4 Gen 4 (80 Gbps)", "Vendor ID", "WhatCable Pro",

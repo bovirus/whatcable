@@ -113,13 +113,22 @@ static void dumpAncestors(io_service_t device) {
         char ioPort[512];
         int hasPort = readUsbIOPort(current, ioPort, sizeof(ioPort));
 
+        // Registry entry ID (Stage B v2): unique per boot, never reused, and
+        // the instance-identity half of the PCI-Path-prefix join
+        // (planning/pcie-tunnelled-usb-attribution.md). Cheap: one IOKit
+        // call, same cost class as the properties already read here.
+        uint64_t entryID = 0;
+        int hasEntryID = IORegistryEntryGetRegistryEntryID(current, &entryID) == KERN_SUCCESS;
+
         // UsbIOPort stays the LAST token on purpose: its value is a registry
         // path, so a parser that takes the rest of the line after "UsbIOPort="
-        // must keep working. New tokens go before it, never after.
+        // must keep working. New tokens (entryID included) go before it,
+        // never after.
         printf("    [%d] class=%s", hop, cls);
         if (loc >= 0) printf(" locationID=0x%llx", (unsigned long long)loc);
         if (portType >= 0) printf(" USBPortType=%lld", portType);
         if (usbHostDevice) printf(" usbHostDevice=1");
+        if (hasEntryID) printf(" entryID=%llu", (unsigned long long)entryID);
         if (hasPort && ioPort[0]) printf(" UsbIOPort=%s", ioPort);
         printf("\n");
 
@@ -168,6 +177,17 @@ static void dumpAncestors(io_service_t device) {
             int isEmbedded = strncmp(c, "AppleEmbedded", 13) == 0 && hasXHCI;
             char controllerClass[sizeof(io_name_t)];
             strlcpy(controllerClass, cls, sizeof(controllerClass));
+
+            // Capture-timing rule (Stage B v2): save the controller's OWN
+            // registry path HERE, before the continuation loop below
+            // advances `current` toward apciecN. Printed after the
+            // "(reached host controller: ...)" token so parsers that don't
+            // expect it are unaffected (append-only format change).
+            // io_string_t is 512 bytes, plenty for any registry path seen
+            // in the corpus.
+            io_string_t controllerPath = {0};
+            int hasControllerPath = IORegistryEntryGetPath(current, kIOServicePlane, controllerPath) == KERN_SUCCESS;
+
             if ((isTunnel || isDock) && !isEmbedded) {
                 for (int extra = 0; extra < 20; extra++) {
                     io_service_t bridgeParent = 0;
@@ -178,7 +198,11 @@ static void dumpAncestors(io_service_t device) {
                     IOObjectGetClass(current, bcls);
                     io_name_t bname = {0};
                     IORegistryEntryGetName(current, bname);
-                    printf("    [%d] class=%s name=%s\n", hop + 1 + extra, bcls, bname);
+                    uint64_t bridgeEntryID = 0;
+                    int hasBridgeEntryID = IORegistryEntryGetRegistryEntryID(current, &bridgeEntryID) == KERN_SUCCESS;
+                    printf("    [%d] class=%s name=%s", hop + 1 + extra, bcls, bname);
+                    if (hasBridgeEntryID) printf(" entryID=%llu", (unsigned long long)bridgeEntryID);
+                    printf("\n");
                     // Strict apciec + digits, matching RegistryRootNaming.
                     if (strncmp(bname, "apciec", 6) == 0) {
                         const char *digits = bname + 6;
@@ -190,7 +214,9 @@ static void dumpAncestors(io_service_t device) {
                     }
                 }
             }
-            printf("    (reached host controller: %s)\n", controllerClass);
+            printf("    (reached host controller: %s)", controllerClass);
+            if (hasControllerPath) printf(" path=%s", controllerPath);
+            printf("\n");
             IOObjectRelease(current);
             current = 0;
             break;

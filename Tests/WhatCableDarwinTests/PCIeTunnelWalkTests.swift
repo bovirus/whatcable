@@ -22,7 +22,9 @@ struct PCIeTunnelWalkTests {
     private func ancestor(
         className: String = "IOPP",
         serviceName: String?,
-        usbIOPortPath: String? = nil
+        usbIOPortPath: String? = nil,
+        entryID: UInt64? = nil,
+        terminatorRegistryPath: String? = nil
     ) -> USBWatcher.USBAncestor {
         USBWatcher.USBAncestor(
             className: className,
@@ -30,7 +32,9 @@ struct PCIeTunnelWalkTests {
             usbIOPortPath: usbIOPortPath,
             usbPortType: nil,
             conformsToUSBHostDevice: false,
-            serviceName: serviceName
+            serviceName: serviceName,
+            entryID: entryID,
+            terminatorRegistryPath: terminatorRegistryPath
         )
     }
 
@@ -83,6 +87,41 @@ struct PCIeTunnelWalkTests {
         #expect(c.portName == nil)
         #expect(c.reachedNativeController == false)
         #expect(c.reachedEmbeddedController == false)
+    }
+
+    // MARK: - Stage B v2 capture timing (plan test 14a)
+
+    @Test("classifyAncestry: the saved controller path names the CONTROLLER node, not a bridge or apciecN; ancestor entry IDs start at the controller")
+    func stageBCaptureTiming() {
+        // Same shape as `dockControllerChainWithBridge` above, but with
+        // `entryID` on every hop and `terminatorRegistryPath` set ONLY on
+        // the FL1100 controller ancestor (index 1), mirroring the live
+        // collector's capture-timing rule: the path is saved AT the
+        // terminator hit, before the continuation walk advances. If a future
+        // regression moved the capture to fire after the walk (recording
+        // whatever node it happened to end on), this test would see the
+        // apciec1 or a bridge node's path instead of the controller's own.
+        let controllerPath = "IOService:/AppleARMPE/arm-io/usb-drd0@fake/AppleUSBXHCIFL1100@0"
+        let ancestors: [USBWatcher.USBAncestor] = [
+            ancestor(className: "AppleUSB30HubPort", serviceName: nil, entryID: 1),
+            ancestor(
+                className: "AppleUSBXHCIFL1100", serviceName: "AppleUSBXHCIFL1100",
+                entryID: 100, terminatorRegistryPath: controllerPath
+            ),
+            ancestor(serviceName: "IOPP", entryID: 101),
+            ancestor(serviceName: "pci-bridge", entryID: 102),
+            ancestor(serviceName: "IOPP", entryID: 103),
+            ancestor(serviceName: "pci-bridge", entryID: 104),
+            ancestor(serviceName: "IOPP", entryID: 105),
+            ancestor(serviceName: "pcic1-bridge", entryID: 106),
+            ancestor(className: "AppleT6000PCIeC", serviceName: "AppleT6000PCIeC", entryID: 107),
+            ancestor(serviceName: "apciec1", entryID: 108),
+        ]
+        let c = USBWatcher.classifyAncestry(ancestors)
+        #expect(c.tunnelControllerRegistryPath == controllerPath,
+            "the saved path must name the controller (entryID 100), never a bridge hop or the apciec1 root")
+        #expect(c.tunnelAncestorEntryIDs == [100, 101, 102, 103, 104, 105, 106, 107, 108],
+            "the entry-ID list starts AT the controller (its own id first) and includes every hop up to and including the apciecN root")
     }
 
     @Test("classifyAncestry: XHCITR chain is unchanged and carries the USB carrier")
@@ -144,6 +183,12 @@ struct PCIeTunnelWalkTests {
         var usbIOPort: String?
         var usbHostDevice = false
         var serviceName: String?
+        // Stage B v2: accepted, not required. `entryID=` is a NEW token
+        // (planning/pcie-tunnelled-usb-attribution.md); older captures
+        // never had it and must still parse (the `default: break` below
+        // already makes any unrecognised token harmless, this just also
+        // extracts the one this file's tests care about).
+        var entryID: UInt64?
         for token in rest.split(separator: " ") {
             guard let eq = token.firstIndex(of: "=") else { continue }
             let key = String(token[..<eq])
@@ -158,6 +203,7 @@ struct PCIeTunnelWalkTests {
             case "UsbIOPort": usbIOPort = value
             case "usbHostDevice": usbHostDevice = value == "1"
             case "name": serviceName = value
+            case "entryID": entryID = UInt64(value)
             default: break
             }
         }
@@ -166,7 +212,8 @@ struct PCIeTunnelWalkTests {
         return USBWatcher.USBAncestor(
             className: className, locationID: locationID, usbIOPortPath: usbIOPort,
             usbPortType: conforms ? usbPortType : nil,
-            conformsToUSBHostDevice: conforms, serviceName: serviceName
+            conformsToUSBHostDevice: conforms, serviceName: serviceName,
+            entryID: entryID
         )
     }
 
@@ -197,6 +244,101 @@ struct PCIeTunnelWalkTests {
         #expect(c.carrier == .pcieTunnel)
         #expect(c.tunnelBridgeDepth == 2, "two pci-bridge names between controller and root")
         #expect(c.tunnelRootName == "apciec1")
+    }
+
+    /// Parses probe 38's terminal marker line, e.g.
+    /// `"    (reached host controller: AppleUSBXHCIFL1100) path=IOService:/fake/AppleUSBXHCIFL1100@0"`.
+    /// This IS the testable seam the review finding asked for: a Swift-side
+    /// replay parser for the marker line's `path=` token, factored out so a
+    /// C-side format regression (the token dropped, moved, or corrupted)
+    /// shows up as a parse/assertion failure here rather than the test
+    /// silently never looking at that part of the line (review finding,
+    /// MEDIUM, round 2026-08-13).
+    private static func parseMarkerLine(_ line: String) -> (controllerClass: String, path: String?)? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("(reached host controller: "),
+              let close = trimmed.firstIndex(of: ")")
+        else { return nil }
+        let controllerClass = String(trimmed[trimmed.index(trimmed.startIndex, offsetBy: "(reached host controller: ".count)..<close])
+        let rest = trimmed[trimmed.index(after: close)...].trimmingCharacters(in: .whitespaces)
+        guard rest.hasPrefix("path=") else { return (controllerClass, nil) }
+        return (controllerClass, String(rest.dropFirst("path=".count)))
+    }
+
+    @Test("Test 14b: probe-38 golden shape - entryID= on ancestor/continuation rows and path= after the marker are accepted, not required, and don't disturb classification")
+    func probe38GoldenShapeAcceptsNewTokens() throws {
+        // The controller's saved registry path: named as a constant, both
+        // baked into the fixture line below AND asserted against after
+        // parsing, so the assertion actually exercises the marker-line
+        // parser rather than restating a literal the test never reads back.
+        let savedControllerPath = "IOService:/fake/AppleUSBXHCIFL1100@0"
+
+        // OLD shape (pre-Stage-B-v2): no entryID=, no path=. Must keep
+        // classifying exactly as before.
+        let oldLines = [
+            "    [0] class=AppleUSB30HubPort locationID=0x20540000",
+            "    [1] class=AppleUSBXHCIFL1100 locationID=0x20000000",
+            "    [2] class=IOPP name=IOPP",
+            "    [3] class=IOPCIDevice name=pci-bridge",
+            "    [4] class=IOPP name=IOPP",
+            "    [5] class=IOPCIDevice name=pci-bridge",
+            "    [6] class=IOPP name=IOPP",
+            "    [7] class=IOPCIDevice name=pcic1-bridge",
+            "    [8] class=AppleT6000PCIeC name=AppleT6000PCIeC",
+            "    [9] class=IOPlatformDevice name=apciec1",
+            "    (reached host controller: AppleUSBXHCIFL1100)",
+        ]
+        // NEW shape: entryID= appended to every ancestor/continuation row
+        // (before UsbIOPort=, per the format rule), and path= appended
+        // after the "(reached host controller: ...)" marker.
+        let newLines = [
+            "    [0] class=AppleUSB30HubPort locationID=0x20540000 entryID=1",
+            "    [1] class=AppleUSBXHCIFL1100 locationID=0x20000000 entryID=100",
+            "    [2] class=IOPP name=IOPP entryID=101",
+            "    [3] class=IOPCIDevice name=pci-bridge entryID=102",
+            "    [4] class=IOPP name=IOPP entryID=103",
+            "    [5] class=IOPCIDevice name=pci-bridge entryID=104",
+            "    [6] class=IOPP name=IOPP entryID=105",
+            "    [7] class=IOPCIDevice name=pcic1-bridge entryID=106",
+            "    [8] class=AppleT6000PCIeC name=AppleT6000PCIeC entryID=107",
+            "    [9] class=IOPlatformDevice name=apciec1 entryID=108",
+            "    (reached host controller: AppleUSBXHCIFL1100) path=\(savedControllerPath)",
+        ]
+
+        let oldAncestors = oldLines.compactMap { Self.parseAncestorLine($0) }
+        let newAncestors = newLines.compactMap { Self.parseAncestorLine($0) }
+        // The marker line itself never matches "[", so it contributes no
+        // ancestor row in either shape (confirmed by the count staying 10
+        // for both): the trailing " path=..." never even reaches the
+        // per-row tokenizer this file replays through.
+        #expect(oldAncestors.count == 10)
+        #expect(newAncestors.count == 10)
+
+        // The marker line itself, actually parsed (the review fix): the OLD
+        // shape carries no path= token at all; the NEW shape's path= must
+        // equal the saved controller path EXACTLY, naming the controller
+        // node (class AppleUSBXHCIFL1100) and nothing else -- not
+        // "pcic1-bridge", not "apciec1", both of which appear as ancestor
+        // ROW names above but must never leak into the marker's path.
+        let oldMarker = try #require(Self.parseMarkerLine(oldLines.last!))
+        #expect(oldMarker.controllerClass == "AppleUSBXHCIFL1100")
+        #expect(oldMarker.path == nil, "old shape carries no path= token")
+
+        let newMarker = try #require(Self.parseMarkerLine(newLines.last!))
+        #expect(newMarker.controllerClass == "AppleUSBXHCIFL1100")
+        #expect(newMarker.path == savedControllerPath,
+            "the marker's path= must equal the saved controller path, not a bridge or apciecN name")
+
+        let oldClassification = USBWatcher.classifyAncestry(oldAncestors)
+        let newClassification = USBWatcher.classifyAncestry(newAncestors)
+        #expect(oldClassification.tunnelled == newClassification.tunnelled)
+        #expect(oldClassification.carrier == newClassification.carrier)
+        #expect(oldClassification.tunnelBridgeDepth == newClassification.tunnelBridgeDepth)
+        #expect(oldClassification.tunnelRootName == newClassification.tunnelRootName)
+        // The new tokens DO add information when present: entryID threads
+        // through to tunnelAncestorEntryIDs.
+        #expect(oldClassification.tunnelAncestorEntryIDs.isEmpty, "old shape has no entryID tokens, so nothing to thread")
+        #expect(newClassification.tunnelAncestorEntryIDs == [100, 101, 102, 103, 104, 105, 106, 107, 108])
     }
 
     @Test("m2max_macos26.6.1 pin: the LG's 8 devices replay tunnelled/port=nil with PCIe carrier, nil depth+root; the 19 native devices keep their ports")

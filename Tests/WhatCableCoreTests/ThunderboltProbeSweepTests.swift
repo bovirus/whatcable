@@ -606,4 +606,116 @@ struct ThunderboltProbeSweepTests {
         #expect(found2?.id == 11)
         #expect(ThunderboltTopology.hostRoot(forSocketID: "3", in: [root1, root2]) == nil)
     }
+
+    // MARK: - Stage B v2 corpus replay (PCI Path / PCI Entry ID), test 15
+
+    /// Sweeps every probe-29 capture, parsing `IOThunderboltPort` blocks
+    /// through the PRODUCTION parser (`IOThunderboltPort.from(read:)`, the
+    /// same one live code and `probe29SweepParsesWithoutCrashing` above both
+    /// use), and checks the switch side of the Stage B v2 PCI-Path-prefix
+    /// join (`planning/pcie-tunnelled-usb-attribution.md`): `PCI Path` /
+    /// `PCI Entry ID` on PCIe up-adapters.
+    ///
+    /// Two assertions, both corpus-wide:
+    ///   - a hard floor: at least 1100 captures yield at least one adapter
+    ///     with a usable `pciPath` (the plan's own re-derived figure, 1136 of
+    ///     1150; a floor rather than an exact match so the test doesn't need
+    ///     updating every time a new probe-29 file lands);
+    ///   - no cross-switch duplicate paths: within one capture, every PCIe
+    ///     up-adapter's `pciPath` is DISTINCT. A duplicate would mean two
+    ///     switches claim the identical landing node, which the join's
+    ///     deepest-match/tie logic depends on not happening in practice
+    ///     (an actual duplicate is exactly the registry anomaly that trips
+    ///     `resolvePCIeTunnelCandidate`'s tie rule and forces port level).
+    @Test("Stage B v2 corpus replay: PCI Path / PCI Entry ID parse via the production parser, no cross-switch duplicates")
+    func stageBPCIPathCorpusReplay() throws {
+        let folders = try Self.allProbes()
+        var capturesWithAnyPath = 0
+        var capturesChecked = 0
+
+        for folder in folders {
+            guard let text = try Self.loadProbe29(folder: folder) else { continue }
+            capturesChecked += 1
+
+            let portBlocks = Self.parseInstanceBlocks(text, className: "IOThunderboltPort")
+            var upAdapterPaths: [String] = []
+            for (_, body) in portBlocks {
+                let read = Self.makeReadClosure(body: body)
+                guard let port = IOThunderboltPort.from(read: read) else { continue }
+                if port.pciPath != nil { capturesWithAnyPath += 1; break }
+            }
+            for (_, body) in portBlocks {
+                let read = Self.makeReadClosure(body: body)
+                guard let port = IOThunderboltPort.from(read: read),
+                      port.adapterType == .pcieUp,
+                      let path = port.pciPath
+                else { continue }
+                upAdapterPaths.append(path)
+            }
+            #expect(Set(upAdapterPaths).count == upAdapterPaths.count,
+                "Folder \(folder): expected every PCIe up-adapter's PCI Path to be distinct within one capture, found a duplicate among \(upAdapterPaths)")
+        }
+
+        if capturesChecked > 0 {
+            #expect(capturesWithAnyPath >= 1100,
+                "Expected at least 1100 of \(capturesChecked) probe-29 captures to yield at least one adapter with a PCI Path; got \(capturesWithAnyPath)")
+        }
+    }
+
+    /// Pins the exact PCI Path / PCI Entry ID string the reporter's own
+    /// capture produced for the LG UltraFine 5K's PCIe up-adapter (the
+    /// motivating case for Stage B v2), parsed through the production
+    /// parser, not re-typed by hand: this is the read that lets the FL1100
+    /// controller behind it join to the LG's switch.
+    @Test("m2max_macos26.6.1 pin: LG UltraFine PCIe up-adapter PCI Path / PCI Entry ID / Device ID")
+    func m2maxLGPinExactStrings() throws {
+        guard let text = try Self.loadProbe29(folder: "m2max_macos26.6.1") else {
+            // Not fetched into this worktree/clone; nothing to pin against.
+            return
+        }
+        let portBlocks = Self.parseInstanceBlocks(text, className: "IOThunderboltPort")
+        var matched: IOThunderboltPort?
+        for (_, body) in portBlocks {
+            let read = Self.makeReadClosure(body: body)
+            guard let port = IOThunderboltPort.from(read: read),
+                  port.adapterType == .pcieUp,
+                  port.deviceID == 0x15d3
+            else { continue }
+            matched = port
+            break
+        }
+        let port = try #require(matched, "Expected to find the LG's Device ID 0x15d3 PCIe up-adapter in m2max_macos26.6.1's probe-29 capture")
+        #expect(port.pciPath == "IOService:/AppleARMPE/arm-io/AppleT602xIO/apciec1@30000000/AppleT6000PCIeC/pcic1-bridge@0/IOPP/pci-bridge@0")
+        #expect(port.pciEntryID == 0x100001442)
+    }
+
+    /// Pins the m3pro_macos27.0_l tracked probe-29 fixture (LaCie 1big +
+    /// Studio Display, chained behind each other on `apciec2`): a real
+    /// multi-switch topology whose PCIe up-adapter paths nest, one a strict
+    /// prefix of the other, which is exactly the structural property the
+    /// deepest-match step of the join depends on. This fixture is git-tracked
+    /// (`research/customer-probes/m3pro_macos27.0_l/29_usb4_router_interfaces.json`),
+    /// so it is always present, unlike the wider sweep above.
+    @Test("m3pro_macos27.0_l pin: multi-switch PCIe up-adapter paths nest as strict prefixes")
+    func m3proMultiSwitchPinNestsAsPrefixes() throws {
+        let text = try #require(try Self.loadProbe29(folder: "m3pro_macos27.0_l"),
+            "Expected the tracked m3pro_macos27.0_l probe-29 fixture to be present")
+        let portBlocks = Self.parseInstanceBlocks(text, className: "IOThunderboltPort")
+        var upPaths: [String] = []
+        for (_, body) in portBlocks {
+            let read = Self.makeReadClosure(body: body)
+            guard let port = IOThunderboltPort.from(read: read),
+                  port.adapterType == .pcieUp,
+                  let path = port.pciPath
+            else { continue }
+            upPaths.append(path)
+        }
+        #expect(upPaths.count >= 2,
+            "Expected at least 2 PCIe up-adapters (a daisy chain) in m3pro_macos27.0_l, got \(upPaths.count): \(upPaths)")
+        let hasNestedPrefix = upPaths.contains { shallow in
+            upPaths.contains { deep in deep != shallow && deep.hasPrefix(shallow + "/") }
+        }
+        #expect(hasNestedPrefix,
+            "Expected at least one PCIe up-adapter path to be a strict prefix of another (daisy-chain nesting), got \(upPaths)")
+    }
 }

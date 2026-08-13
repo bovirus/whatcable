@@ -82,6 +82,21 @@ public struct USBDevice: Identifiable, Hashable {
     /// meaningful when `isThunderboltTunnelled`; `nil` means unknown (old
     /// fixtures/replays) and joins nothing structurally.
     public let tunnelCarrier: TunnelCarrier?
+    /// Full IOService-plane registry path of the tunnel/dock controller this
+    /// device sits behind, captured via `IORegistryEntryGetPath` at the
+    /// moment the ancestor walk hits the controller (before the continuation
+    /// walk advances toward `apciecN`). `nil` unless `tunnelCarrier != nil`.
+    /// Internal join key for Stage B's PCI-Path-prefix attribution
+    /// (`planning/pcie-tunnelled-usb-attribution.md`); never user-facing,
+    /// like switch UIDs.
+    public let tunnelControllerRegistryPath: String?
+    /// Registry entry IDs of the controller and every ancestor between it and
+    /// the `apciecN` root, in walk order, starting with the controller's own
+    /// entry ID. Used to verify a Thunderbolt switch's PCIe up-adapter
+    /// `pciEntryID` actually lands on THIS chain (instance identity, not just
+    /// a matching path string, which is a reusable topology address). Empty
+    /// unless `tunnelCarrier != nil`. Internal only.
+    public let tunnelAncestorEntryIDs: [UInt64]
     /// USB device base class (`bDeviceClass`). `0x11` is the Billboard Device
     /// Class. `nil` when the property is absent.
     public let deviceClass: UInt8?
@@ -114,6 +129,8 @@ public struct USBDevice: Identifiable, Hashable {
         tunnelBridgeDepth: Int? = nil,
         tunnelRootName: String? = nil,
         tunnelCarrier: TunnelCarrier? = nil,
+        tunnelControllerRegistryPath: String? = nil,
+        tunnelAncestorEntryIDs: [UInt64] = [],
         deviceClass: UInt8? = nil,
         ioClassName: String? = nil,
         billboard: BillboardCapability? = nil,
@@ -137,6 +154,8 @@ public struct USBDevice: Identifiable, Hashable {
         self.tunnelBridgeDepth = tunnelBridgeDepth
         self.tunnelRootName = tunnelRootName
         self.tunnelCarrier = tunnelCarrier
+        self.tunnelControllerRegistryPath = tunnelControllerRegistryPath
+        self.tunnelAncestorEntryIDs = tunnelAncestorEntryIDs
         self.deviceClass = deviceClass
         self.ioClassName = ioClassName
         self.billboard = billboard

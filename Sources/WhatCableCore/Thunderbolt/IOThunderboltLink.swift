@@ -577,6 +577,17 @@ public struct IOThunderboltPort: Hashable {
     /// absent or the adapter carries no active tunnel. See
     /// `HopTableEntry` for the join-key semantics.
     public let hopTable: [HopTableEntry]
+    /// Registry path (IOService plane) of where this adapter's PCIe tunnel
+    /// lands in the host tree, read from `PCI Path`. Present only on PCIe
+    /// up/down adapters; nil elsewhere. Internal join key for Stage B's
+    /// PCI-Path-prefix attribution (see planning/pcie-tunnelled-usb-attribution.md).
+    /// Never user-facing: registry paths stay internal, like switch UIDs.
+    public let pciPath: String?
+    /// Registry entry ID of the `pciPath` landing node, read from
+    /// `PCI Entry ID`. Registry entry IDs are unique per boot and never
+    /// reused, so this is the instance-identity half of the Stage B join
+    /// (a path string alone is a reusable topology address). Internal only.
+    public let pciEntryID: UInt64?
 
     public struct BufferAllocation: Hashable {
         public let maxUSB3: Int
@@ -615,7 +626,9 @@ public struct IOThunderboltPort: Hashable {
         thunderboltVersion: Int? = nil,
         vendorID: Int? = nil,
         deviceID: Int? = nil,
-        hopTable: [HopTableEntry] = []
+        hopTable: [HopTableEntry] = [],
+        pciPath: String? = nil,
+        pciEntryID: UInt64? = nil
     ) {
         self.portNumber = portNumber
         self.socketID = socketID
@@ -643,6 +656,8 @@ public struct IOThunderboltPort: Hashable {
         self.vendorID = vendorID
         self.deviceID = deviceID
         self.hopTable = hopTable
+        self.pciPath = pciPath
+        self.pciEntryID = pciEntryID
     }
 
     /// Build a port from a raw IOKit property dictionary.
@@ -752,7 +767,9 @@ public struct IOThunderboltPort: Hashable {
             thunderboltVersion: (read("Thunderbolt Version") as? NSNumber)?.intValue,
             vendorID: (read("Vendor ID") as? NSNumber)?.intValue,
             deviceID: (read("Device ID") as? NSNumber)?.intValue,
-            hopTable: hopTable
+            hopTable: hopTable,
+            pciPath: read("PCI Path") as? String,
+            pciEntryID: (read("PCI Entry ID") as? NSNumber)?.uint64Value
         )
     }
 

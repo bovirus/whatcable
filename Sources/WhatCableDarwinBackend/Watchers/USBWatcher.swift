@@ -157,7 +157,7 @@ public final class USBWatcher: ObservableObject {
             raw[k] = stringify(v)
         }
 
-        let (busIdx, portName, tunnelled, behindInternalHub, tunnelBridgeDepth, tunnelRootName, tunnelCarrier) = controllerInfo(
+        let (busIdx, portName, tunnelled, behindInternalHub, tunnelBridgeDepth, tunnelRootName, tunnelCarrier, tunnelControllerRegistryPath, tunnelAncestorEntryIDs) = controllerInfo(
             for: service,
             fallback: locationID,
             ownUSBPortType: (dict["USBPortType"] as? NSNumber)?.intValue,
@@ -203,6 +203,8 @@ public final class USBWatcher: ObservableObject {
             tunnelBridgeDepth: tunnelBridgeDepth,
             tunnelRootName: tunnelRootName,
             tunnelCarrier: tunnelCarrier,
+            tunnelControllerRegistryPath: tunnelControllerRegistryPath,
+            tunnelAncestorEntryIDs: tunnelAncestorEntryIDs,
             deviceClass: deviceClass,
             ioClassName: ioClassName,
             billboard: billboard,
@@ -242,6 +244,43 @@ public final class USBWatcher: ObservableObject {
         /// `"pci-bridge"`, and the root is named `"apciecN"` (the index baked
         /// into the name itself, no `@` suffix). nil only when the read fails.
         let serviceName: String?
+        /// Registry entry ID of this ancestor node (`IORegistryEntryGetRegistryEntryID`).
+        /// Captured on every hop; cheap, and needed by the Stage B instance-identity
+        /// check (a Thunderbolt switch's PCIe up-adapter `pciEntryID` must be a
+        /// member of the controller's ancestor entry IDs, not just a matching path
+        /// string). nil only when the read fails.
+        let entryID: UInt64?
+        /// Full IOService-plane registry path of THIS node, captured ONLY when this
+        /// ancestor is the walk terminator for a continuing tunnel (`walkContinuation`
+        /// returns `.continueToPCIeRoot`). Captured at the terminator hit, before the
+        /// continuation walk advances toward `apciecN`, per the capture-timing rule
+        /// (`planning/pcie-tunnelled-usb-attribution.md`). nil for every other
+        /// ancestor, and nil when the terminator's path read fails.
+        let terminatorRegistryPath: String?
+
+        // Explicit init (rather than relying on the synthesized memberwise
+        // one) so existing test call sites built before `entryID` /
+        // `terminatorRegistryPath` existed keep compiling unchanged: both
+        // default to nil, matching "unknown" for older fixtures/replays.
+        init(
+            className: String,
+            locationID: UInt32?,
+            usbIOPortPath: String?,
+            usbPortType: Int?,
+            conformsToUSBHostDevice: Bool,
+            serviceName: String?,
+            entryID: UInt64? = nil,
+            terminatorRegistryPath: String? = nil
+        ) {
+            self.className = className
+            self.locationID = locationID
+            self.usbIOPortPath = usbIOPortPath
+            self.usbPortType = usbPortType
+            self.conformsToUSBHostDevice = conformsToUSBHostDevice
+            self.serviceName = serviceName
+            self.entryID = entryID
+            self.terminatorRegistryPath = terminatorRegistryPath
+        }
     }
 
     /// The decisions `controllerInfo` derives from the parent walk.
@@ -285,6 +324,14 @@ public final class USBWatcher: ObservableObject {
         /// Always set when `tunnelled` is true on a live classification;
         /// `nil` otherwise. See `TunnelCarrier` in Core.
         let carrier: TunnelCarrier?
+        /// Full IOService-plane registry path of the tunnel/dock controller,
+        /// saved at the terminator hit. `nil` when not tunnelled, or the
+        /// terminator's path read failed. See `USBAncestor.terminatorRegistryPath`.
+        let tunnelControllerRegistryPath: String?
+        /// Registry entry IDs from the controller up to (and including) the
+        /// `apciecN` root, in walk order, starting with the controller's own
+        /// entry ID. Empty when not tunnelled or no entry IDs were captured.
+        let tunnelAncestorEntryIDs: [UInt64]
     }
 
     /// Classifies a USB device from its IOService-plane ancestor chain,
@@ -520,6 +567,29 @@ public final class USBWatcher: ObservableObject {
         // is the correct honest answer for that input).
         let tunnelAncestry = tunnelControllerIndex.flatMap { Self.tunnelBridgeAncestry(ancestors, from: $0) }
 
+        // Stage B v2 join inputs: the controller's saved registry path
+        // (captured live at the terminator hit, see `USBAncestor.terminatorRegistryPath`)
+        // and the entry-ID list from the controller up through the bridge
+        // chain, used for the instance-identity membership check. Both are
+        // derived the same pure way as `tunnelAncestry` above, so replays of
+        // old captures that never recorded them simply get nil/empty, the
+        // honest answer for that input.
+        let tunnelControllerRegistryPath = tunnelControllerIndex.flatMap { ancestors[$0].terminatorRegistryPath }
+        let tunnelAncestorEntryIDs: [UInt64] = tunnelControllerIndex.map { xhciIndex in
+            var ids: [UInt64] = []
+            if let ownID = ancestors[xhciIndex].entryID { ids.append(ownID) }
+            var index = xhciIndex + 1
+            while index < ancestors.count {
+                if let id = ancestors[index].entryID { ids.append(id) }
+                if let name = ancestors[index].serviceName,
+                   RegistryRootNaming.isRootName(name, prefix: "apciec") {
+                    break
+                }
+                index += 1
+            }
+            return ids
+        } ?? []
+
         return AncestryClassification(
             busIndex: bus,
             portName: portName,
@@ -529,7 +599,9 @@ public final class USBWatcher: ObservableObject {
             behindInternalHub: behindInternalHub,
             tunnelBridgeDepth: tunnelAncestry?.bridgeDepth,
             tunnelRootName: tunnelAncestry?.rootName,
-            carrier: carrier
+            carrier: carrier,
+            tunnelControllerRegistryPath: tunnelControllerRegistryPath,
+            tunnelAncestorEntryIDs: tunnelAncestorEntryIDs
         )
     }
 
@@ -708,17 +780,37 @@ public final class USBWatcher: ObservableObject {
                 )?.takeRetainedValue() as? NSNumber)?.intValue
             }
 
+            var entryID: UInt64 = 0
+            let hasEntryID = IORegistryEntryGetRegistryEntryID(current, &entryID) == KERN_SUCCESS
+
+            let continuesToPCIeRoot = Self.isWalkTerminator(className)
+                && Self.walkContinuation(after: className) == .continueToPCIeRoot
+
+            // Capture-timing rule (Stage B v2): save the controller's own
+            // registry path AT the terminator hit, before the continuation
+            // walk advances toward apciecN. Reading it here, not after the
+            // walk finishes, is what pins it to the controller node rather
+            // than whatever the walk happens to end on.
+            var terminatorRegistryPath: String?
+            if continuesToPCIeRoot {
+                var pathBuf = [CChar](repeating: 0, count: 512)
+                if IORegistryEntryGetPath(current, kIOServicePlane, &pathBuf) == KERN_SUCCESS {
+                    terminatorRegistryPath = String(cString: pathBuf)
+                }
+            }
+
             ancestors.append(USBAncestor(
                 className: className,
                 locationID: locationID,
                 usbIOPortPath: usbIOPortPath,
                 usbPortType: usbPortType,
                 conformsToUSBHostDevice: conforms,
-                serviceName: serviceName
+                serviceName: serviceName,
+                entryID: hasEntryID ? entryID : nil,
+                terminatorRegistryPath: terminatorRegistryPath
             ))
 
-            if Self.isWalkTerminator(className),
-               Self.walkContinuation(after: className) == .continueToPCIeRoot {
+            if continuesToPCIeRoot {
                 // A tunnel controller (native `AppleUSBXHCITR` or a
                 // dock-supplied PCIe xHCI): don't stop here, keep walking
                 // (bounded above) to reach the apciecN root and capture the
@@ -753,7 +845,7 @@ public final class USBWatcher: ObservableObject {
         fallback locationID: UInt32,
         ownUSBPortType: Int?,
         deviceClass: UInt8?
-    ) -> (Int?, String?, Bool, Bool, Int?, String?, TunnelCarrier?) {
+    ) -> (Int?, String?, Bool, Bool, Int?, String?, TunnelCarrier?, String?, [UInt64]) {
         let classification = Self.classifyAncestry(
             Self.collectAncestors(of: service),
             ownUSBPortType: ownUSBPortType,
@@ -769,7 +861,9 @@ public final class USBWatcher: ObservableObject {
             classification.behindInternalHub,
             classification.tunnelBridgeDepth,
             classification.tunnelRootName,
-            classification.carrier
+            classification.carrier,
+            classification.tunnelControllerRegistryPath,
+            classification.tunnelAncestorEntryIDs
         )
     }
 

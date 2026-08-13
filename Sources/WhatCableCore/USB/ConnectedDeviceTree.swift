@@ -199,6 +199,15 @@ public enum ConnectedDeviceTree {
         var nodeByID: [UInt64: USBDeviceNode] = [:]
         for node in USBDeviceNode.flatten(forest) { nodeByID[node.device.id] = node }
         let hubsAbove = hubDepths(forest)
+        // Stage B v2 (step 9): the USB-tree parent of every node, needed so
+        // `groupRows` can tell a `portLevelBoundaries` node whose immediate
+        // parent IS attributed (a boundary mid-tree, under an owned subtree)
+        // from one whose parent is already unowned (naturally reachable via
+        // the ordinary leftover walk, no extra entry needed).
+        var parentOf: [UInt64: UInt64] = [:]
+        for node in USBDeviceNode.flatten(forest) {
+            for child in node.children { parentOf[child.device.id] = node.device.id }
+        }
 
         var rows: [Row] = []
         for (index, node) in chainNodes.enumerated() {
@@ -214,6 +223,7 @@ public enum ConnectedDeviceTree {
                 depth: node.depth + 1,
                 forest: forest,
                 nodeByID: nodeByID,
+                parentOf: parentOf,
                 hubsAbove: hubsAbove,
                 attribution: attribution,
                 hubs: hubs,
@@ -223,11 +233,14 @@ public enum ConnectedDeviceTree {
         // Whatever could not be placed goes last, at depth 1 under the first
         // hop: exactly where it renders today. The hop count stays on these
         // rows because nothing else on them says how far away the device is.
+        // This is also the port-level group Stage B v2's `portLevelBoundaries`
+        // devices render from (see `groupRows`'s nil-owner branch).
         rows.append(contentsOf: groupRows(
             owner: nil,
             depth: 1,
             forest: forest,
             nodeByID: nodeByID,
+            parentOf: parentOf,
             hubsAbove: hubsAbove,
             attribution: attribution,
             hubs: hubs,
@@ -248,6 +261,7 @@ public enum ConnectedDeviceTree {
         depth: Int,
         forest: [USBDeviceNode],
         nodeByID: [UInt64: USBDeviceNode],
+        parentOf: [UInt64: UInt64],
         hubsAbove: [UInt64: Int],
         attribution: ChainDeviceAttribution,
         hubs: HubDisplay,
@@ -255,6 +269,13 @@ public enum ConnectedDeviceTree {
     ) -> [Row] {
         switch hubs {
         case .endpointsOnly:
+            // `regionOwner` is already keyed by every node regardless of
+            // depth (not just forest roots), so a `portLevelBoundaries`
+            // node (whose `regionOwner` is always nil, see
+            // `ChainDeviceAttribution.resolve`'s `descend`) is already
+            // picked up correctly here when `owner == nil`, and correctly
+            // excluded from every OTHER owner's group. No boundary-specific
+            // handling needed in this mode.
             return USBDeviceNode.flatten(forest)
                 .filter {
                     !$0.device.isHub
@@ -279,8 +300,32 @@ public enum ConnectedDeviceTree {
             } else {
                 // A node inherits its parent's owner, so an unattributed node
                 // can only sit under unattributed ancestors: the leftover
-                // regions are exactly the unowned forest roots.
-                entries = forest.filter { attribution.regionOwner[$0.device.id] == nil }
+                // regions are exactly the unowned forest roots. Stage B v2
+                // (step 9) adds one more source of leftover entries: a
+                // `portLevelBoundaries` node whose immediate USB-tree parent
+                // IS attributed (owned by some chain device). Such a node is
+                // a boundary mid-tree, not a forest root, so the plain
+                // forest-roots scan would never surface it, and
+                // `nestedRows` below deliberately refuses to render it
+                // nested inside that owner's group (see there) -- without
+                // this explicit entry it would render nowhere at all.
+                // Sorted alongside the forest-root leftovers so ordering is
+                // deterministic.
+                let forestRootLeftovers = forest.filter { attribution.regionOwner[$0.device.id] == nil }
+                let orphanedBoundaries = attribution.portLevelBoundaries
+                    .compactMap { id -> USBDeviceNode? in
+                        guard let node = nodeByID[id] else { return nil }
+                        let parentIsAttributed = parentOf[id].flatMap { attribution.regionOwner[$0] } != nil
+                        return parentIsAttributed ? node : nil
+                    }
+                // Preserve the original (unsorted, forest-declared) order
+                // when there are no orphaned boundaries to merge in, so
+                // existing ordering expectations are untouched; only sort
+                // when boundaries need to be interleaved in.
+                entries = orphanedBoundaries.isEmpty
+                    ? forestRootLeftovers
+                    : (forestRootLeftovers + orphanedBoundaries)
+                        .sorted { $0.device.locationID < $1.device.locationID }
             }
             return entries.flatMap {
                 nestedRows($0, depth: depth, group: owner, attribution: attribution)
@@ -297,6 +342,14 @@ public enum ConnectedDeviceTree {
         attribution: ChainDeviceAttribution
     ) -> [Row] {
         if let mark = attribution.regionRoots[node.device.id], mark != group { return [] }
+        // Stage B v2 boundary (step 9): a `portLevelBoundaries` node never
+        // renders nested inside an attributed group's subtree (`group !=
+        // nil`); it has its own explicit entry in the port-level (leftover)
+        // group instead (see `groupRows`'s `orphanedBoundaries`), which
+        // calls back into this function with `group == nil`, where this
+        // check does not fire and the node (and its subtree) render
+        // normally.
+        if group != nil, attribution.portLevelBoundaries.contains(node.device.id) { return [] }
         // An absorbed device IS the chain row above it, so its own row would be
         // a duplicate. Its children move up to take its place.
         if attribution.absorbed.contains(node.device.id) {

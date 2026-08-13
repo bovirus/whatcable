@@ -94,7 +94,7 @@ extension WidgetSnapshot.PowerState {
 
 /// "3.1W" from a wattage double, for a pill or muted line.
 private func wattText(_ w: Double) -> String {
-    String(format: "%.1f", w) + "W"
+    String(format: "%.1f", locale: .current, w) + "W"
 }
 
 // MARK: - Small: battery anchor + charger pill
@@ -183,7 +183,7 @@ struct PowerMediumView: View {
                     }
                     if let sysW = power.systemPowerInWatts {
                         let drawFormat = String(localized: "%@W draw", bundle: _coreLocalizedBundle)
-                        Text(String(format: drawFormat, String(format: "%.1f", sysW)))
+                        Text(String(format: drawFormat, String(format: "%.1f", locale: .current, sysW)))
                             .font(.caption2)
                             .monospacedDigit()
                             .foregroundStyle(.tertiary)

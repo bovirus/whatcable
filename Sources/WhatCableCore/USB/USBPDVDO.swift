@@ -171,6 +171,19 @@ public enum PDVDO {
             case .fiveAmp: return String(localized: "5 A", bundle: _coreLocalizedBundle)
             }
         }
+
+        /// Stable, non-localized value for reports and generated data, the
+        /// same split as CableSpeed.reportLabel. The localized `label` fed
+        /// the GitHub cable report and `--json`, and a translation is free
+        /// to replace the ASCII "A" (one already does), which the report
+        /// parser cannot read back.
+        public var reportLabel: String {
+            switch self {
+            case .usbDefault: return "USB default"
+            case .threeAmp: return "3 A"
+            case .fiveAmp: return "5 A"
+            }
+        }
     }
 
     public enum CableType: Int {

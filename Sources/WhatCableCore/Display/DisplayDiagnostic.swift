@@ -442,7 +442,7 @@ extension DisplayDiagnostic {
 
     /// Human-readable bandwidth, one decimal place, e.g. "14.4 Gbps".
     static func gbps(_ value: Double) -> String {
-        String(format: "%.1f Gbps", value)
+        String(format: "%.1f Gbps", locale: .current, value)
     }
 
     /// Whether the live on-screen mode demands more bandwidth than the link

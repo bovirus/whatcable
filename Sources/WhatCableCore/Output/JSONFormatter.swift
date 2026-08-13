@@ -499,8 +499,11 @@ private struct CableDTO: Codable {
         let unique = curated.map(\.brand).filter { seen.insert($0).inserted }
         self.curatedBrands = unique.isEmpty ? nil : unique
         if let cv = identity.cableVDO {
-            self.speed = cv.speed.label
-            self.currentRating = cv.current.label
+            // reportLabel, not label: --json is machine-consumed, and the
+            // localized label varies with the UI language (same split as
+            // currentRating below).
+            self.speed = cv.speed.reportLabel
+            self.currentRating = cv.current.reportLabel
             self.maxVolts = cv.maxVolts
             self.maxWatts = cv.maxWatts
             self.type = cv.cableType == .active ? "active" : "passive"

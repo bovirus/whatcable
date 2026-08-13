@@ -1,4 +1,5 @@
 import Testing
+import Foundation
 @testable import WhatCableCore
 
 /// Unit tests for AdapterInfo and AdapterHVCEntry.
@@ -23,13 +24,15 @@ struct AdapterInfoTests {
     @Test("HVC entry label format")
     func hvcEntryLabel() {
         let entry = AdapterHVCEntry(voltageMV: 20000, currentMA: 4990)
-        #expect(entry.label == "20V/4.99A")
+        #expect(entry.label(locale: Locale(identifier: "en_US_POSIX")) == "20V/4.99A")
     }
 
     @Test("HVC entry label at low voltage")
     func hvcEntryLabelLowVoltage() {
         let entry = AdapterHVCEntry(voltageMV: 5000, currentMA: 2960)
-        #expect(entry.label == "5V/2.96A")
+        #expect(entry.label(locale: Locale(identifier: "en_US_POSIX")) == "5V/2.96A")
+        // The label follows the region on screen.
+        #expect(entry.label(locale: Locale(identifier: "nl_NL")) == "5V/2,96A")
     }
 
     @Test("HVC entry Equatable conformance")

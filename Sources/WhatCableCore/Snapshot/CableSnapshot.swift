@@ -20,9 +20,13 @@ public struct AdapterHVCEntry: Hashable, Sendable {
         Int((Double(voltageMV) * Double(currentMA) / 1_000_000).rounded())
     }
 
-    public var label: String {
-        let v = String(format: "%.0fV", Double(voltageMV) / 1000)
-        let a = String(format: "%.2fA", Double(currentMA) / 1000)
+    public var label: String { label(locale: .current) }
+
+    /// Locale-injectable form, so tests can pin a locale instead of
+    /// inheriting the runner's region.
+    public func label(locale: Locale) -> String {
+        let v = String(format: "%.0fV", locale: locale, Double(voltageMV) / 1000)
+        let a = String(format: "%.2fA", locale: locale, Double(currentMA) / 1000)
         return "\(v)/\(a)"
     }
 }

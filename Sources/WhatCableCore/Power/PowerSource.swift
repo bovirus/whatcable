@@ -13,13 +13,13 @@ public struct PowerOption: Hashable {
     }
 
     public var voltsLabel: String {
-        String(format: "%.0fV", Double(voltageMV) / 1000)
+        String(format: "%.0fV", locale: .current, Double(voltageMV) / 1000)
     }
     public var ampsLabel: String {
-        String(format: "%.2fA", Double(maxCurrentMA) / 1000)
+        String(format: "%.2fA", locale: .current, Double(maxCurrentMA) / 1000)
     }
     public var wattsLabel: String {
-        String(format: "%.0fW", Double(maxPowerMW) / 1000)
+        String(format: "%.0fW", locale: .current, Double(maxPowerMW) / 1000)
     }
 }
 

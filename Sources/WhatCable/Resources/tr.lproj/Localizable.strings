@@ -15,6 +15,7 @@
 "Check for Updates…" = "Güncellemeleri Denetle…";
 "Connected devices" = "Bağlı aygıtlar";
 "Connected: %@" = "Bağlı: %@";
+"Disconnected: %@" = "Bağlantı kesildi: %@";
 "Connection" = "Bağlantı";
 "Display" = "Ekran";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Masaüstü Mac: şarj aleti kimliği (FedDetails) kullanılamıyor.";
@@ -76,7 +77,7 @@
 "Transports" = "Aktarımlar";
 "USB active" = "USB etkin";
 "USB device" = "USB aygıtı";
-"USB device disconnected" = "USB aygıtı çıkarıldı";
+"USB devices disconnected" = "USB aygıtları çıkarıldı";
 "Unknown" = "Bilinmiyor";
 "Verifying signature…" = "İmza doğrulanıyor…";
 "View release" = "Sürümü görüntüle";
@@ -90,7 +91,6 @@
 "no active link" = "etkin bağlantı yok";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld aygıt çıkarıldı";
 "COMMUNITY" = "TOPLULUK";
 "Contribute Diagnostic Data" = "Tanılama Verisi Gönder";
 "Contribute Diagnostic Data…" = "Tanılama Verisi Gönder…";

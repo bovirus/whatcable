@@ -15,6 +15,7 @@
 "Check for Updates…" = "Controleer op updates…";
 "Connected devices" = "Verbonden apparaten";
 "Connected: %@" = "Verbonden: %@";
+"Disconnected: %@" = "Verbroken: %@";
 "Connection" = "Verbinding";
 "Display" = "Scherm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: opladeridentiteit (FedDetails) is niet beschikbaar.";
@@ -76,7 +77,7 @@
 "Transports" = "Transporten";
 "USB active" = "USB actief";
 "USB device" = "USB-apparaat";
-"USB device disconnected" = "USB-apparaat verbroken";
+"USB devices disconnected" = "USB-apparaten verbroken";
 "Unknown" = "Onbekend";
 "Verifying signature…" = "Handtekening verifiëren…";
 "View release" = "Release bekijken";
@@ -90,7 +91,6 @@
 "no active link" = "geen actieve verbinding";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld apparaten verwijderd";
 "COMMUNITY" = "COMMUNITY";
 "Contribute Diagnostic Data" = "Diagnostische gegevens bijdragen";
 "Contribute Diagnostic Data…" = "Diagnostische gegevens bijdragen…";

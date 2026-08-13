@@ -15,6 +15,7 @@
 "Check for Updates…" = "Nach Updates suchen…";
 "Connected devices" = "Verbundene Geräte";
 "Connected: %@" = "Verbunden: %@";
+"Disconnected: %@" = "Getrennt: %@";
 "Connection" = "Verbindung";
 "Display" = "Anzeige";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop-Mac: Ladegerät-Identität (FedDetails) ist nicht verfügbar.";
@@ -76,7 +77,7 @@
 "Transports" = "Transporte";
 "USB active" = "USB aktiv";
 "USB device" = "USB-Gerät";
-"USB device disconnected" = "USB-Gerät getrennt";
+"USB devices disconnected" = "USB-Geräte getrennt";
 "Unknown" = "Unbekannt";
 "Verifying signature…" = "Signatur wird überprüft…";
 "View release" = "Release anzeigen";
@@ -91,7 +92,6 @@
 
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld Geräte entfernt";
 "COMMUNITY" = "COMMUNITY";
 "Contribute Diagnostic Data" = "Diagnosedaten beitragen";
 "Contribute Diagnostic Data…" = "Diagnosedaten beitragen…";

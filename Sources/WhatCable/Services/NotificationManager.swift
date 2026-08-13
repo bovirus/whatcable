@@ -15,8 +15,8 @@ final class NotificationManager {
 
     private var cancellables = Set<AnyCancellable>()
 
-    private var knownDeviceIDs: Set<UInt64> = []
-    private var knownChargerPortKeys: Set<String> = []
+    private var knownDevices: [UInt64: String] = [:]
+    private var knownChargerLabels: [String: String] = [:]
     private var didPrimeBaseline = false
 
     private var chargerSettleTask: Task<Void, Never>?
@@ -39,11 +39,14 @@ final class NotificationManager {
         // of "connected" notifications for things already plugged in at launch.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.knownDeviceIDs = Set(WatcherHub.shared.deviceWatcher.devices.map(\.id))
+            self.knownDevices = Dictionary(
+                WatcherHub.shared.deviceWatcher.devices.map { ($0.id, $0.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)) },
+                uniquingKeysWith: { first, _ in first }
+            )
             // Prime with canonicalJoinKey to match reconcileChargers, so the
             // baseline and the diff use the same key space (else every connected
             // charger would fire a spurious "connected" on the first poll).
-            self.knownChargerPortKeys = Set(WatcherHub.shared.powerWatcher.sources.map(\.canonicalJoinKey))
+            self.knownChargerLabels = self.chargerLabels(for: WatcherHub.shared.powerWatcher.sources)
             self.didPrimeBaseline = true
         }
 
@@ -77,9 +80,12 @@ final class NotificationManager {
     private func diffDevices(_ current: [USBDevice]) {
         guard didPrimeBaseline else { return }
         let currentIDs = Set(current.map(\.id))
-        let added = current.filter { !knownDeviceIDs.contains($0.id) }
-        let removedCount = knownDeviceIDs.subtracting(currentIDs).count
-        knownDeviceIDs = currentIDs
+        let added = current.filter { !knownDevices.keys.contains($0.id) }
+        let removedNames = knownDevices.filter { !currentIDs.contains($0.key) }.map(\.value).sorted()
+        knownDevices = Dictionary(
+            current.map { ($0.id, $0.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)) },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         guard AppSettings.shared.notifyOnChanges else { return }
 
@@ -90,10 +96,15 @@ final class NotificationManager {
                 body: "\(device.speedLabel)\(device.vendorName.map { " · \($0)" } ?? "")"
             )
         }
-        if removedCount > 0 {
+        if let name = removedNames.first, removedNames.count == 1 {
             postNotification(
-                title: String(localized: "USB device disconnected", bundle: _appLocalizedBundle),
-                body: String(localized: "\(removedCount) devices removed", bundle: _appLocalizedBundle)
+                title: String(localized: "Disconnected: \(name)", bundle: _appLocalizedBundle),
+                body: ""
+            )
+        } else if removedNames.count > 1 {
+            postNotification(
+                title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
+                body: removedNames.joined(separator: ", ")
             )
         }
     }
@@ -119,23 +130,34 @@ final class NotificationManager {
         let current = WatcherHub.shared.powerWatcher.sources
         // Track chargers by canonicalJoinKey (HPM UUID when present, portKey
         // fallback) so add/remove detection keys on stable port identity.
-        let currentPortKeys = Set(current.map(\.canonicalJoinKey))
-        let addedPortKeys = currentPortKeys.subtracting(knownChargerPortKeys)
-        let removedPortKeys = knownChargerPortKeys.subtracting(currentPortKeys)
-        knownChargerPortKeys = currentPortKeys
+        let currentLabels = chargerLabels(for: current)
+        let addedPortKeys = Set(currentLabels.keys).subtracting(knownChargerLabels.keys)
+        let removedLabels = knownChargerLabels.filter { !currentLabels.keys.contains($0.key) }.map(\.value)
+        knownChargerLabels = currentLabels
 
         guard AppSettings.shared.notifyOnChanges else { return }
 
         for portKey in addedPortKeys {
-            let portSources = current.filter { $0.canonicalJoinKey == portKey }
-            let preferred = PowerSource.preferredChargingSource(in: portSources) ?? portSources.first
-            let body = preferred?.winning.map { String(localized: "\($0.wattsLabel) negotiated", bundle: _appLocalizedBundle) }
-                ?? String(localized: "PD source", bundle: _appLocalizedBundle)
+            let body = currentLabels[portKey] ?? String(localized: "PD source", bundle: _appLocalizedBundle)
             postNotification(title: String(localized: "Charger connected", bundle: _appLocalizedBundle), body: body)
         }
-        for _ in removedPortKeys {
-            postNotification(title: String(localized: "Charger disconnected", bundle: _appLocalizedBundle), body: "")
+        for label in removedLabels {
+            postNotification(title: String(localized: "Charger disconnected", bundle: _appLocalizedBundle), body: label)
         }
+    }
+
+    /// The current negotiated-wattage label per charger port, used both to
+    /// prime the baseline and to recall what a charger was delivering once it
+    /// disconnects (its `PowerSource` is already gone by then).
+    private func chargerLabels(for sources: [PowerSource]) -> [String: String] {
+        let portKeys = Set(sources.map(\.canonicalJoinKey))
+        return Dictionary(uniqueKeysWithValues: portKeys.map { portKey -> (String, String) in
+            let portSources = sources.filter { $0.canonicalJoinKey == portKey }
+            let preferred = PowerSource.preferredChargingSource(in: portSources) ?? portSources.first
+            let label = preferred?.winning.map { String(localized: "\($0.wattsLabel) negotiated", bundle: _appLocalizedBundle) }
+                ?? String(localized: "PD source", bundle: _appLocalizedBundle)
+            return (portKey, label)
+        })
     }
 
     private func postNotification(title: String, body: String) {

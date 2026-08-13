@@ -3,7 +3,6 @@
 "%lld USB devices" = "%lld 個 USB 裝置";
 "%lld USB-C ports and 1 MagSafe port detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "偵測到 %lld 個 USB-C 連接埠和 1 個 MagSafe 連接埠，但目前均未使用。在「設定」中關閉「隱藏空連接埠」，即可顯示這些連接埠。";
 "%lld USB-C ports detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "偵測到 %lld 個 USB-C 連接埠，但目前均未使用。在「設定」中關閉「隱藏空連接埠」，即可顯示這些連接埠。";
-"%lld devices removed" = "已移除 %lld 個裝置";
 "About %@" = "關於 %@";
 "Active" = "作用中";
 "Active cable electronics" = "主動式線材電子元件";
@@ -17,6 +16,7 @@
 "Check for Updates…" = "檢查更新…";
 "Connected devices" = "已連接的裝置";
 "Connected: %@" = "已連接：%@";
+"Disconnected: %@" = "已斷開：%@";
 "Connection" = "連線";
 "Display" = "顯示";
 "Desktop Mac: charger identity (FedDetails) is not available." = "桌上型 Mac：無法取得充電器識別資訊 (FedDetails)。";
@@ -78,7 +78,7 @@
 "Transports" = "傳輸模式";
 "USB active" = "USB 作用中";
 "USB device" = "USB 裝置";
-"USB device disconnected" = "USB 裝置已中斷連接";
+"USB devices disconnected" = "USB 裝置已中斷連接";
 "Unknown" = "未知";
 "Verifying signature…" = "正在驗證簽章…";
 "View release" = "查看發行版本";

@@ -15,6 +15,7 @@
 "Check for Updates…" = "Controlla aggiornamenti…";
 "Connected devices" = "Dispositivi connessi";
 "Connected: %@" = "Connesso: %@";
+"Disconnected: %@" = "Disconnesso: %@";
 "Connection" = "Connessione";
 "Display" = "Visualizzazione";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac desktop: identità del caricatore (FedDetails) non disponibile.";
@@ -76,7 +77,7 @@
 "Transports" = "Trasporti";
 "USB active" = "USB attivo";
 "USB device" = "Dispositivo USB";
-"USB device disconnected" = "Dispositivo USB disconnesso";
+"USB devices disconnected" = "Dispositivi USB disconnessi";
 "Unknown" = "Sconosciuto";
 "Verifying signature…" = "Verifica firma…";
 "View release" = "Visualizza rilasci";
@@ -90,7 +91,6 @@
 "no active link" = "nessun collegamento attivo";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld dispositivi rimossi";
 "COMMUNITY" = "COMUNITÀ";
 "Contribute Diagnostic Data" = "Contribuisci con dati diagnostici";
 "Contribute Diagnostic Data…" = "Contribuisci con dati diagnostici…";

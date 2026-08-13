@@ -15,6 +15,7 @@
 "Check for Updates…" = "Pārbaudīt atjauninājumus…";
 "Connected devices" = "Pievienotās ierīces";
 "Connected: %@" = "Pievienots: %@";
+"Disconnected: %@" = "Atvienots: %@";
 "Connection" = "Savienojums";
 "Display" = "Displejs";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Galda Mac: lādētāja identitāte (FedDetails) nav pieejama.";
@@ -76,7 +77,7 @@
 "Transports" = "Transporti";
 "USB active" = "USB aktīvs";
 "USB device" = "USB ierīce";
-"USB device disconnected" = "USB ierīce atvienota";
+"USB devices disconnected" = "USB ierīces atvienotas";
 "Unknown" = "Nezināms";
 "Verifying signature…" = "Pārbauda parakstu…";
 "View release" = "Skatīt laidienu";
@@ -90,7 +91,6 @@
 "no active link" = "nav aktīva savienojuma";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld ierīces noņemtas";
 "COMMUNITY" = "KOPIENA";
 "Contribute Diagnostic Data" = "Sniegt diagnostikas datus";
 "Contribute Diagnostic Data…" = "Sniegt diagnostikas datus…";

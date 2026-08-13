@@ -16,20 +16,6 @@
 			<string>%lld台のUSBデバイス</string>
 		</dict>
 	</dict>
-	<key>%lld devices removed</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@count@</string>
-		<key>count</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>other</key>
-			<string>%lld台のデバイスが取り外されました</string>
-		</dict>
-	</dict>
 	<key>Show %lld hubs</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>

@@ -15,6 +15,7 @@
 "Check for Updates…" = "업데이트 확인…";
 "Connected devices" = "연결된 기기";
 "Connected: %@" = "연결됨: %@";
+"Disconnected: %@" = "연결 해제됨: %@";
 "Connection" = "연결";
 "Display" = "디스플레이";
 "Desktop Mac: charger identity (FedDetails) is not available." = "데스크탑 Mac: 충전기 정보(FedDetails)를 사용할 수 없어요.";
@@ -76,7 +77,7 @@
 "Transports" = "전송 방식";
 "USB active" = "USB 연결 활성";
 "USB device" = "USB 기기";
-"USB device disconnected" = "USB 기기 분리됨";
+"USB devices disconnected" = "USB 기기 분리됨";
 "Unknown" = "알 수 없음";
 "Verifying signature…" = "서명 확인 중…";
 "View release" = "릴리스 보기";
@@ -90,7 +91,6 @@
 "no active link" = "활성화된 링크 없음";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld개의 기기 제거됨";
 "COMMUNITY" = "커뮤니티";
 "Contribute Diagnostic Data" = "진단 데이터 제공";
 "Contribute Diagnostic Data…" = "진단 데이터 제공…";

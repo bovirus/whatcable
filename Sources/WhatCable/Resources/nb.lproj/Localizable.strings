@@ -15,6 +15,7 @@
 "Check for Updates…" = "Se etter oppdateringer…";
 "Connected devices" = "Tilkoblede enheter";
 "Connected: %@" = "Tilkoblet: %@";
+"Disconnected: %@" = "Frakoblet: %@";
 "Connection" = "Tilkobling";
 "Display" = "Skjerm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Stasjonær Mac: laderidentitet (FedDetails) er ikke tilgjengelig.";
@@ -76,7 +77,7 @@
 "Transports" = "Transporter";
 "USB active" = "USB aktiv";
 "USB device" = "USB-enhet";
-"USB device disconnected" = "USB-enhet frakoblet";
+"USB devices disconnected" = "USB-enheter frakoblet";
 "Unknown" = "Ukjent";
 "Verifying signature…" = "Verifiserer signatur…";
 "View release" = "Vis utgivelse";
@@ -91,7 +92,6 @@
 
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld enheter fjernet";
 "COMMUNITY" = "FELLESSKAP";
 "Contribute Diagnostic Data" = "Bidra med diagnostikkdata";
 "Contribute Diagnostic Data…" = "Bidra med diagnostikkdata…";

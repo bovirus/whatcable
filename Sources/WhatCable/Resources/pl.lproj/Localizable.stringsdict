@@ -22,26 +22,6 @@
 			<string>%lld urządzenia USB</string>
 		</dict>
 	</dict>
-	<key>%lld devices removed</key>
-	<dict>
-		<key>NSStringLocalizedFormatKey</key>
-		<string>%#@count@</string>
-		<key>count</key>
-		<dict>
-			<key>NSStringFormatSpecTypeKey</key>
-			<string>NSStringPluralRuleType</string>
-			<key>NSStringFormatValueTypeKey</key>
-			<string>lld</string>
-			<key>few</key>
-			<string>usunięto %lld urządzenia</string>
-			<key>many</key>
-			<string>usunięto %lld urządzeń</string>
-			<key>one</key>
-			<string>usunięto %lld urządzenie</string>
-			<key>other</key>
-			<string>usunięto %lld urządzenia</string>
-		</dict>
-	</dict>
 	<key>Show %lld hubs</key>
 	<dict>
 		<key>NSStringLocalizedFormatKey</key>

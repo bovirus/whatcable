@@ -15,6 +15,7 @@
 "Check for Updates…" = "अपडेट की जाँच करें…";
 "Connected devices" = "कनेक्टेड डिवाइस";
 "Connected: %@" = "कनेक्टेड: %@";
+"Disconnected: %@" = "डिस्कनेक्टेड: %@";
 "Connection" = "कनेक्शन";
 "Display" = "डिस्प्ले";
 "Desktop Mac: charger identity (FedDetails) is not available." = "डेस्कटॉप Mac: चार्जर पहचान (FedDetails) उपलब्ध नहीं है।";
@@ -76,7 +77,7 @@
 "Transports" = "ट्रांसपोर्ट";
 "USB active" = "USB सक्रिय";
 "USB device" = "USB डिवाइस";
-"USB device disconnected" = "USB डिवाइस डिस्कनेक्ट हुआ";
+"USB devices disconnected" = "USB डिवाइस डिस्कनेक्ट हुए";
 "Unknown" = "अज्ञात";
 "Verifying signature…" = "हस्ताक्षर सत्यापित हो रहा है…";
 "View release" = "रिलीज़ देखें";
@@ -90,7 +91,6 @@
 "no active link" = "कोई सक्रिय लिंक नहीं";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld डिवाइस हटाए गए";
 "COMMUNITY" = "समुदाय";
 "Contribute Diagnostic Data" = "डायग्नोस्टिक डेटा योगदान करें";
 "Contribute Diagnostic Data…" = "डायग्नोस्टिक डेटा योगदान करें…";

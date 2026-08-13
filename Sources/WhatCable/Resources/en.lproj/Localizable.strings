@@ -16,6 +16,7 @@
 "Connected devices" = "Connected devices";
 "Connected: %@" = "Connected: %@";
 "Connection" = "Connection";
+"Disconnected: %@" = "Disconnected: %@";
 "Display" = "Display";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: charger identity (FedDetails) is not available.";
 "Done" = "Done";
@@ -79,7 +80,7 @@
 "Transports" = "Transports";
 "USB active" = "USB active";
 "USB device" = "USB device";
-"USB device disconnected" = "USB device disconnected";
+"USB devices disconnected" = "USB devices disconnected";
 "Unknown" = "Unknown";
 "Verifying signature…" = "Verifying signature…";
 "View release" = "View release";
@@ -93,7 +94,6 @@
 "no active link" = "no active link";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld devices removed";
 "COMMUNITY" = "COMMUNITY";
 "Contribute Diagnostic Data" = "Contribute Diagnostic Data";
 "Contribute Diagnostic Data…" = "Contribute Diagnostic Data…";

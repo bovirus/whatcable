@@ -15,6 +15,7 @@
 "Check for Updates…" = "Перевірити оновлення…";
 "Connected devices" = "Підключені пристрої";
 "Connected: %@" = "Підключено: %@";
+"Disconnected: %@" = "Відключено: %@";
 "Connection" = "З'єднання";
 "Display" = "Дисплей";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac (настільний): ідентифікатор зарядного пристрою (FedDetails) недоступний.";
@@ -76,7 +77,7 @@
 "Transports" = "Транспорти";
 "USB active" = "USB активний";
 "USB device" = "USB-пристрій";
-"USB device disconnected" = "USB-пристрій відключено";
+"USB devices disconnected" = "USB-пристрої відключено";
 "Unknown" = "Невідомо";
 "Verifying signature…" = "Перевірка підпису…";
 "View release" = "Переглянути випуск";
@@ -90,7 +91,6 @@
 "no active link" = "немає активного з'єднання";
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "Видалено %lld пристроїв";
 "COMMUNITY" = "СПІЛЬНОТА";
 "Contribute Diagnostic Data" = "Надати діагностичні дані";
 "Contribute Diagnostic Data…" = "Надати діагностичні дані…";

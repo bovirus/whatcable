@@ -15,6 +15,7 @@
 "Check for Updates…" = "アップデートを確認…";
 "Connected devices" = "接続デバイス";
 "Connected: %@" = "接続中: %@";
+"Disconnected: %@" = "切断: %@";
 "Connection" = "接続";
 "Display" = "ディスプレイ";
 "Desktop Mac: charger identity (FedDetails) is not available." = "デスクトップMac: 充電器のID（FedDetails）は利用できません。";
@@ -76,7 +77,7 @@
 "Transports" = "トランスポート";
 "USB active" = "USBアクティブ";
 "USB device" = "USBデバイス";
-"USB device disconnected" = "USBデバイス切断";
+"USB devices disconnected" = "USBデバイスが切断されました";
 "Unknown" = "不明";
 "Verifying signature…" = "署名を検証中…";
 "View release" = "リリースを表示";
@@ -91,7 +92,6 @@
 
 
 /* Test Kit / Contribute Diagnostic Data consent + notifications (previously missing keys) */
-"%lld devices removed" = "%lld台のデバイスを削除しました";
 "COMMUNITY" = "コミュニティ";
 "Contribute Diagnostic Data" = "診断データを提供";
 "Contribute Diagnostic Data…" = "診断データを提供…";

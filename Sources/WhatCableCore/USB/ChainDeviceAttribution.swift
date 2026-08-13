@@ -297,12 +297,40 @@ public struct ChainDeviceAttribution: Equatable {
         struct StructuralCandidate { let id: UInt64; let switchID: Int64; let rootName: String? }
         var rawCandidates: [StructuralCandidate] = []
         for node in allNodes {
-            guard node.device.isThunderboltTunnelled,
-                  let bridgeDepth = node.device.tunnelBridgeDepth,
-                  bridgeDepth >= 2, bridgeDepth.isMultiple(of: 2),
-                  let switchID = switchIDByDepth[bridgeDepth / 2]
-            else { continue }
-            rawCandidates.append(StructuralCandidate(id: node.device.id, switchID: switchID, rootName: node.device.tunnelRootName))
+            guard node.device.isThunderboltTunnelled else { continue }
+            // Carrier-gated: each structural path requires the carrier that
+            // proves its arithmetic applies. A nil (unknown) carrier joins
+            // nothing structurally: old fixtures and replays of captures that
+            // never recorded the terminator keep exactly the name-pass +
+            // fallback behaviour they had before carriers existed.
+            switch node.device.tunnelCarrier {
+            case .usbTunnel:
+                // The corpus-verified USB-tunnel depth relation
+                // (bridgeDepth == 2 x DROM depth).
+                guard let bridgeDepth = node.device.tunnelBridgeDepth,
+                      bridgeDepth >= 2, bridgeDepth.isMultiple(of: 2),
+                      let switchID = switchIDByDepth[bridgeDepth / 2]
+                else { continue }
+                rawCandidates.append(StructuralCandidate(id: node.device.id, switchID: switchID, rootName: node.device.tunnelRootName))
+            case .pcieTunnel:
+                // Stage A single-switch shortcut (plan v5): a device on a
+                // dock-supplied PCIe xHCI (LG UltraFine, TS3+ class) whose
+                // rootName scopes it to this port attributes to the chain's
+                // sole downstream switch, with NO depth arithmetic: the
+                // depth relation is unverified for dock controllers (no
+                // capture records their bridge chain yet), so any daisy
+                // chain (2+ downstream switches) leaves the device at port
+                // level until Stage B verifies it. The rootName requirement
+                // is what makes this a structural claim rather than a guess:
+                // a no-root device (walk never reached apciecN) stays in the
+                // fallback.
+                guard chainNodes.count == 1,
+                      node.device.tunnelRootName != nil
+                else { continue }
+                rawCandidates.append(StructuralCandidate(id: node.device.id, switchID: chainNodes[0].sw.id, rootName: node.device.tunnelRootName))
+            case nil:
+                continue
+            }
         }
 
         let rootIsTrusted: (String?) -> Bool

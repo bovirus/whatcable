@@ -1,5 +1,24 @@
 import Foundation
 
+/// Which kind of Thunderbolt tunnel carried a tunnelled USB device to the
+/// Mac. Two distinct hardware designs produce `isThunderboltTunnelled`:
+///
+/// - `.usbTunnel`: the fabric tunnels USB itself and the device enumerates
+///   under the native tunnel controller (`AppleUSBXHCITR`). TB4/USB4 docks.
+/// - `.pcieTunnel`: the dock or display brings its own PCIe xHCI controller
+///   (`AppleUSBXHCIFL1100`, `AppleASMediaUSBXHCI`, ...) and the device
+///   reaches the Mac over the PCIe tunnel. TB3-era docks and displays
+///   (LG UltraFine 5K, CalDigit TS3+ class).
+///
+/// `nil` (absent) means unknown: fixtures or replays of captures that never
+/// recorded the terminator. A nil carrier device enters neither
+/// carrier-specific structural join in `ChainDeviceAttribution`; live
+/// classification always sets one of the two cases for tunnelled devices.
+public enum TunnelCarrier: String, Hashable, Sendable {
+    case usbTunnel
+    case pcieTunnel
+}
+
 public struct USBDevice: Identifiable, Hashable {
     public let id: UInt64
     public let locationID: UInt32
@@ -59,6 +78,10 @@ public struct USBDevice: Identifiable, Hashable {
     /// bridge walk ended at. `nil` under the same conditions as
     /// `tunnelBridgeDepth`.
     public let tunnelRootName: String?
+    /// Which tunnel kind carried this device (see `TunnelCarrier`). Only
+    /// meaningful when `isThunderboltTunnelled`; `nil` means unknown (old
+    /// fixtures/replays) and joins nothing structurally.
+    public let tunnelCarrier: TunnelCarrier?
     /// USB device base class (`bDeviceClass`). `0x11` is the Billboard Device
     /// Class. `nil` when the property is absent.
     public let deviceClass: UInt8?
@@ -90,6 +113,7 @@ public struct USBDevice: Identifiable, Hashable {
         isBehindInternalHub: Bool = false,
         tunnelBridgeDepth: Int? = nil,
         tunnelRootName: String? = nil,
+        tunnelCarrier: TunnelCarrier? = nil,
         deviceClass: UInt8? = nil,
         ioClassName: String? = nil,
         billboard: BillboardCapability? = nil,
@@ -112,6 +136,7 @@ public struct USBDevice: Identifiable, Hashable {
         self.isBehindInternalHub = isBehindInternalHub
         self.tunnelBridgeDepth = tunnelBridgeDepth
         self.tunnelRootName = tunnelRootName
+        self.tunnelCarrier = tunnelCarrier
         self.deviceClass = deviceClass
         self.ioClassName = ioClassName
         self.billboard = billboard

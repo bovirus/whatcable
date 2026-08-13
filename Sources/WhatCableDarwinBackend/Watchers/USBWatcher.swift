@@ -157,7 +157,7 @@ public final class USBWatcher: ObservableObject {
             raw[k] = stringify(v)
         }
 
-        let (busIdx, portName, tunnelled, behindInternalHub, tunnelBridgeDepth, tunnelRootName) = controllerInfo(
+        let (busIdx, portName, tunnelled, behindInternalHub, tunnelBridgeDepth, tunnelRootName, tunnelCarrier) = controllerInfo(
             for: service,
             fallback: locationID,
             ownUSBPortType: (dict["USBPortType"] as? NSNumber)?.intValue,
@@ -202,6 +202,7 @@ public final class USBWatcher: ObservableObject {
             isBehindInternalHub: behindInternalHub,
             tunnelBridgeDepth: tunnelBridgeDepth,
             tunnelRootName: tunnelRootName,
+            tunnelCarrier: tunnelCarrier,
             deviceClass: deviceClass,
             ioClassName: ioClassName,
             billboard: billboard,
@@ -279,6 +280,11 @@ public final class USBWatcher: ObservableObject {
         /// The `apciecN` root name (e.g. `"apciec2"`) the bridge walk ended
         /// at, or `nil` when not tunnelled or the root was not found.
         let tunnelRootName: String?
+        /// Which tunnel kind carried a tunnelled device (`.usbTunnel` for
+        /// `AppleUSBXHCITR`, `.pcieTunnel` for a dock-supplied PCIe xHCI).
+        /// Always set when `tunnelled` is true on a live classification;
+        /// `nil` otherwise. See `TunnelCarrier` in Core.
+        let carrier: TunnelCarrier?
     }
 
     /// Classifies a USB device from its IOService-plane ancestor chain,
@@ -350,15 +356,17 @@ public final class USBWatcher: ObservableObject {
         // sitting directly on the controller's root ports.
         var hasHubAncestor = false
 
-        // Index of the terminating `AppleUSBXHCITR` ancestor, when found. Used
-        // after the loop to walk the remainder of `ancestors` (which, for the
-        // native-tunnel case only, `collectAncestors` keeps gathering past the
-        // usual terminator) and count the PCIe bridge chain up to `apciecN`
-        // . `nil` for every other case, including the dock-controller
-        // tunnel branch below, which has no PCIe bridge chain of this kind:
-        // the third-party controller IS the tunnel decoder there, not a hop
-        // on the way to one.
-        var xhciTunnelIndex: Int?
+        // Index of the terminating tunnel controller (either the native
+        // `AppleUSBXHCITR` or a dock-supplied PCIe xHCI), when found. Used
+        // after the loop to walk the remainder of `ancestors` (which, for both
+        // tunnel cases, `collectAncestors` keeps gathering past the usual
+        // terminator; see `walkContinuation`) and count the PCIe bridge chain
+        // up to `apciecN`. `nil` for the native and embedded cases, which have
+        // no such chain.
+        var tunnelControllerIndex: Int?
+        // Which tunnel kind the terminator proves; set alongside
+        // `tunnelControllerIndex`.
+        var carrier: TunnelCarrier?
 
         for (index, ancestor) in ancestors.enumerated() {
             if ancestor.conformsToUSBHostDevice { hasHubAncestor = true }
@@ -397,7 +405,8 @@ public final class USBWatcher: ObservableObject {
             // physical port.
             if ancestor.className.hasPrefix("AppleUSBXHCITR") {
                 tunnelled = true
-                xhciTunnelIndex = index
+                tunnelControllerIndex = index
+                carrier = .usbTunnel
                 if let loc = ancestor.locationID { bus = Self.busIndex(fromLocationID: loc) }
                 break
             }
@@ -438,6 +447,8 @@ public final class USBWatcher: ObservableObject {
             // `bus` is left to the caller's fallback.
             if Self.isThunderboltDockController(ancestor.className) {
                 tunnelled = true
+                tunnelControllerIndex = index
+                carrier = .pcieTunnel
                 break
             }
         }
@@ -500,13 +511,14 @@ public final class USBWatcher: ObservableObject {
             underInternalHub: passedInternalHub
         )
 
-        // PCIe bridge depth: only for the native tunnel case, and
-        // only when `collectAncestors` actually gathered the extra ancestors
-        // above the `AppleUSBXHCITR` terminator (the live walk does this; a
-        // caller replaying from probe data that stopped at the terminator,
-        // like the older `USBWatcherCorpusSweepTests` fixtures, simply gets
-        // nil here, which is the correct honest answer for that input).
-        let tunnelAncestry = xhciTunnelIndex.flatMap { Self.tunnelBridgeAncestry(ancestors, from: $0) }
+        // PCIe bridge depth: for both tunnel cases (native `AppleUSBXHCITR`
+        // and dock-supplied PCIe xHCI), and only when `collectAncestors`
+        // actually gathered the extra ancestors above the terminator (the
+        // live walk does this; a caller replaying from probe data that
+        // stopped at the terminator, like the older
+        // `USBWatcherCorpusSweepTests` fixtures, simply gets nil here, which
+        // is the correct honest answer for that input).
+        let tunnelAncestry = tunnelControllerIndex.flatMap { Self.tunnelBridgeAncestry(ancestors, from: $0) }
 
         return AncestryClassification(
             busIndex: bus,
@@ -516,7 +528,8 @@ public final class USBWatcher: ObservableObject {
             reachedEmbeddedController: reachedEmbeddedController,
             behindInternalHub: behindInternalHub,
             tunnelBridgeDepth: tunnelAncestry?.bridgeDepth,
-            tunnelRootName: tunnelAncestry?.rootName
+            tunnelRootName: tunnelAncestry?.rootName,
+            carrier: carrier
         )
     }
 
@@ -592,6 +605,32 @@ public final class USBWatcher: ObservableObject {
             || isThunderboltDockController(className)
     }
 
+    /// What the ancestor walk does AFTER recording a terminating host
+    /// controller (`isWalkTerminator`): stop there, or keep walking up to the
+    /// `apciecN` PCIe-C host bridge root to capture the PCIe bridge chain.
+    ///
+    /// Both tunnel kinds continue: the native USB tunnel (`AppleUSBXHCITR`)
+    /// and a dock-supplied PCIe xHCI (`isThunderboltDockController`, e.g. the
+    /// LG UltraFine 5K's FL1100), because both sit on a Thunderbolt tunnel
+    /// whose `apciecN` root is the port-scoping join key. Native and embedded
+    /// controllers stop: nothing above them is read.
+    ///
+    /// Pure, and used by the live collector directly, so a unit test on this
+    /// function IS a test of the collector's stop/continue rule (the seam the
+    /// plan's review rounds asked for; synthetic-chain classification tests
+    /// alone cannot catch a collector that stops too early).
+    enum WalkContinuation: Equatable, Sendable {
+        case stop
+        case continueToPCIeRoot
+    }
+
+    nonisolated static func walkContinuation(after className: String) -> WalkContinuation {
+        if isEmbeddedBuiltInController(className) { return .stop }
+        if className.hasPrefix("AppleUSBXHCITR") { return .continueToPCIeRoot }
+        if isThunderboltDockController(className) { return .continueToPCIeRoot }
+        return .stop
+    }
+
     /// Live half of the ancestor walk: gathers IOService-plane parents of a
     /// USB device into `USBAncestor` records, reading only the properties
     /// `classifyAncestry` consumes, and stopping at the first host controller
@@ -605,14 +644,18 @@ public final class USBWatcher: ObservableObject {
     /// beyond anything observed and just acts as a backstop against a
     /// malformed or cyclic registry.
     ///
-    /// For the tunnelled case (`AppleUSBXHCITR`), the walk does NOT stop
-    /// there: it keeps going, up to `extraTunnelHopBound` further hops, to
-    /// reach the `apciecN` PCIe-C host bridge root and capture the PCIe
-    /// bridge chain in between (`tunnelBridgeAncestry`). Ground
-    /// truth (`research/customer-probes/m3pro_macos27.0_l`) needed up to 15
+    /// For the tunnelled cases (`walkContinuation` returns
+    /// `.continueToPCIeRoot`: the native `AppleUSBXHCITR` tunnel controller
+    /// AND a dock-supplied PCIe xHCI like the LG UltraFine's FL1100), the
+    /// walk does NOT stop at the controller: it keeps going, up to
+    /// `extraTunnelHopBound` further hops, to reach the `apciecN` PCIe-C
+    /// host bridge root and capture the PCIe bridge chain in between
+    /// (`tunnelBridgeAncestry`). Ground truth
+    /// (`research/customer-probes/m3pro_macos27.0_l`) needed up to 15
     /// hops from `AppleUSBXHCITR` to `apciec2`; `extraTunnelHopBound` leaves
-    /// headroom above that. Every other terminator (native, embedded, dock)
-    /// still stops immediately, unchanged: nothing above them is read, live
+    /// headroom above that, and a dock controller is expected to sit no
+    /// deeper. Native and embedded terminators still stop immediately,
+    /// unchanged: nothing above them is read, live
     /// or replayed.
     private static func collectAncestors(of service: io_service_t) -> [USBAncestor] {
         let hostControllerBound = 20
@@ -674,10 +717,12 @@ public final class USBWatcher: ObservableObject {
                 serviceName: serviceName
             ))
 
-            let isTunnelController = className.hasPrefix("AppleUSBXHCITR")
-            if isTunnelController {
-                // Don't stop here: keep walking (bounded above) to reach the
-                // apciecN root and capture the PCIe bridge chain.
+            if Self.isWalkTerminator(className),
+               Self.walkContinuation(after: className) == .continueToPCIeRoot {
+                // A tunnel controller (native `AppleUSBXHCITR` or a
+                // dock-supplied PCIe xHCI): don't stop here, keep walking
+                // (bounded above) to reach the apciecN root and capture the
+                // PCIe bridge chain.
                 pastTunnelController = true
                 continue
             }
@@ -708,7 +753,7 @@ public final class USBWatcher: ObservableObject {
         fallback locationID: UInt32,
         ownUSBPortType: Int?,
         deviceClass: UInt8?
-    ) -> (Int?, String?, Bool, Bool, Int?, String?) {
+    ) -> (Int?, String?, Bool, Bool, Int?, String?, TunnelCarrier?) {
         let classification = Self.classifyAncestry(
             Self.collectAncestors(of: service),
             ownUSBPortType: ownUSBPortType,
@@ -723,7 +768,8 @@ public final class USBWatcher: ObservableObject {
             classification.tunnelled,
             classification.behindInternalHub,
             classification.tunnelBridgeDepth,
-            classification.tunnelRootName
+            classification.tunnelRootName,
+            classification.carrier
         )
     }
 

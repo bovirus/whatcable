@@ -114,7 +114,18 @@ public enum ConnectedDeviceTree {
         // by construction) reads `allDevices`, never the bare `devices`
         // parameter, so a tunnelled device can never be silently dropped by
         // a path that forgot about it.
-        let allDevices = tunnelledDevices.isEmpty ? devices : devices + tunnelledDevices
+        // Defence in depth (plan pcie-tunnelled-usb-attribution): the wiring
+        // rule is that callers pass native matches in `devices` and
+        // structurally scoped devices in `tunnelledDevices`, never the union
+        // in both; dedup by id here so a miswired caller renders a device
+        // once instead of twice.
+        let allDevices: [USBDevice]
+        if tunnelledDevices.isEmpty {
+            allDevices = devices
+        } else {
+            var seen = Set<UInt64>()
+            allDevices = (devices + tunnelledDevices).filter { seen.insert($0.id).inserted }
+        }
 
         guard let hostRoot = thunderboltHostRoot(port: port, switches: thunderboltSwitches)
         else {

@@ -329,6 +329,9 @@ struct ChainAttributionProbeSweepTests {
                 busIndex: device.busIndex, controllerPortName: device.controllerPortName,
                 isThunderboltTunnelled: true,
                 tunnelBridgeDepth: entry.depth, tunnelRootName: entry.root,
+                // Probe 37 maps AppleUSBXHCITR controllers only, so every
+                // depth entry here is a USB-tunnel capture by construction.
+                tunnelCarrier: .usbTunnel,
                 deviceClass: device.deviceClass, rawProperties: device.rawProperties
             )
         }

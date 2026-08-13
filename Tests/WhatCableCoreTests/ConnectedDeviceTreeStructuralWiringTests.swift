@@ -127,7 +127,11 @@ struct ConnectedDeviceTreeStructuralWiringTests {
             vendorName: nil, productName: product, serialNumber: nil,
             usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
             isThunderboltTunnelled: true, tunnelBridgeDepth: bridgeDepth,
-            tunnelRootName: tunnelRootName, deviceClass: isHub ? 0x09 : 0x00,
+            tunnelRootName: tunnelRootName,
+            // Models captured XHCITR ancestry; the structural join requires a
+            // known carrier (nil joins nothing).
+            tunnelCarrier: .usbTunnel,
+            deviceClass: isHub ? 0x09 : 0x00,
             rawProperties: [:]
         )
     }

@@ -136,6 +136,33 @@ public enum TunnelledDeviceGrouping {
         return ThunderboltTopology.apciecRootName(fromAcioRootName: acioName)
     }
 
+    /// Every USB device attributable to `port`: its direct native-bus matches
+    /// (`matchingDevices`, the `UsbIOPort`/bus join) UNION the tunnelled
+    /// devices structurally scoped to it by `apciecN` root name
+    /// (`structurallyScopedTunnelledDevices`), deduplicated by device id with
+    /// input order preserved.
+    ///
+    /// This is the ONE list/count/summary answer to "what devices are on this
+    /// port", shared by the widget snapshot (Core), the formatters' per-port
+    /// device arrays, and the Pro screens, so they cannot drift (plan
+    /// `pcie-tunnelled-usb-attribution`, review round 2/3). It is NOT for
+    /// `ConnectedDeviceTree.rows`, which keeps the split matched/scoped
+    /// arrays; feeding it the union would render structural devices twice.
+    public static func attributedDevices(
+        for port: AppleHPMInterface,
+        in devices: [USBDevice],
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> [USBDevice] {
+        var seen = Set<UInt64>()
+        var result: [USBDevice] = []
+        for device in port.matchingDevices(from: devices)
+            + structurallyScopedTunnelledDevices(for: port, in: devices, thunderboltSwitches: thunderboltSwitches)
+        where seen.insert(device.id).inserted {
+            result.append(device)
+        }
+        return result
+    }
+
     public static func group(
         devices: [USBDevice],
         ports: [AppleHPMInterface],

@@ -354,6 +354,9 @@ public struct AppleHPMInterface: Identifiable, Hashable {
     /// device so callers can name it (e.g. "Billboard device: Anker USB-C Hub
     /// Device"). The Pro screen's gated diagnosis still uses the boolean.
     public func billboardDevice(among devices: [USBDevice]) -> USBDevice? {
+        // Deliberately native matches only, never the tunnelled union: this
+        // diagnoses THIS physical port's own alt-mode failure, so a Billboard
+        // on a downstream dock port must not be read as the port's own.
         matchingDevices(from: devices).first { $0.isBillboardDevice }
     }
 

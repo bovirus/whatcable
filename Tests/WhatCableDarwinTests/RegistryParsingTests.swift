@@ -439,6 +439,7 @@ struct RegistryParsingTests {
         #expect(classification.tunnelled == true)
         #expect(classification.tunnelBridgeDepth == 2)
         #expect(classification.tunnelRootName == "apciec0")
+        #expect(classification.carrier == .usbTunnel)
     }
 
     @Test("classifyAncestry leaves tunnelBridgeDepth nil for a non-tunnelled device")
@@ -452,12 +453,16 @@ struct RegistryParsingTests {
         #expect(classification.tunnelRootName == nil)
     }
 
-    @Test("classifyAncestry leaves tunnelBridgeDepth nil for a dock-controller tunnel (no PCIe bridge chain of this kind)")
+    @Test("classifyAncestry: dock-controller tunnel with NO bridge chain (old capture / walk never reached apciecN) keeps nil depth+root but a PCIe carrier")
     func classifyAncestryNilBridgeDepthForDockController() {
         // The TB3-dock-own-controller branch (isThunderboltDockController)
-        // flags tunnelled=true but has no AppleUSBXHCITR/apciecN chain: the
-        // third-party controller IS the tunnel decoder, so there is nothing
-        // to walk.
+        // with nothing recorded above the controller: a replay of an old
+        // capture that stopped at the terminator, or a live walk that never
+        // reached a strict apciecN within its bound. The failure invariant
+        // (plan pcie-tunnelled-usb-attribution): still tunnelled, carrier
+        // still .pcieTunnel (the terminator proves that much), depth and
+        // root honestly nil, so the device stays fallback-eligible and is
+        // never structurally claimed.
         let ancestors: [USBWatcher.USBAncestor] = [
             ancestor(className: "AppleUSBXHCIFL1100", serviceName: "AppleUSBXHCIFL1100"),
         ]
@@ -465,5 +470,6 @@ struct RegistryParsingTests {
         #expect(classification.tunnelled == true)
         #expect(classification.tunnelBridgeDepth == nil)
         #expect(classification.tunnelRootName == nil)
+        #expect(classification.carrier == .pcieTunnel)
     }
 }

@@ -96,6 +96,24 @@ struct USBWatcherCorpusSweepTests {
         /// conforms to IOUSBHostDevice; added 2026-07). Absent on captures
         /// from before the marker existed.
         let usbHostDevice: Bool
+        /// The `name=` token: the IOService name, printed by the tunnel
+        /// continuation rows the extended probe emits above the controller
+        /// marker (pci-bridge chain + apciecN root). Absent on older
+        /// captures and on pre-controller rows, exactly as the live
+        /// collector's serviceName read can be.
+        let serviceName: String?
+
+        init(
+            className: String, locationID: UInt32?, usbPortType: Int?,
+            usbIOPort: String?, usbHostDevice: Bool, serviceName: String? = nil
+        ) {
+            self.className = className
+            self.locationID = locationID
+            self.usbPortType = usbPortType
+            self.usbIOPort = usbIOPort
+            self.usbHostDevice = usbHostDevice
+            self.serviceName = serviceName
+        }
     }
 
     struct DeviceBlock {
@@ -130,6 +148,7 @@ struct USBWatcherCorpusSweepTests {
         var usbPortType: Int?
         var usbIOPort: String?
         var usbHostDevice = false
+        var serviceName: String?
 
         for token in tokens {
             guard let eq = token.firstIndex(of: "=") else { continue }
@@ -148,6 +167,8 @@ struct USBWatcherCorpusSweepTests {
                 usbIOPort = value
             case "usbHostDevice":
                 usbHostDevice = value == "1"
+            case "name":
+                serviceName = value
             default:
                 break
             }
@@ -155,7 +176,7 @@ struct USBWatcherCorpusSweepTests {
         guard let className else { return nil }
         return Ancestor(
             className: className, locationID: locationID, usbPortType: usbPortType,
-            usbIOPort: usbIOPort, usbHostDevice: usbHostDevice
+            usbIOPort: usbIOPort, usbHostDevice: usbHostDevice, serviceName: serviceName
         )
     }
 
@@ -260,14 +281,12 @@ struct USBWatcherCorpusSweepTests {
                 usbIOPortPath: a.usbIOPort,
                 usbPortType: conforms ? a.usbPortType : nil,
                 conformsToUSBHostDevice: conforms,
-                // Probe 38 stops gathering at the same terminator the OLD
-                // walk used, so it never captured the PCIe bridge chain
-                // above a tunnelled AppleUSBXHCITR (a later change added that walk
-                // to the LIVE collector only). `tunnelBridgeAncestry` reads
-                // nil here exactly as it would on a genuinely-truncated
-                // replay: no bridge depth, which is the honest answer for
-                // this input.
-                serviceName: nil
+                // Old captures stop at the terminator with no `name=` token,
+                // so this replays nil there (`tunnelBridgeAncestry` then
+                // honestly reports no bridge depth). Captures from the
+                // extended probe carry the continuation rows' names, so the
+                // bridge chain replays for real.
+                serviceName: a.serviceName
             )
         }
     }

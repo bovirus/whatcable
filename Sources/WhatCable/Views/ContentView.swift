@@ -256,7 +256,7 @@ struct ContentView: View {
                                 thunderboltSwitches: tbWatcher.switches,
                                 usb3Transports: usb3Watcher.transports(for: port),
                                 trmTransports: trmWatcher.transports.filter { $0.canonicallyMatches(port: port) },
-                                isLive: isPortLive(port),
+                                isLive: isPortLive(port, structurallyScopedDevices: structurallyScopedByPort[port.serviceName] ?? []),
                                 showAdvanced: showAdvanced,
                                 cioCapability: trmWatcher.cioCapabilities.first { $0.canonicallyMatches(port: port) },
                                 displayPorts: displayWatcher.statuses.filter { $0.status.canonicallyMatches(port: port) }.map(\.status),

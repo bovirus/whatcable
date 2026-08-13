@@ -49,6 +49,27 @@ final class WidgetDataWriter {
 
     private var contributorCancellables = Set<AnyCancellable>()
 
+    /// The writer's per-port device inputs, extracted as a pure seam so the
+    /// app test target can exercise THIS builder's wiring (it is independent
+    /// of `WidgetSnapshot.init(from:)`, review finding): `attributed` is the
+    /// union with tunnelled devices structurally scoped to the port
+    /// (LG UltraFine-class PCIe docks), feeding liveness and the device
+    /// count; `matched` is native matches only, feeding PortSummary's
+    /// bus-local speed corroboration.
+    nonisolated static func deviceInputs(
+        for port: AppleHPMInterface,
+        devices: [USBDevice],
+        thunderboltSwitches: [IOThunderboltSwitch]
+    ) -> (attributed: [USBDevice], matched: [USBDevice]) {
+        (
+            TunnelledDeviceGrouping.attributedDevices(
+                for: port, in: devices, thunderboltSwitches: thunderboltSwitches
+            ),
+            port.matchingDevices(from: devices)
+        )
+    }
+
+
     /// Checks whether any WhatCable widget is currently on the user's
     /// desktop. Injectable so tests can stub the result without a live
     /// WidgetKit runtime.
@@ -349,7 +370,9 @@ final class WidgetDataWriter {
         }
 
         let entries: [WidgetSnapshot.PortEntry] = portWatcher.ports.map { port in
-            let devices = port.matchingDevices(from: deviceWatcher.devices)
+            let (attributed, devices) = Self.deviceInputs(
+                for: port, devices: deviceWatcher.devices, thunderboltSwitches: tbWatcher.switches
+            )
             let sources = powerWatcher.sources(for: port)
             let identities = pdWatcher.identities(for: port)
 
@@ -357,7 +380,7 @@ final class WidgetDataWriter {
                 port: port,
                 powerSources: sources,
                 identities: identities,
-                matchingDevices: devices,
+                matchingDevices: attributed,
                 chargerAttached: chargerAttached
             )
 
@@ -427,7 +450,7 @@ final class WidgetDataWriter {
                 subtitle: summary.subtitle,
                 topBullet: summary.topLine,
                 iconName: status.iconName,
-                deviceCount: devices.count,
+                deviceCount: attributed.count,
                 recentPower: recentPower,
                 portKey: port.portKey,
                 // Gate the wattage pill on the same stale-PDO signal as the

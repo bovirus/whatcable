@@ -147,7 +147,50 @@ static void dumpAncestors(io_service_t device) {
             && strncmp(c, "AppleUSBXHCITR", 14) != 0
             && strncmp(c, "AppleIntel", 10) != 0;
         if (isTunnel || isNative || isDock) {
-            printf("    (reached host controller: %s)\n", cls);
+            // Tunnel continuation, mirroring USBWatcher.walkContinuation: for
+            // the native USB tunnel (AppleUSBXHCITR) AND a dock-supplied PCIe
+            // xHCI (the dock bucket minus AppleEmbedded*, the Mac's own
+            // board-mounted controllers), keep walking to the apciecN PCIe-C
+            // host bridge root, printing each hop's IOService NAME (the
+            // classifier counts "pci-bridge" names and stops at strict
+            // "apciec"+digits). This is what lets a replay compute
+            // tunnelBridgeDepth/tunnelRootName for FL1100-class controllers,
+            // the LG UltraFine case; before this the probe stopped here and
+            // the bridge chain above dock controllers was never captured.
+            //
+            // FORMAT: continuation rows keep the "[N]" numbering and stay
+            // ABOVE the "(reached host controller: ...)" marker, because the
+            // replay parsers treat that marker as the end of the ancestor
+            // section (review finding); a "name=" token carries the
+            // IOService name the classifier reads. The marker still ends the
+            // block and still names the CONTROLLER class, exactly as before,
+            // so pre-existing parsers of old captures are unaffected.
+            int isEmbedded = strncmp(c, "AppleEmbedded", 13) == 0 && hasXHCI;
+            char controllerClass[sizeof(io_name_t)];
+            strlcpy(controllerClass, cls, sizeof(controllerClass));
+            if ((isTunnel || isDock) && !isEmbedded) {
+                for (int extra = 0; extra < 20; extra++) {
+                    io_service_t bridgeParent = 0;
+                    if (IORegistryEntryGetParentEntry(current, kIOServicePlane, &bridgeParent) != KERN_SUCCESS) break;
+                    IOObjectRelease(current);
+                    current = bridgeParent;
+                    io_name_t bcls = {0};
+                    IOObjectGetClass(current, bcls);
+                    io_name_t bname = {0};
+                    IORegistryEntryGetName(current, bname);
+                    printf("    [%d] class=%s name=%s\n", hop + 1 + extra, bcls, bname);
+                    // Strict apciec + digits, matching RegistryRootNaming.
+                    if (strncmp(bname, "apciec", 6) == 0) {
+                        const char *digits = bname + 6;
+                        int allDigits = digits[0] != '\0';
+                        for (const char *d = digits; *d; d++) {
+                            if (*d < '0' || *d > '9') { allDigits = 0; break; }
+                        }
+                        if (allDigits) break;
+                    }
+                }
+            }
+            printf("    (reached host controller: %s)\n", controllerClass);
             IOObjectRelease(current);
             current = 0;
             break;

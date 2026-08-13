@@ -41,6 +41,20 @@ public enum JSONFormatter {
             let portSources = sources.filter { $0.canonicallyMatches(port: port) }
             return PowerSource.hasLiveChargingContract(in: portSources) ? port.portKey : nil
         })
+        // Devices structurally scoped to a port by apciecN root name join
+        // that port's own device tree (via PortDTO's
+        // structuralTunnelledDevices) and are subtracted from the flat
+        // otherUSBDevices group, mirroring the app and text wiring; JSON
+        // previously never got this subtraction (plan
+        // pcie-tunnelled-usb-attribution, review round 3/4).
+        var structurallyScopedIDs: Set<UInt64> = []
+        for port in ports {
+            structurallyScopedIDs.formUnion(
+                TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
+                    for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
+                ).map(\.id)
+            )
+        }
         // Group port-less USB devices once: those reached over a Thunderbolt
         // tunnel (#274) and those on built-in front-panel ports (#348). Shared
         // by the two closures below so the grouping runs a single time.
@@ -48,7 +62,8 @@ public enum JSONFormatter {
             devices: usbDevices,
             ports: ports,
             thunderboltSwitches: thunderboltSwitches,
-            isDesktopMac: isDesktopMac
+            isDesktopMac: isDesktopMac,
+            structurallyScoped: structurallyScopedIDs
         )
         let output = Output(
             version: AppInfo.version,
@@ -79,6 +94,9 @@ public enum JSONFormatter {
                     batteryFullyCharged: batteryFullyCharged,
                     batteryIsCharging: batteryIsCharging,
                     usbDevices: port.matchingDevices(from: usbDevices),
+                    structuralTunnelledDevices: TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
+                        for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
+                    ),
                     displayPorts: displayPorts.filter { $0.canonicallyMatches(port: port) },
                     anotherPortActivelyCharging: anotherPortActivelyCharging
                 )
@@ -270,6 +288,12 @@ private struct PortDTO: Codable {
         batteryFullyCharged: Bool? = nil,
         batteryIsCharging: Bool? = nil,
         usbDevices: [USBDevice] = [],
+        // Tunnelled devices structurally scoped to this port by apciecN root
+        // name. Joined into the per-port device tree below; kept OUT of the
+        // summary/diagnostic/speed inputs, which are native-bus-local by
+        // design (a device on a dock's own PCIe xHCI negotiates its speed
+        // with that controller, not with this port's native link).
+        structuralTunnelledDevices: [USBDevice] = [],
         displayPorts: [IOPortTransportStateDisplayPort] = [],
         anotherPortActivelyCharging: Bool = false
     ) {
@@ -396,7 +420,15 @@ private struct PortDTO: Codable {
         self.trm = trmTransports.isEmpty ? nil : trmTransports.map { TRMTransportDTO(transport: $0) }
         self.cio = cioCapability.map { CIOCableCapabilityDTO(capability: $0) }
 
-        let tree = USBDeviceNode.buildTree(from: usbDevices)
+        // The per-port JSON device tree is the deduplicated union of native
+        // matches and structurally scoped tunnelled devices: one array, so no
+        // split-array duplication risk here (unlike ConnectedDeviceTree.rows).
+        var seenDeviceIDs = Set<UInt64>()
+        var treeDevices: [USBDevice] = []
+        for device in usbDevices + structuralTunnelledDevices where seenDeviceIDs.insert(device.id).inserted {
+            treeDevices.append(device)
+        }
+        let tree = USBDeviceNode.buildTree(from: treeDevices)
         self.devices = tree.isEmpty ? nil : tree.map { USBDeviceDTO(node: $0) }
 
         self.rawProperties = showRaw ? port.redactedRawProperties : nil

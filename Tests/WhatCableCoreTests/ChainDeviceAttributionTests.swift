@@ -125,6 +125,10 @@ struct ChainDeviceAttributionTests {
             isThunderboltTunnelled: true,
             tunnelBridgeDepth: bridgeDepth,
             tunnelRootName: tunnelRootName,
+            // These fixtures model captured AppleUSBXHCITR ancestry, so the
+            // carrier is set explicitly: the structural join now requires a
+            // known carrier, and nil (unknown) deliberately joins nothing.
+            tunnelCarrier: .usbTunnel,
             deviceClass: isHub ? 0x09 : 0x00,
             rawProperties: [:]
         )

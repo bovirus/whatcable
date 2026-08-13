@@ -355,6 +355,17 @@ extension WidgetSnapshot {
             ports: cable.ports, sources: cable.powerSources)
 
         let entries: [PortEntry] = cable.ports.map { port in
+            // Two device values on purpose (plan pcie-tunnelled-usb-attribution):
+            // `attributed` is the union of native matches and tunnelled devices
+            // structurally scoped to this port (LG UltraFine-class PCIe docks);
+            // it feeds liveness and the device count, so the widget sees
+            // everything the port card shows. `matched` (native only) feeds
+            // PortSummary, whose speed-corroboration inputs are
+            // native-bus-local by design; the app's card does the same, so
+            // widget and app headlines cannot diverge.
+            let attributed = TunnelledDeviceGrouping.attributedDevices(
+                for: port, in: cable.usbDevices, thunderboltSwitches: cable.thunderboltSwitches
+            )
             let devices = port.matchingDevices(from: cable.usbDevices)
             let sources = cable.powerSources.filter { $0.canonicallyMatches(port: port) }
             let identities = cable.identities.filter { $0.canonicallyMatches(port: port) }
@@ -363,7 +374,7 @@ extension WidgetSnapshot {
                 port: port,
                 powerSources: sources,
                 identities: identities,
-                matchingDevices: devices,
+                matchingDevices: attributed,
                 chargerAttached: chargerAttached
             )
 
@@ -421,7 +432,7 @@ extension WidgetSnapshot {
                 subtitle: summary.subtitle,
                 topBullet: summary.topLine,
                 iconName: status.iconName,
-                deviceCount: devices.count,
+                deviceCount: attributed.count,
                 // recentPower is always empty here: power history comes from
                 // the app's Pro plugin contributors and is not in CableSnapshot.
                 // The widget will show the sparkline when the app has written it

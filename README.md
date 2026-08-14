@@ -10,6 +10,8 @@ USB-C hides a lot under one connector. Anything from a USB 2.0 charge-only cable
 
 Part of a family: [**WhatBattery**](https://www.whatbattery.app) for battery health and charging, [**WhatPort**](https://www.whatport.app) for every port at once.
 
+Part of a family: [**WhatBattery**](https://www.whatbattery.app) for battery health and charging, [**WhatPort**](https://www.whatport.app) for every port at once.
+
 <a href="https://www.producthunt.com/products/whatcable?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-whatcable" target="_blank" rel="noopener noreferrer"><img alt="WhatCable - Know what your USB-C cable can really do | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1153432&theme=light&period=daily&t=1779720313376"></a>
 
 [![Latest release](https://img.shields.io/github/v/release/darrylmorley/whatcable)](https://github.com/darrylmorley/whatcable/releases/latest)

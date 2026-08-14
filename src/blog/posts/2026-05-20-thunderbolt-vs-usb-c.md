@@ -100,7 +100,7 @@ The icon tells you what the port can do. It does not tell you what your cable ca
 
 This is the part nobody talks about. A USB-C cable in a Thunderbolt port is still a USB-C cable. The port will negotiate down to whatever the cable supports. You can have a TB5 port and a 40 Gbps device and still get USB 3.2 speeds because the cable in the middle is a 20 Gbps cable that came with a hard drive five years ago.
 
-Every USB-C cable rated above 60W and above USB 2.0 speeds contains an e-marker chip. The chip declares what the cable can carry: max current, max voltage, max data rate. macOS reads this chip every time you connect a cable. It just doesn't show you what it reads.
+Every USB-C cable rated above 60W, and every cable faster than USB 2.0, contains an e-marker chip. Either one on its own is enough to require it. The chip declares what the cable can carry: max current, max voltage, max data rate. macOS reads this chip when the connection calls for it, above 3A of current or on a Thunderbolt link. It just doesn't show you what it reads.
 
 [WhatCable](/) reads the e-marker and shows you what the cable is. Not what you hoped it was, not what the box claimed, what the cable itself is telling the Mac. If you've ever wondered whether the "Thunderbolt cable" you bought online is actually Thunderbolt, this is how you check. You can also see how your cable rates against known references in the [cables database](/cables).
 

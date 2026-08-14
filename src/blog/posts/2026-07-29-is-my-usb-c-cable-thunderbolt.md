@@ -98,9 +98,9 @@ And a cable with an e-marker is telling you exactly what it is, in its own words
 
 One practical note before you go looking. The e-marker isn't read the moment the plug goes in. It's read during power negotiation, which means something has to be connected at the other end to trigger it. A cable hanging out of a port with nothing on the far end tells you nothing.
 
-The good news is that the bar is low. A charger will do. So will more or less any USB-C device. That's a much easier ask than the Thunderbolt pane in System Information, which wants an actual Thunderbolt device before it shows you anything at all.
+One more condition. macOS only reads the e-marker when the connection negotiates above 3A, or when the link is Thunderbolt. In practice: a charger above 60W will do it, and so will any Thunderbolt device. A low-power phone charger won't. Still an easier ask than the Thunderbolt pane in System Information, which wants an actual Thunderbolt device before it shows you anything at all.
 
-WhatCable reads the e-marker and puts it in plain English. Plug the cable into a charger, look at the menu bar. Speed, power rating, active or passive, and whether the thing is genuinely Thunderbolt or a USB-C cable sitting in a Thunderbolt port. No menu diving, and no need to dig out a Thunderbolt dock just to identify a lead.
+WhatCable reads the e-marker and puts it in plain English. Plug the cable into a charger above 60W, look at the menu bar. Speed, power rating, active or passive, and whether the thing is genuinely Thunderbolt or a USB-C cable sitting in a Thunderbolt port. No menu diving, and no need to dig out a Thunderbolt dock just to identify a lead.
 
 [Download WhatCable](/) free, open source, Apple Silicon.
 

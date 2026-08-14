@@ -71,7 +71,7 @@ macOS learns your routine and parks the battery at 80% if it thinks you're about
 
 From your perspective it looks like the charger isn't doing its job.
 
-How to confirm: System Settings → Battery → Battery Health → check the charging schedule. If Optimised Charging is on and the battery is sitting at exactly 80%, that's the cause. Click "Charge to 100%" if you actually need it now.
+How to confirm: System Settings → Battery → Battery Health → check the charging schedule. If Optimised Charging is on and the battery is sitting at exactly 80%, that's the cause. Click "Charge to Full Now" if you actually need it now.
 
 ### 4. The workload is outpacing the supply
 
@@ -102,9 +102,9 @@ This is what [WhatCable](/) was built for. It sits in the menu bar and reads wha
 * What the port itself can do
 * Where the bottleneck is, if there is one
 
-![WhatCable showing the active PD contract at 20V and 2.99A (60W), alongside the cable's e-marker rating of 250W, confirming the cable is not the bottleneck](https://images.whatcable.uk/1779373950977-screenshot-2026-05-19-at-22-02-19.webp "WhatCable reading the active power contract and cable e-marker")
+![WhatCable showing the active PD contract at 20V and 2.99A (60W), alongside the cable's e-marker rating, confirming the cable is not the bottleneck](https://images.whatcable.uk/1779373950977-screenshot-2026-05-19-at-22-02-19.webp "WhatCable reading the active power contract and cable e-marker")
 
-A healthy reading on a 16" MBP with a 140W adapter and a 240W USB4 cable: 20V at around 5A, cable rated for 240W, port rated for 140W. Everything matches.
+A healthy reading on a 16" MBP with a 140W adapter and a 240W USB4 cable: 28V at 5A, cable rated for 240W, port rated for 140W. Everything matches.
 
 A throttled reading on the same setup but with a wrong cable: 20V at 3A, cable rated for 60W, port still rated for 140W. The cable is the bottleneck and you can see it.
 

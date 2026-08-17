@@ -44,6 +44,35 @@ struct PortSummaryTests {
         )
     }
 
+    /// issue #181: a USB3 transport that corroborates on its own,
+    /// via TRM restriction, independent of any enumerated device. Used by
+    /// tests that assert USB3-derived headline/status/badge behaviour but
+    /// don't otherwise care about corroboration (that is covered by the
+    /// dedicated issue #181 tests). Matches `makePort()`'s fixed
+    /// "Port-USB-C@1" / portNumber 1 port via portKey "2/1".
+    private func corroboratingUSB3Transport(signaling: Int = 1) -> USB3Transport {
+        USB3Transport(
+            id: 9000, portKey: "2/1", signaling: signaling,
+            signalingDescription: nil, dataRole: "host",
+            transportRestricted: true
+        )
+    }
+
+    /// issue #181: a root SuperSpeed device that corroborates without also
+    /// setting the TRM-restricted ("data blocked") wording, unlike
+    /// `corroboratingUSB3Transport()`. Used by tests that need a genuinely
+    /// UNBLOCKED "USB device" headline.
+    private func corroboratingDevice() -> USBDevice {
+        USBDevice(
+            id: 9002, locationID: 0x0020_0000,
+            vendorID: 0x1234, productID: 0x5678,
+            vendorName: nil, productName: "Test SSD", serialNumber: nil,
+            usbVersion: nil, speedRaw: 3,
+            busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+    }
+
     private func usbPD(maxW: Int, winningW: Int) -> PowerSource {
         let winning = PowerOption(
             voltageMV: 20_000,
@@ -162,8 +191,10 @@ struct PortSummaryTests {
     func batteryFullDoesNotRelabelData() {
         // A USB3 data device with the battery full is still a data device;
         // the override only applies to the pure-power headlines.
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "USB device" branch this test pins.
         let port = makePort(active: ["USB3"], supported: ["USB2", "USB3"], superSpeed: true)
-        let summary = PortSummary(port: port, batteryFullyCharged: true)
+        let summary = PortSummary(port: port, usb3Transports: [corroboratingUSB3Transport()], batteryFullyCharged: true)
         #expect(summary.status == .dataDevice)
         #expect(summary.headline.hasPrefix("USB device"), "got: \(summary.headline)")
     }
@@ -183,8 +214,10 @@ struct PortSummaryTests {
 
     @Test("USB3 is USB device")
     func usb3IsUSBDevice() {
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "USB device" branch this test pins.
         let port = makePort(active: ["USB3"], supported: ["USB2", "USB3"], superSpeed: true)
-        let summary = PortSummary(port: port)
+        let summary = PortSummary(port: port, usb3Transports: [corroboratingUSB3Transport()])
         #expect(summary.status == .dataDevice)
         #expect(summary.headline.hasPrefix("USB device"), "got: \(summary.headline)")
     }
@@ -201,8 +234,10 @@ struct PortSummaryTests {
 
     @Test("USB-C with video")
     func usbCWithVideo() {
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "with video" branch this test pins.
         let port = makePort(active: ["USB3", "DisplayPort"], superSpeed: true)
-        let summary = PortSummary(port: port)
+        let summary = PortSummary(port: port, usb3Transports: [corroboratingUSB3Transport()])
         #expect(summary.status == .displayCable)
         #expect(summary.headline == "USB-C with video")
     }
@@ -416,11 +451,14 @@ struct PortSummaryTests {
     @Test("Cable limit suffix appears when cable under-advertised")
     func cableLimitSuffixAppearsWhenCableUnderAdvertised() {
         // Charger says 96W; cable rated 60W (3A * 20V).
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "USB device" branch this test pins.
         let port = makePort(active: ["USB3"], superSpeed: true)
         let summary = PortSummary(
             port: port,
             sources: [usbPD(maxW: 96, winningW: 60)],
-            identities: [cableIdentity(currentBits: 1)]
+            identities: [cableIdentity(currentBits: 1)],
+            devices: [corroboratingDevice()]
         )
         #expect(summary.headline == "USB device · 96W charger · 60W cable")
     }
@@ -440,16 +478,26 @@ struct PortSummaryTests {
     @Test("Cable limit suffix absent when no charger")
     func cableLimitSuffixAbsentWhenNoCharger() {
         // No charger: nothing to compare against, so no cable suffix.
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "USB device" branch this test pins.
         let port = makePort(active: ["USB3"], superSpeed: true)
-        let summary = PortSummary(port: port, identities: [cableIdentity(currentBits: 1)])
+        let summary = PortSummary(
+            port: port, identities: [cableIdentity(currentBits: 1)],
+            devices: [corroboratingDevice()]
+        )
         #expect(summary.headline == "USB device")
     }
 
     @Test("Cable limit suffix absent when no cable")
     func cableLimitSuffixAbsentWhenNoCable() {
         // No e-marker: no cable wattage to surface.
+        // issue #181: corroborate with a TRM-restricted transport so the
+        // headline reaches the "USB device" branch this test pins.
         let port = makePort(active: ["USB3"], superSpeed: true)
-        let summary = PortSummary(port: port, sources: [usbPD(maxW: 96, winningW: 60)])
+        let summary = PortSummary(
+            port: port, sources: [usbPD(maxW: 96, winningW: 60)],
+            devices: [corroboratingDevice()]
+        )
         #expect(summary.headline == "USB device · 96W charger")
     }
 
@@ -494,10 +542,20 @@ struct PortSummaryTests {
             vdos: [(2 << 27) | UInt32(0x05AC)], // USB Peripheral
             specRevision: 3
         )
+        // issue #181: corroborate with a TRM-restricted, no-precise-signaling
+        // transport so the "SuperSpeed USB" GENERIC fallback line this test
+        // pins actually appears (a transport with real signaling data would
+        // show a precise "USB 3.2 Gen N" line instead).
+        let corroboratingTransport = USB3Transport(
+            id: 9001, portKey: "2/1", signaling: nil,
+            signalingDescription: nil, dataRole: "host",
+            transportRestricted: true
+        )
         let summary = PortSummary(
             port: port,
             sources: [usbPD(maxW: 96, winningW: 60)],
-            identities: [cable, partner]
+            identities: [cable, partner],
+            usb3Transports: [corroboratingTransport]
         )
 
         // Every line lands in the group matching where it came from.
@@ -933,14 +991,88 @@ struct PortSummaryTests {
             "Pure .unknown with no data should have empty bullets, got: \(summary.bullets)")
     }
 
+    // MARK: - dataWithheld reads the SAME selected transport as the speed label
+
+    @Test("dataWithheld agrees with the selected transport, not a contains scan over every match (review finding 2)")
+    func dataWithheldAgreesWithSelectedTransport() {
+        // Review finding 2: the exact-UUID transport is UNRESTRICTED (this
+        // is the one USB3SpeedCorroboration.selectedTransport picks, since
+        // exact-UUID beats portKey-fallback). A WEAKER same-portKey record
+        // (no UUID, so a fallback match only) IS restricted. A device also
+        // corroborates the link. Before the fix, dataWithheld scanned ALL
+        // canonically-matching transports with `contains`, so it would
+        // find the weaker restricted record and call the port blocked,
+        // even though the selected transport (and therefore the speed
+        // label) says the link is fine. That is a direct contradiction:
+        // "SuperSpeed data link is active" next to "data blocked".
+        let validUUID = "12345678-1234-1234-1234-123456789ABC"
+        let port = AppleHPMInterface(
+            id: 1,
+            serviceName: "Port-USB-C@1",
+            className: "AppleHPMInterfaceType10",
+            portDescription: nil,
+            portTypeDescription: "USB-C",
+            portNumber: 1,
+            connectionActive: true,
+            activeCable: nil,
+            opticalCable: nil,
+            usbActive: nil,
+            superSpeedActive: nil,
+            usbModeType: nil,
+            usbConnectString: nil,
+            transportsSupported: ["CC", "USB2", "USB3"],
+            transportsActive: ["USB3"],
+            transportsProvisioned: [],
+            plugOrientation: nil,
+            plugEventCount: nil,
+            connectionCount: nil,
+            overcurrentCount: nil,
+            pinConfiguration: [:],
+            powerCurrentLimits: [],
+            firmwareVersion: nil,
+            bootFlagsHex: nil,
+            hpmControllerUUID: validUUID,
+            rawProperties: [:]
+        )
+        let exactUnrestricted = USB3Transport(
+            id: 700, portKey: "2/1", signaling: 2,
+            signalingDescription: "Gen 2", dataRole: "host",
+            hpmControllerUUID: validUUID, transportRestricted: false
+        )
+        let weakerRestricted = USB3Transport(
+            id: 701, portKey: "2/1", signaling: 1,
+            signalingDescription: "Gen 1", dataRole: "host",
+            hpmControllerUUID: nil, transportRestricted: true
+        )
+        let device = USBDevice(
+            id: 20, locationID: 0x0020_0000,
+            vendorID: 0x1234, productID: 0x5678,
+            vendorName: nil, productName: "Test SSD", serialNumber: nil,
+            usbVersion: nil, speedRaw: 4,
+            busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+        let summary = PortSummary(
+            port: port, devices: [device],
+            usb3Transports: [exactUnrestricted, weakerRestricted]
+        )
+        #expect(summary.headline == "USB device", "got: \(summary.headline)")
+        #expect(summary.subtitle == "SuperSpeed data link is active.", "got: \(summary.subtitle)")
+        #expect(summary.headline.contains("blocked") == false, "must not contradict the fine speed label, got: \(summary.headline)")
+    }
+
     // MARK: - USB3 Transport integration
 
     @Test("USB3 Gen 1 shows precise speed")
     func usb3Gen1ShowsPreciseSpeed() {
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: `transportRestricted: true` corroborates independently
+        // (via TRM), isolating the speed-formatting behaviour this test
+        // pins from the separate corroboration question.
         let transport = USB3Transport(
             id: 100, portKey: "2/1", signaling: 1,
-            signalingDescription: "Gen 1", dataRole: "host"
+            signalingDescription: "Gen 1", dataRole: "host",
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
@@ -956,9 +1088,12 @@ struct PortSummaryTests {
     @Test("USB3 Gen 2 shows precise speed")
     func usb3Gen2ShowsPreciseSpeed() {
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: corroborate via TRM restriction, isolating the
+        // speed-formatting behaviour this test pins.
         let transport = USB3Transport(
             id: 101, portKey: "2/1", signaling: 2,
-            signalingDescription: "Gen 2", dataRole: "host"
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
@@ -967,16 +1102,20 @@ struct PortSummaryTests {
         )
     }
 
-    @Test("USB3 fallback when no transport data")
+    @Test("USB3 with no transport data and nothing else is uncorroborated (issue #181)")
     func usb3FallbackWhenNoTransportData() {
         // When the USB3 transport service hasn't appeared yet (no device
-        // connected or watcher hasn't caught up), fall back to the
-        // generic "SuperSpeed USB" label.
+        // connected or watcher hasn't caught up) and nothing else
+        // corroborates the reading, issue #181 suppresses the generic
+        // "SuperSpeed USB" label rather than showing it: this is exactly
+        // the transient-handshake shape the gate exists to catch (issue
+        // #181). Pre-issue #181 this asserted the OPPOSITE (that the generic
+        // label DID appear); that was the bug.
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
         let summary = PortSummary(port: port, usb3Transports: [])
         #expect(
-            summary.bullets.contains(where: { $0.contains("SuperSpeed USB") }),
-            "Should fall back to generic label without transport data, got: \(summary.bullets)"
+            summary.bullets.contains(where: { $0.contains("SuperSpeed USB") }) == false,
+            "Uncorroborated USB3 must not show the generic label, got: \(summary.bullets)"
         )
     }
 
@@ -984,9 +1123,12 @@ struct PortSummaryTests {
     func usb3FallbackWhenSignalingNil() {
         // Transport exists but signaling field is nil (IOKit property absent).
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: corroborate via TRM restriction so the fallback-label
+        // behaviour this test pins is reachable at all.
         let transport = USB3Transport(
             id: 102, portKey: "2/1", signaling: nil,
-            signalingDescription: nil, dataRole: nil
+            signalingDescription: nil, dataRole: nil,
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
@@ -1005,20 +1147,25 @@ struct PortSummaryTests {
         #expect(summary.linkSpeed?.badge == "480M")
     }
 
-    @Test("Link badge: USB3 with no precise data floors at 5G")
+    @Test("Link badge: uncorroborated USB3 with no transport data shows no badge (issue #181)")
     func linkBadgeUSB3Floor() {
+        // Pre-issue #181 this asserted a 5G floor badge; that is exactly the
+        // transient flash the gate exists to suppress when nothing
+        // corroborates the reading (issue #181).
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
         let summary = PortSummary(port: port, usb3Transports: [])
-        #expect(summary.linkSpeed?.tier == .usb5g)
-        #expect(summary.linkSpeed?.badge == "5G")
+        #expect(summary.linkSpeed == nil, "got: \(String(describing: summary.linkSpeed))")
     }
 
     @Test("Link badge: USB3 Gen 2 transport reads 10G")
     func linkBadgeUSB3Gen2() {
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: corroborate via TRM restriction, isolating the badge-tier
+        // formatting this test pins.
         let transport = USB3Transport(
             id: 1, portKey: "2/1", signaling: 2,
-            signalingDescription: "Gen 2", dataRole: "host"
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(summary.linkSpeed?.tier == .usb10g)
@@ -1072,9 +1219,12 @@ struct PortSummaryTests {
         // a reasonable label rather than crashing or falling back to
         // the generic "SuperSpeed USB" text.
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: corroborate via TRM restriction, isolating the
+        // unknown-generation label formatting this test pins.
         let transport = USB3Transport(
             id: 104, portKey: "2/1", signaling: 3,
-            signalingDescription: "Gen 3", dataRole: "host"
+            signalingDescription: "Gen 3", dataRole: "host",
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
@@ -1162,6 +1312,11 @@ struct PortSummaryTests {
     @Test("USB3 transport wrong port key ignored")
     func usb3TransportWrongPortKeyIgnored() {
         // Transport data for a different port should not affect this port.
+        // issue #181: with the wrong-port transport correctly excluded, nothing
+        // corroborates this port's USB3 reading at all, so no USB3 bullet
+        // appears -- not even the generic "SuperSpeed USB" fallback (which,
+        // pre-issue #181, is exactly the kind of unsupported transient reading
+        // this gate exists to suppress).
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
         let transport = USB3Transport(
             id: 103, portKey: "2/99", signaling: 2,
@@ -1169,8 +1324,8 @@ struct PortSummaryTests {
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
-            summary.bullets.contains(where: { $0.contains("SuperSpeed USB") }),
-            "Transport for wrong port should be ignored, got: \(summary.bullets)"
+            summary.bullets.contains(where: { $0.contains("USB 3.2") || $0.contains("SuperSpeed") }) == false,
+            "Transport for wrong port should be ignored and not corroborate, got: \(summary.bullets)"
         )
     }
 
@@ -1213,9 +1368,12 @@ struct PortSummaryTests {
         // When no USB device is matched, the transport label should
         // still be used (existing behaviour).
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: corroborate via TRM restriction (no device is matched,
+        // by design of this test).
         let transport = USB3Transport(
             id: 201, portKey: "2/1", signaling: 2,
-            signalingDescription: "Gen 2", dataRole: "host"
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true
         )
         let summary = PortSummary(port: port, usb3Transports: [transport])
         #expect(
@@ -1229,9 +1387,16 @@ struct PortSummaryTests {
         // A USB 2.0 device (speedRaw=2) behind a hub should not produce
         // a USB3 speed label. Only SuperSpeed and above count.
         let port = makePort(connected: true, active: ["USB3"], supported: ["CC", "USB3"])
+        // issue #181: the only device present is USB2, which does not
+        // corroborate (only a real SuperSpeed device or a TRM restriction
+        // does). `transportRestricted: true` corroborates independently so
+        // this test keeps proving its original point (the USB2 device must
+        // not win the SPEED label) without also asserting anything about
+        // corroboration, which is covered elsewhere.
         let transport = USB3Transport(
             id: 202, portKey: "2/1", signaling: 1,
-            signalingDescription: "Gen 1", dataRole: "host"
+            signalingDescription: "Gen 1", dataRole: "host",
+            transportRestricted: true
         )
         let usb2Device = USBDevice(
             id: 301, locationID: 0x0120_0000,
@@ -1918,13 +2083,27 @@ struct PortSummaryTests {
 
     @Test("An unrestricted USB3 port still reports its active link")
     func unrestrictedUSB3StillReportsActiveLink() {
+        // issue #181: an unrestricted transport with no enumerated device does
+        // NOT corroborate (that is precisely the transient-handshake shape
+        // the gate exists to suppress), so this test now supplies a real
+        // root SuperSpeed device to keep testing what it always meant to
+        // test: that an UNRESTRICTED (not blocked) port reports its link
+        // normally, as opposed to the blocked-by-security wording.
         let port = makePort(active: ["CC", "USB3"], supported: ["CC", "USB2", "USB3"], superSpeed: true)
         let transport = USB3Transport(
             id: 102, portKey: "2/1", signaling: 2,
             signalingDescription: "Gen 2", dataRole: "host",
             transportRestricted: false
         )
-        let summary = PortSummary(port: port, usb3Transports: [transport])
+        let device = USBDevice(
+            id: 20, locationID: 0x0020_0000,
+            vendorID: 0x1234, productID: 0x5678,
+            vendorName: nil, productName: "Test SSD", serialNumber: nil,
+            usbVersion: nil, speedRaw: 4,
+            busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+        let summary = PortSummary(port: port, devices: [device], usb3Transports: [transport])
         #expect(summary.headline == "USB device")
         #expect(summary.subtitle == "SuperSpeed data link is active.")
     }

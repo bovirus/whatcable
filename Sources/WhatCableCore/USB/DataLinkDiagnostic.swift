@@ -160,33 +160,52 @@ extension DataLinkDiagnostic {
         // caught here. Belt and braces against the same class of bug.
         guard port.carriesData else { return nil }
 
-        // Pick the port's USB 3 transport. Match by identity (UUID-keyed via
-        // canonicallyMatches, portKey fallback) so the transport binds to the
-        // right physical port; fall back to the only entry if the caller
-        // pre-filtered. Only trust the transport's speed when USB3 is in
-        // `TransportsActive`: the HPM port controller can leave a stale USB3
-        // transport service around when the negotiated link is only USB 2.0
-        // (issue #187).
+        // Pick the port's USB 3 transport via the shared Core selector
+        // (canonically matched, tunnelled entries excluded). This used to
+        // be a local `filter { tunnelled != true }` plus a fallback to ANY
+        // unmatched direct entry in the whole snapshot; the fallback is
+        // dropped in the migration to the shared selector (selector
+        // migration policy). A corpus disagreement sweep over 443
+        // active-USB3 ports found zero cases where that fallback would have
+        // fired and disagreed with PortSummary/JSONFormatter's selection
+        // (see the commit introducing this), so dropping it is not a
+        // behaviour change in practice, only in the (previously unreachable)
+        // worst case.
         // Tunnelled entries are excluded: portKey is
         // parentPortType/parentPortNumber, so a dock's tunnelled
         // Port-USB-C@N/CIO/USB3@0 node shares this port's key and could be
         // selected as the port's own link, which would let a dock's plumbing
         // drive this port's verdict (including the blocked-by-security one
-        // below). PortSummary applies the same exclusion; the two must agree
-        // or the card contradicts itself, which is the bug that started this.
-        let directUSB3 = usb3Transports.filter { $0.tunnelled != true }
+        // below). PortSummary applies the same exclusion via the same
+        // selector; the two can never disagree, which is the bug that
+        // started this.
         let usb3 = port.transportsActive.contains("USB3")
-            ? (directUSB3.first { $0.canonicallyMatches(port: port) } ?? directUSB3.first)
+            ? USB3SpeedCorroboration.selectedTransport(for: port, in: usb3Transports)
             : nil
+
+        // issue #181: require corroboration (an enumerated
+        // SuperSpeed device, or a TRM restriction on the selected transport
+        // -- the SAME predicate `.blockedBySecurity` below keys on) before
+        // trusting the transport's signaled speed at all. Without this, the
+        // HPM controller's brief USB3 handshake on a charger-only cable
+        // (no SuperSpeed peer) produces a transient "Running at N Gbps"
+        // verdict that PD negotiation is about to withdraw. Gating on
+        // corroboration here, rather than nil-ing `usb3ActiveGbps`
+        // unconditionally, is deliberate: a restricted transport IS
+        // corroborated (by definition, via the second arm below), so this
+        // gate does not touch the `.blockedBySecurity` path -- nil-ing
+        // `usb3ActiveGbps` outright would make `active` nil and return
+        // before `.blockedBySecurity` is ever constructed.
+        let usb3Corroborated = USB3SpeedCorroboration.isCorroborated(selected: usb3, devices: devices)
 
         // The speed the link actually negotiated: the Thunderbolt link if
         // there is one, otherwise the USB 3 rate of the Mac-to-first-device
         // link. On a hub that uplink is the only link the cable verdict is
         // about, so we read the directly-attached (root) SuperSpeed device
         // and ignore the slower links living deeper inside the hub. Gated on
-        // TransportsActive carrying USB3 (issue #187), mirroring the port
-        // summary's own `usb3Speed` resolution.
-        let usb3ActiveGbps = port.transportsActive.contains("USB3")
+        // TransportsActive carrying USB3 (issue #187) AND corroboration
+        // mirroring the port summary's own `usb3Speed` resolution.
+        let usb3ActiveGbps = port.transportsActive.contains("USB3") && usb3Corroborated
             ? Self.usb3ActiveGbps(usb3: usb3, devices: devices)
             : nil
         let activeGbps = tbActiveGbps

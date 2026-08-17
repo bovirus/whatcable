@@ -342,15 +342,24 @@ private struct PortDTO: Codable {
         // `USBDevice` entries reporting SuperSpeed when the negotiated
         // link is only USB 2.0. Gate the whole `usb3Speed` resolution on
         // TransportsActive, not just the transport-derived fallback.
+        //
+        // issue #181: also require corroboration (an enumerated
+        // SuperSpeed device, or a TRM-restricted selected transport) before
+        // emitting a speed. Without this, a `--json` snapshot taken mid
+        // cable-orientation handshake on a charger-only cable prints a
+        // usb3Speed that PD negotiation is about to withdraw. See
+        // USB3SpeedCorroboration and planning/dar-50-usb3-speed-corroboration.md.
+        let selectedUSB3Transport = USB3SpeedCorroboration.selectedTransport(for: port, in: usb3Transports)
         let usb3Speed: String?
-        if port.transportsActive.contains("USB3") {
+        if port.transportsActive.contains("USB3"),
+           USB3SpeedCorroboration.isCorroborated(selected: selectedUSB3Transport, devices: usbDevices) {
             // Selection order mirrors PortSummary: root device first,
             // then HPM transport, then controller-port-name fallback for
             // Apple Silicon front USB-C ports whose internal virtual root
             // hides the actual root device.
             let rootDeviceSpeed = USBDevice.rootSuperSpeed(in: usbDevices)?.usb3SpeedLabel
             let portMatchedSpeed = USBDevice.portMatchedSuperSpeed(in: usbDevices)?.usb3SpeedLabel
-            usb3Speed = rootDeviceSpeed ?? usb3Transports.first?.speedLabel ?? portMatchedSpeed
+            usb3Speed = rootDeviceSpeed ?? selectedUSB3Transport?.speedLabel ?? portMatchedSpeed
         } else {
             usb3Speed = nil
         }

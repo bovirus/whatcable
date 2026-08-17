@@ -652,8 +652,26 @@ struct CIOAndDataLinkCorpusTests {
     func dataLinkConnectedUSB3ActivePorts() {
         // For each CIO fixture machine: find USB-C ports that were connected and
         // had USB3 in transportsActive at capture time. Build DataLink inputs from
-        // the USB3 transports in probes 17/19. Expect the diagnostic to produce a
-        // non-nil verdict (since there is a known active USB3 rate).
+        // the USB3 transports in probes 17/19.
+        //
+        // issue #181: DataLinkDiagnostic now requires corroboration
+        // (an enumerated SuperSpeed device, or a TRM-restricted transport)
+        // before it will produce a verdict at all, to suppress the transient
+        // "USB3 active but no data peer" handshake reading. This file (per
+        // its own doc comment) deliberately does not reconstruct device data
+        // from probe 38 -- correlating a device to a physical port needs
+        // live `controllerPortName`/`busIndex` data flat probe text doesn't
+        // carry cleanly (see `Probe38TreeWalkTests`'s doc comment for the
+        // same limitation elsewhere). Without device data, corroboration can
+        // only come from a TRM-restricted transport, and every fixture
+        // machine's active-USB3 ports happen to have neither (their
+        // restricted ports run USB2, not USB3; see the m2pro_macos26.4.1
+        // case checked at ingest time). So the correct, issue #181-aware
+        // expectation for THIS test is zero verdicts, not "at least one" --
+        // asserting otherwise would either be vacuous or require the device
+        // reconstruction this file explicitly scopes out. `examineCount`
+        // still proves the fixture set has active-USB3 ports to examine, so
+        // this isn't a vacuous pass.
         let machines = Self.cioFixtureMachines + Self.trmFixtureMachines
 
         var examineCount = 0
@@ -698,10 +716,12 @@ struct CIOAndDataLinkCorpusTests {
         }
 
         // We should examine at least a few such ports across the fixture set
-        if examineCount > 0 {
-            #expect(gotVerdictCount > 0,
-                "Expected at least one DataLink verdict from connected USB3-active ports in the fixture set; got 0 out of \(examineCount) examined")
-        }
+        // (proves this sweep is not vacuous), but per issue #181 (see above),
+        // none of them should produce a verdict without device data.
+        #expect(examineCount > 0,
+            "Expected at least one connected USB3-active port in the fixture set to examine; found none")
+        #expect(gotVerdictCount == 0,
+            "issue #181: expected zero verdicts without device-corroboration data (see comment above); got \(gotVerdictCount) out of \(examineCount) examined. If this now fails because some port has TRM-restricted USB3 data, that's a legitimate new corroborated verdict -- update this expectation, don't revert it.")
     }
 
     // MARK: (b3) DataLink: CIO-active ports (CIO in transportsActive) resolve TB rate

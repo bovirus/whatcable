@@ -81,6 +81,27 @@ struct DataLinkDiagnosticTests {
         )
     }
 
+    /// issue #181: a port-matched (not root) SuperSpeed device that
+    /// corroborates a USB3 reading via `USBDevice.portMatchedSuperSpeed`
+    /// without affecting `usb3ActiveGbps`'s resolution (which checks
+    /// `rootSuperSpeed` before transport signaling, then falls back to
+    /// `portMatchedSuperSpeed` last, so a non-root portMatched device never
+    /// wins over an already-resolved transport signaling value). Callers
+    /// pick `speedRaw` at or below whatever `device(speedRaw:)` in the same
+    /// fixture uses, so it never becomes the array's "fastest device" and
+    /// silently changes a `.deviceLimit`/`.cableLimit`/`.hostLimit` figure.
+    private func corroboratingPortMatchedDevice(speedRaw: UInt8 = 3) -> USBDevice {
+        USBDevice(
+            id: 11, locationID: 0x0121_0000,
+            vendorID: 0x1234, productID: 0x0001,
+            vendorName: nil, productName: "Corroborating device", serialNumber: nil,
+            usbVersion: nil, speedRaw: speedRaw,
+            busPowerMA: nil, currentMA: nil,
+            controllerPortName: "Port-USB-C@1",
+            rawProperties: [:]
+        )
+    }
+
     private func cio(negotiatedLinkSpeed: Int) -> CIOCableCapability {
         CIOCableCapability(
             id: 3, portKey: "2/1",
@@ -251,10 +272,12 @@ struct DataLinkDiagnosticTests {
     @Test("Cable is the bottleneck")
     func cableIsBottleneck() {
         // Mac port 20, device 20, but a USB 3.2 Gen 1 (5 Gbps) cable.
+        // issue #181: corroborate with a low-speed port-matched device so it
+        // never wins the "fastest device" capability figure.
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 1)],   // 5 Gbps
-            devices: [device(speedRaw: 5)],              // 20 Gbps
+            devices: [device(speedRaw: 5), corroboratingPortMatchedDevice()],  // 20 Gbps + corroboration
             usb3Transports: [usb3(signaling: 1)],        // active 5 Gbps
             cio: nil,
             hostMaxGbps: 20
@@ -271,10 +294,12 @@ struct DataLinkDiagnosticTests {
     @Test("Host port is the bottleneck")
     func hostIsBottleneck() {
         // Fast 40 Gbps cable, 20 Gbps device, but the Mac port only does 5.
+        // issue #181: corroborate with a low-speed port-matched device so it
+        // never wins the "fastest device" capability figure.
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps
-            devices: [device(speedRaw: 5)],              // 20 Gbps
+            devices: [device(speedRaw: 5), corroboratingPortMatchedDevice()],  // 20 Gbps + corroboration
             usb3Transports: [usb3(signaling: 1)],        // active 5 Gbps
             cio: nil,
             hostMaxGbps: 5
@@ -291,10 +316,13 @@ struct DataLinkDiagnosticTests {
     @Test("Device is the cap, not a fault")
     func deviceIsCapNotFault() {
         // 40 Gbps cable, 40 Gbps port, but a 10 Gbps device.
+        // issue #181: corroborate with a low-speed port-matched device so it
+        // never wins the "fastest device" capability figure (the whole
+        // point of this test is that the 10 Gbps device IS the figure).
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps
-            devices: [device(speedRaw: 4)],              // 10 Gbps
+            devices: [device(speedRaw: 4), corroboratingPortMatchedDevice()],  // 10 Gbps + corroboration
             usb3Transports: [usb3(signaling: 2)],        // active 10 Gbps
             cio: nil,
             hostMaxGbps: 40
@@ -333,10 +361,11 @@ struct DataLinkDiagnosticTests {
     @Test("No cable signal: honest 'can't tell'")
     func unknownCableWhenNoSignal() {
         // No e-marker, no controller data. Port 40, device 20, link 5.
+        // issue #181: corroborate with a low-speed port-matched device.
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [],
-            devices: [device(speedRaw: 5)],              // 20 Gbps
+            devices: [device(speedRaw: 5), corroboratingPortMatchedDevice()],  // 20 Gbps + corroboration
             usb3Transports: [usb3(signaling: 1)],        // active 5 Gbps
             cio: nil,
             hostMaxGbps: 40
@@ -738,6 +767,10 @@ struct DataLinkDiagnosticTests {
     func noCapabilityKnown() {
         // Active 10 Gbps link, but no e-marker, no controller data, host
         // unresolved, no device. Nothing to compare against.
+        // issue #181: with no device and no restriction, nothing corroborates
+        // this reading -- it is exactly the transient-handshake shape the
+        // gate exists to suppress (issue #181). Pre-issue #181 this asserted
+        // `.unknownCable(active: 10)`; that is the bug.
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [],
@@ -746,12 +779,7 @@ struct DataLinkDiagnosticTests {
             cio: nil,
             hostMaxGbps: nil
         )
-        guard case .unknownCable(let active) = diag?.bottleneck else {
-            Issue.record("expected .unknownCable, got \(String(describing: diag?.bottleneck))")
-            return
-        }
-        #expect(active == 10)
-        #expect(diag!.isWarning == false)
+        #expect(diag == nil, "got: \(String(describing: diag?.bottleneck))")
     }
 
     @Test("Facts expose the resolved per-party numbers")
@@ -1935,10 +1963,11 @@ struct DataLinkDiagnosticTests {
         // 5 Gbps cable, 20 Gbps device, 20 Gbps host, active 5 Gbps.
         // Cable is the only thing at the floor; the priority swap must
         // not stop it from being identified as the actionable culprit.
+        // issue #181: corroborate with a low-speed port-matched device.
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 1)],   // 5 Gbps
-            devices: [device(speedRaw: 5)],              // 20 Gbps
+            devices: [device(speedRaw: 5), corroboratingPortMatchedDevice()],  // 20 Gbps + corroboration
             usb3Transports: [usb3(signaling: 1)],        // active 5 Gbps
             cio: nil,
             hostMaxGbps: 20
@@ -2013,11 +2042,16 @@ struct DataLinkDiagnosticTests {
         // USB-C port whose internal virtual root inflates the locationID
         // nibbles). rootSuperSpeed is empty, so the controller's USB3
         // signaling remains the active rate, exactly as before this fix.
+        // issue #181: TRM-restricted corroborates on its own, without needing
+        // a root/portMatched device (which would defeat the "no resolvable
+        // root device" premise this test is pinning). The restricted-path
+        // Facts still set `activeGbps: active` identically, so this is a
+        // corroboration-only change, not a behaviour change for this test.
         let diag = DataLinkDiagnostic(
             port: makePort(transportsActive: ["CC", "USB3", "USB2"]),
             identities: [],
             devices: [device(speedRaw: 4)],          // locationID 0x0100_0000, not a root nibble
-            usb3Transports: [usb3(signaling: 2)],    // Gen 2 (10)
+            usb3Transports: [usb3(signaling: 2, transportRestricted: true)],    // Gen 2 (10)
             cio: nil
         )
 
@@ -2053,6 +2087,10 @@ struct DataLinkDiagnosticTests {
         // transportRestricted=false must not trigger the security verdict.
         // The diagnostic should proceed normally: in this case .unknownCable
         // because no e-marker and no host cap is supplied.
+        // issue #181: an unrestricted transport with no device does not
+        // corroborate at all, so the correct outcome is now no verdict --
+        // still, critically, NOT `.blockedBySecurity` (that's what this
+        // test pins: restricted=false must never look blocked).
         let diag = DataLinkDiagnostic(
             port: makePort(transportsActive: ["CC", "USB3"]),
             identities: [],
@@ -2063,16 +2101,16 @@ struct DataLinkDiagnosticTests {
         if case .blockedBySecurity = diag?.bottleneck {
             Issue.record("transportRestricted=false must not produce .blockedBySecurity")
         }
-        // Expect a normal (non-security) verdict: unknownCable in this scenario.
-        guard case .unknownCable = diag?.bottleneck else {
-            Issue.record("Expected .unknownCable (no e-marker, no host cap), got \(String(describing: diag?.bottleneck))")
-            return
-        }
+        #expect(diag == nil, "got: \(String(describing: diag?.bottleneck))")
     }
 
     @Test("TRM-restricted nil leaves previous verdict path unchanged")
     func trmRestrictedNilDoesNotBlock() {
         // transportRestricted=nil (field absent) must not trigger the security verdict.
+        // issue #181: a non-restricted transport with no device does not
+        // corroborate at all, so the correct outcome is now no verdict --
+        // still, critically, NOT `.blockedBySecurity` (that's what this
+        // test pins: restricted=nil must never look blocked).
         let diag = DataLinkDiagnostic(
             port: makePort(transportsActive: ["CC", "USB3"]),
             identities: [],
@@ -2083,9 +2121,67 @@ struct DataLinkDiagnosticTests {
         if case .blockedBySecurity = diag?.bottleneck {
             Issue.record("transportRestricted=nil must not produce .blockedBySecurity")
         }
-        guard case .unknownCable = diag?.bottleneck else {
-            Issue.record("Expected .unknownCable (no e-marker, no host cap), got \(String(describing: diag?.bottleneck))")
-            return
+        #expect(diag == nil, "got: \(String(describing: diag?.bottleneck))")
+    }
+
+    // MARK: - Verdict matrix: unrelated restriction never corroborates
+    //
+    // Review finding: the existing "corroborated" tunnelled-vs-direct test
+    // in USB3SelectorCharacterisationTests always carries a valid restricted
+    // DIRECT transport alongside the tunnelled one, so it proves selection
+    // excludes tunnelled, not that a restriction on an unrelated entry is
+    // correctly ignored. These two cases isolate that: a restriction that
+    // exists ONLY on an entry the selector would never pick (wrong port,
+    // or tunnelled-only) must produce no verdict at all, not
+    // .blockedBySecurity and not a "fine" fallback.
+
+    @Test("A TRM-restricted transport for a DIFFERENT port neither corroborates nor blocks")
+    func restrictedTransportForWrongPortNeitherCorroboratesNorBlocks() {
+        // Restricted, but portKey "2/99" -- a different physical port. The
+        // canonical selector must not match it to port 1, so it can
+        // neither supply a speed nor a .blockedBySecurity verdict for THIS
+        // port.
+        let wrongPortRestricted = USB3Transport(
+            id: 60, portKey: "2/99", signaling: 2,
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(transportsActive: ["CC", "USB3"]),
+            identities: [],
+            devices: [],
+            usb3Transports: [wrongPortRestricted],
+            cio: nil
+        )
+        if case .blockedBySecurity = diag?.bottleneck {
+            Issue.record("a restriction on a different port's transport must not produce .blockedBySecurity")
         }
+        #expect(diag == nil, "got: \(String(describing: diag?.bottleneck))")
+    }
+
+    @Test("A TRM-restricted TUNNELLED-ONLY transport neither corroborates nor blocks")
+    func restrictedTunnelledOnlyTransportNeitherCorroboratesNorBlocks() {
+        // Restricted AND canonically matches this port's portKey, but
+        // tunnelled == true and NO direct entry exists alongside it (a
+        // dock's own internal plumbing sharing this port's portKey). The
+        // selector excludes tunnelled entries unconditionally, so this
+        // restriction belongs to the dock, not the physical port, and must
+        // not corroborate or block this port's verdict.
+        let tunnelledOnlyRestricted = USB3Transport(
+            id: 61, portKey: "2/1", signaling: 2,
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true, tunnelled: true
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(transportsActive: ["CC", "USB3"]),
+            identities: [],
+            devices: [],
+            usb3Transports: [tunnelledOnlyRestricted],
+            cio: nil
+        )
+        if case .blockedBySecurity = diag?.bottleneck {
+            Issue.record("a restriction on a tunnelled-only transport must not produce .blockedBySecurity")
+        }
+        #expect(diag == nil, "got: \(String(describing: diag?.bottleneck))")
     }
 }

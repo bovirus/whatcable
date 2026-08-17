@@ -107,6 +107,19 @@ extension PortSummary {
         // negotiated link is only USB 2.0 (e.g. a Micro-USB cable that
         // physically can't carry SuperSpeed). See issue #187.
         let hasUSB3 = active.contains("USB3")
+        // issue #181: the HPM port controller briefly publishes
+        // USB3 in TransportsActive during cable orientation / SuperSpeed
+        // handshake even for a charger-only cable with no SuperSpeed peer;
+        // PD negotiation then withdraws it. Printing a speed line for that
+        // instant reads as WhatCable losing information it briefly had.
+        // `hasCorroboratedUSB3` requires either an enumerated SuperSpeed
+        // device or a TRM restriction on the selected transport (the same
+        // predicate `.blockedBySecurity` keys on) before any USB3 speed
+        // string is emitted. See USB3SpeedCorroboration and
+        // planning/dar-50-usb3-speed-corroboration.md.
+        let selectedUSB3Transport = USB3SpeedCorroboration.selectedTransport(for: port, in: usb3Transports)
+        let hasCorroboratedUSB3 = hasUSB3
+            && USB3SpeedCorroboration.isCorroborated(selected: selectedUSB3Transport, devices: devices)
         let hasUSB2 = active.contains("USB2")
         let hasTB = active.contains("CIO") // Thunderbolt = Converged I/O
         let hasDP = active.contains("DisplayPort")
@@ -157,14 +170,18 @@ extension PortSummary {
         let activeDataTransports = active.filter { $0 == "USB2" || $0 == "USB3" || $0 == "CIO" }
         let dataWithheld = !activeDataTransports.isEmpty && activeDataTransports.allSatisfy { type in
             if type == "USB3" {
-                // Read USB3 from the same source DataLinkDiagnostic reads, so
-                // the headline and the diagnostic underneath cannot disagree.
-                // Disagreement is the entire bug this branch exists to fix.
-                return usb3Transports.contains {
-                    $0.canonicallyMatches(port: port)
-                        && $0.tunnelled != true
-                        && $0.transportRestricted == true
-                }
+                // Read USB3 restriction from the SAME selected transport the
+                // speed label, corroboration, and DataLinkDiagnostic verdict
+                // all read (USB3SpeedCorroboration.selectedTransport), not a
+                // `contains` scan over every canonically-matching entry. A
+                // `contains` scan can disagree with the selector: an
+                // exact-UUID transport that is unrestricted, alongside a
+                // weaker same-portKey record that IS restricted, would have
+                // this arm call the port blocked while the selector (and the
+                // speed label built from it) call the link fine.
+                // Disagreement between the headline and the diagnostic
+                // underneath is the entire bug this branch exists to fix.
+                return selectedUSB3Transport?.transportRestricted == true
             }
             // USB2 (and CIO) have no transport model of their own; TRM carries
             // their restricted flag.
@@ -230,7 +247,7 @@ extension PortSummary {
             } else {
                 measured.append(contentsOf: tbBullets)
             }
-        } else if hasUSB3 {
+        } else if hasCorroboratedUSB3 {
             // Speed selection order:
             //   1. Root device (directly attached, `isRootDevice`). Its
             //      `Device Speed` reflects the upstream link end-to-end and
@@ -246,9 +263,7 @@ extension PortSummary {
             //      empty so a known-Gen-1 HPM reading still beats a
             //      seemingly-Gen-2 downstream device (see Codex review).
             let rootDeviceLabel = USBDevice.rootSuperSpeed(in: devices)?.usb3SpeedLabel
-            let transportLabel = usb3Transports
-                .first { $0.canonicallyMatches(port: port) }?
-                .speedLabel
+            let transportLabel = selectedUSB3Transport?.speedLabel
             let portMatchedLabel = USBDevice.portMatchedSuperSpeed(in: devices)?.usb3SpeedLabel
 
             if let deviceLabel = rootDeviceLabel, let hpmLabel = transportLabel,
@@ -722,7 +737,7 @@ extension PortSummary {
                 self.headline = String(localized: "Thunderbolt / USB4", bundle: _coreLocalizedBundle) + cableLimitSuffix
             }
             self.subtitle = subtitleForCapabilities(usb3: true, dp: hasDP, emarker: hasEmarker)
-        } else if hasUSB3 && hasDP {
+        } else if hasCorroboratedUSB3 && hasDP {
             self.status = .displayCable
             if let w = chargerW {
                 self.headline = String(localized: "USB-C with video · \(w)W charger", bundle: _coreLocalizedBundle) + cableLimitSuffix
@@ -740,7 +755,7 @@ extension PortSummary {
                 self.headline = String(localized: "Display connected", bundle: _coreLocalizedBundle) + cableLimitSuffix
             }
             self.subtitle = String(localized: "DisplayPort video over USB-C Alt Mode.", bundle: _coreLocalizedBundle)
-        } else if hasUSB3 {
+        } else if hasCorroboratedUSB3 {
             self.status = .dataDevice
             if let w = chargerW {
                 self.headline = (dataWithheld
@@ -766,7 +781,7 @@ extension PortSummary {
             self.subtitle = dataWithheld
                 ? String(localized: "macOS is holding data back until you approve the accessory.", bundle: _coreLocalizedBundle)
                 : String(localized: "SuperSpeed data link is active.", bundle: _coreLocalizedBundle)
-        } else if hasUSB2 && !hasUSB3 {
+        } else if hasUSB2 && !hasCorroboratedUSB3 {
             self.status = .dataDevice
             if let w = chargerW {
                 self.headline = (dataWithheld
@@ -963,7 +978,7 @@ extension PortSummary {
         self.groups = groups
         self.linkSpeed = resolveLinkSpeed(
             hasTB: hasTB,
-            hasUSB3: hasUSB3,
+            hasUSB3: hasCorroboratedUSB3,
             hasUSB2: hasUSB2,
             port: port,
             devices: devices,
@@ -1171,7 +1186,7 @@ private func usb3Gbps(
     // treats it as "no info" (USB3Transport.speedLabel returns nil) and falls
     // through to a port-matched device, so the badge must do the same or it
     // would read 5G where the bullet shows 10G/20G.
-    if let signaling = transports.first(where: { $0.canonicallyMatches(port: port) })?.signaling,
+    if let signaling = USB3SpeedCorroboration.selectedTransport(for: port, in: transports)?.signaling,
        signaling != 0 {
         // Signaling only encodes Gen 1 (1) / Gen 2 (2); 20 Gbps is only seen
         // via a device's speedRaw above or below.

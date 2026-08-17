@@ -299,6 +299,14 @@ struct PortSummarySourceAttributionTests {
     /// it, but the within-group half still needs guarding.
     @Test("The measured group reads link, then device, then contract")
     func measuredGroupKeepsItsOrder() {
+        // issue #181: corroborate with a TRM-restricted, no-precise-signaling
+        // transport so the "SuperSpeed USB" generic line this test pins
+        // (ordering within the measured group) actually appears.
+        let corroboratingTransport = USB3Transport(
+            id: 9000, portKey: "2/1", signaling: nil,
+            signalingDescription: nil, dataRole: "host",
+            transportRestricted: true
+        )
         let summary = PortSummary(
             port: makePort(active: ["USB3"], supported: ["CC", "USB2", "USB3"]),
             sources: [charger(amps: 5)],
@@ -306,7 +314,8 @@ struct PortSummarySourceAttributionTests {
                 USBPDSOP(id: 2, endpoint: .sop, parentPortType: 2, parentPortNumber: 1,
                          vendorID: 0x05AC, productID: 0, bcdDevice: 0,
                          vdos: [(2 << 27) | 0x05AC], specRevision: 3),
-            ]
+            ],
+            usb3Transports: [corroboratingTransport]
         )
         let lines = summary.group(.measured)?.lines ?? []
         func idx(_ needle: String) -> Int? { lines.firstIndex { $0.contains(needle) } }

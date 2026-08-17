@@ -275,9 +275,12 @@ struct JSONFormatterTests {
     @Test("USB3 speed appears in transports DTO")
     func usb3SpeedAppearsInTransportsDTO() throws {
         let port = makePort()
+        // issue #181: corroborate via TRM restriction, isolating the JSON
+        // field-formatting behaviour this test pins.
         let transport = USB3Transport(
             id: 200, portKey: "2/1", signaling: 2,
-            signalingDescription: "Gen 2", dataRole: "host"
+            signalingDescription: "Gen 2", dataRole: "host",
+            transportRestricted: true
         )
         let json = try JSONFormatter.render(
             ports: [port], sources: [], identities: [], showRaw: false,

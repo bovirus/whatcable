@@ -8,7 +8,7 @@ import Testing
 // Every other corpus-sweep test in this repo checks the Swift parsers against
 // themselves (does the parser produce a sane-looking value). This suite is
 // different: it checks the PRODUCTION Swift parsers against `corpus.jsonl`,
-// which is produced by `scripts/inspect-probe.py`, a completely independent
+// which is produced by `inspect-probe.py`, a completely independent
 // Python implementation that reads the same raw probe text. Two independent
 // implementations agreeing on the same raw bytes is real evidence; one
 // implementation agreeing with itself is not.
@@ -18,7 +18,7 @@ import Testing
 // TRM restriction count, CIO block count, and advanced-PD kinds. A seventh
 // area, cumulative hard-reset counts, is explicitly NOT covered: probe 19's
 // `hardResets=` / `attach=` line has no production Swift parser today, only
-// `scripts/inspect-probe.py`'s `parse_hard_resets` reads it. There is nothing
+// `inspect-probe.py`'s `parse_hard_resets` reads it. There is nothing
 // to cross-check it against, so no test is written for it. If a Swift
 // consumer of that line is ever added, this file is the place to add the
 // crosscheck.
@@ -40,7 +40,7 @@ import Testing
 // "EPR-Capable" flag bit; that text substring-matched "EPR" even though the
 // PDO was not an EPR AVS APDO and Swift's `PDO.decode` never produces
 // `.eprAvs` for it (226 of 410 folders were affected between the "EPR" and
-// "PPS" bare-substring cases combined). `scripts/inspect-probe.py`'s
+// "PPS" bare-substring cases combined). `inspect-probe.py`'s
 // `parse_pdo` was corrected (2026-07) to match the actual decoded-PDO label
 // the probe prints ("SPR PPS ..." / "EPR AVS ..." / "SPR AVS ...") instead
 // of a bare substring anywhere in the dump, and the corpus was regenerated.
@@ -101,7 +101,7 @@ private func oracleLoadProbeText(folder: String, probe: String) -> String? {
 // MARK: - corpus.jsonl loader
 //
 // `corpus.jsonl` is git-tracked (one JSON object per line, produced by
-// `scripts/inspect-probe.py`), so it is always present, even on a fresh
+// `inspect-probe.py`), so it is always present, even on a fresh
 // clone that hasn't fetched raw probes from KV. The per-check floor
 // assertions below are gated on the raw probe files (via
 // `oracleLoadProbeText` returning non-nil), not on this loader, so a fresh
@@ -707,7 +707,7 @@ private func oracleAllTransportBlocks(folder: String, className: String) -> [[St
 }
 
 /// The two probes that carry CIO transports, in the order the Python oracle
-/// (`scripts/inspect-probe.py`) reads them.
+/// (`inspect-probe.py`) reads them.
 ///
 /// Probe 17 alone is not enough: it is truncated at the 64 KB pipe cap on 41
 /// corpus folders and absent on others, so reading it alone undercounts

@@ -109,7 +109,7 @@ int main(void) {
     printf("=== REGISTRY CLASS DISCOVERY ===\n");
     printf("nodes=%lld\n", nodes);
     printf("classes=%d\n", g_classCount);
-    // iterator_stale is the numeric field scripts/inspect-probe.py's classes()
+    // iterator_stale is the numeric field inspect-probe.py's classes()
     // parses; the TRUNCATED line is the same marker every other probe in this
     // kit prints, so a generic scan for it (not just this probe's own field)
     // also catches this capture.

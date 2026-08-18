@@ -74,7 +74,7 @@ struct CorpusCoverageTests {
     func advancedPDFixtures() throws {
         let n = try Self.records().filter { ((Self.signals($0)["advanced_pd"] as? [Any]) ?? []).isEmpty == false }.count
         // Actual 226 (pre-fix) dropped to 117 (2026-07) after correcting a
-        // Python-pipeline bug in `scripts/inspect-probe.py`'s advanced-PD
+        // Python-pipeline bug in `inspect-probe.py`'s advanced-PD
         // detection: it used to substring-match the bare text "EPR" anywhere
         // in probe 19's output, which also matched an ordinary Fixed Supply
         // PDO's "EPR-Capable" flag suffix (and, on machines with a TB dock,

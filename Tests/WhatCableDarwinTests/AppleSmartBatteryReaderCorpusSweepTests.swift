@@ -14,7 +14,7 @@ import WhatCableCore
 // This file is deliberately left as it is. Its value was never the workaround:
 // it is a genuinely INDEPENDENT extraction of the same fields, cross-checked
 // against `corpus.jsonl`, which was computed by a third tool again
-// (`scripts/inspect-probe.py`). Three separate readings agreeing is stronger
+// (`inspect-probe.py`). Three separate readings agreeing is stronger
 // evidence than one production parser agreeing with itself, and the house rule
 // about a check that reads the same source as the thing it checks is exactly
 // why that is worth keeping. Read the rest of this comment as the history of
@@ -60,7 +60,7 @@ import WhatCableCore
 //    format).
 // 2. Cross-checks those extracted values against `corpus.jsonl`'s
 //    `signals.battery_pct` / `signals.adapter_w` fields, which were computed
-//    by an entirely separate tool (`scripts/inspect-probe.py`, run by the
+//    by an entirely separate tool (`inspect-probe.py`, run by the
 //    `/whatcable-process-probe` skill). Agreement between two independently
 //    written extractions is real evidence the raw values themselves, and the
 //    format assumptions both extractions share, are sound -- even though
@@ -205,7 +205,7 @@ struct AppleSmartBatteryReaderCorpusSweepTests {
         return nil
     }
 
-    /// `StateOfCharge = N`, matching `scripts/inspect-probe.py`'s
+    /// `StateOfCharge = N`, matching `inspect-probe.py`'s
     /// `battery_pct()` regex `(?<![A-Za-z])StateOfCharge\s*=\s*(\d+)` exactly
     /// (a negative lookbehind so it never matches inside a longer key name),
     /// so this is a true apples-to-apples cross-check against corpus.jsonl.
@@ -323,7 +323,7 @@ struct AppleSmartBatteryReaderCorpusSweepTests {
     /// `BatteryInstalled=false` like a desktop, so `form_factor` falls back
     /// to port-layout (MagSafe presence) to still call it a laptop. This is
     /// not a parsing bug in either tool; it is called out explicitly in
-    /// `scripts/inspect-probe.py`'s `form_factor()` comment. Excluded from
+    /// `inspect-probe.py`'s `form_factor()` comment. Excluded from
     /// the strict gate below so a real mismatch elsewhere isn't masked by
     /// this documented one.
     private static let knownFaultedBatteryLaptops: Set<String> = ["m4pro_macos26.5_f"]

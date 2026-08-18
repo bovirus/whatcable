@@ -7,7 +7,7 @@ import Testing
 /// IOService plane and records each class with the ancestry and owning kext the
 /// kernel reports for it, so a class nobody wrote down still shows up. That
 /// makes its OUTPUT FORMAT load-bearing in a way a normal probe's is not: the
-/// class census in `scripts/inspect-probe.py` parses these rows to diff against
+/// class census in `inspect-probe.py` parses these rows to diff against
 /// `class-baseline.json`, and a silent format drift would show up as "no new
 /// classes" forever rather than as an error.
 ///

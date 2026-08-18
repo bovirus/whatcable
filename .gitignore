@@ -54,53 +54,11 @@ AGENTS.md
 # Internal architectural decision log
 DECISIONS.md
 
-# Customer test-kit probe raw dumps. The bulk probes are a redundant copy of
-# the WHATCABLE_PROBE_DATA KV store (re-fetchable by machine_hash:probe key),
-# so they are not tracked. EXCEPTION: 01_walk_pd_tree.json is kept tracked for
-# every folder, because DataLinkDiagnosticProbeSweepTests reads it as a test
-# fixture (and it is the gate input + cable fingerprint source). The other 12
-# probes are tracked only for CIO folders (kept on disk for /whatcable-mine-cio).
-# Distilled artifacts (inspection.md + the top-level rollups) are always tracked.
-research/customer-probes/*/*.json
-!research/customer-probes/*/01_walk_pd_tree.json
-# Load-bearing fixture for Probe38TreeWalkTests (the USB device-tree replay
-# test). Like probe 01, this one probe-38 file is tracked so the test has a
-# guaranteed fixture in CI; every other probe 38 stays gitignored.
-!research/customer-probes/m3pro_macos26.5.1_h/38_usb_device_tree.json
-# Named-machine fixtures for USBWatcherCorpusSweepTests (ancestor-walk replay
-# through USBWatcher.classifyAncestry): the two Mac Studios pinning the issue
-# #417 embedded-controller misclassification, the M1 mini (same class, FL1100),
-# a real-dock desktop, and the M4 mini on macOS 27 (Tahoe board port node).
-!research/customer-probes/m2max_macos26.5.2/38_usb_device_tree.json
-!research/customer-probes/m4max_macos26.5.1_f/38_usb_device_tree.json
-!research/customer-probes/m1_macos15.7.7_c/38_usb_device_tree.json
-!research/customer-probes/m4pro_macos15.7.7_d/38_usb_device_tree.json
-!research/customer-probes/m4_macos27.0_e/38_usb_device_tree.json
-# Load-bearing fixture for the LinkTrainingMode <= CableGeneration invariant
-# test (CIOAndDataLinkCorpusTests). This is the ONLY corpus block where the two
-# fields diverge (CableGeneration=2, LinkTrainingMode=1), so it is the strict-<
-# boundary case the invariant test must exercise; without it tracked, the test
-# would only ever see equal pairs on a fresh clone and pass vacuously.
-!research/customer-probes/m3pro_macos26.5.2_g/17_deep_property_dump.json
-# Load-bearing fixtures for the issue #493 regression
-# (ChainAttributionProbeSweepTests.regression493SharedDockHubNotClaimedByLoneDevice)
-# and the first probe-29 fixtures tracked at all: the OWC Express 1M2 sitting
-# on the CalDigit TB4 Pro Dock's shared internal hub. Both probes are needed
-# together (29 for the Thunderbolt chain, 38 for the USB device tree), and
-# both machine states (`_l`/`_m`) are kept so the regression replays exactly
-# as captured. Explicitly negated, not just relying on the `git add -f` that
-# added them, so a future delete/re-add does not silently drop them back
-# behind the blanket `*.json` ignore above.
-!research/customer-probes/m3pro_macos27.0_l/29_usb4_router_interfaces.json
-!research/customer-probes/m3pro_macos27.0_l/38_usb_device_tree.json
-!research/customer-probes/m3pro_macos27.0_m/29_usb4_router_interfaces.json
-!research/customer-probes/m3pro_macos27.0_m/38_usb_device_tree.json
-# probe 37 (tb_tunnel_port_map) for the same two folders: the PCIe-bridge-depth
-# structural tunnel join replays from this probe, and without it tracked the
-# join half of ChainAttributionProbeSweepTests sweeps zero folders
-# on a fresh clone or a worktree.
-!research/customer-probes/m3pro_macos27.0_l/37_tb_tunnel_port_map.json
-!research/customer-probes/m3pro_macos27.0_m/37_tb_tunnel_port_map.json
+# The research library and probe corpus are maintained separately and linked
+# in here as `research`. The link is never tracked: a tracked symlink would land
+# in `git archive` output and resolve to nothing in a clone that has no such
+# checkout alongside it.
+research
 
 # Python bytecode (from research/build scripts like inspect-probe.py)
 __pycache__/

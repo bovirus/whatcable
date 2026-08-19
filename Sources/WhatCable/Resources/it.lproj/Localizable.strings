@@ -166,7 +166,7 @@
 /* Built-in display port card (issue #352). Used by the popover when a
    native HDMI port is showing a display. */
 "Display connected" = "Schermo connesso";
-"%lld displays connected" = "%lld schermi connessi";
+"%lld displays connected" = "%lld display connessi";
 "Built-in %1$@ port %2$lld" = "%1$@ porta %2$lld integrata";
 
 /* USB probing compatibility toggle (issue #429). */

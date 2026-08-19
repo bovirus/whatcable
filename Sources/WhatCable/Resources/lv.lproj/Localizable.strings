@@ -184,3 +184,10 @@
 "Serial" = "Sērijas numurs";
 "USB" = "USB";
 "Hide hubs" = "Slēpt centrmezglus";
+
+/* Beta update channel (opt-in pre-release updates). */
+"Updates" = "Atjauninājumi";
+"Include beta versions" = "Iekļaut beta versijas";
+"Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "Pirmsizlaides versijas, kas iznāk dažas dienas pirms stabilās versijas. Iespējamas nepilnības.";
+"Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "Izslēdzot to, turpmākās beta versijas vairs nesaņemsi. Tas neatgriež no beta versijas, kuru jau lieto. To izdarīs nākamā stabilā versija.";
+"You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "WhatCable ir instalēts ar Homebrew. Komanda brew upgrade var aizstāt beta versiju ar pašreizējo stabilo versiju.";

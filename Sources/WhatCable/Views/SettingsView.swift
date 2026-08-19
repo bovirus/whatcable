@@ -146,6 +146,25 @@ struct SettingsForm: View {
             }
 
             Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle(String(localized: "Include beta versions", bundle: _appLocalizedBundle), isOn: $settings.receiveBetaUpdates)
+                    Text(String(localized: "Pre-release builds, shipped a few days before a stable release. Expect rough edges.", bundle: _appLocalizedBundle))
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(String(localized: "Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will.", bundle: _appLocalizedBundle))
+                        .scaledFont(.caption)
+                        .foregroundStyle(.secondary)
+                    if UpdateChecker.isHomebrewInstall {
+                        Text(String(localized: "You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release.", bundle: _appLocalizedBundle))
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } header: {
+                sectionHeader("Updates")
+            }
+
+            Section {
                 TestKitSettingsSection()
             } header: {
                 sectionHeader("COMMUNITY")

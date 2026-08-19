@@ -184,3 +184,10 @@
 "Serial" = "Serial";
 "USB" = "USB";
 "Hide hubs" = "Hide hubs";
+
+/* Beta update channel (opt-in pre-release updates). */
+"Updates" = "Updates";
+"Include beta versions" = "Include beta versions";
+"Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "Pre-release builds, shipped a few days before a stable release. Expect rough edges.";
+"Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will.";
+"You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release.";

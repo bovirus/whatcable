@@ -36,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let showChargingWatts = "showChargingWatts"
         static let menuBarWattsStyle = "menuBarWattsStyle"
         static let skipDeepUSBProbing = "skipDeepUSBProbing"
+        static let receiveBetaUpdates = "receiveBetaUpdates"
     }
 
 
@@ -67,6 +68,31 @@ final class AppSettings: ObservableObject {
             guard notifyOnUpdates != oldValue else { return }
             UserDefaults.standard.set(notifyOnUpdates, forKey: Keys.notifyOnUpdates)
         }
+    }
+
+    /// Whether the in-app updater offers pre-release builds as well as
+    /// stable ones. Defaults false: with it off, the updater keeps hitting
+    /// `releases/latest`, which GitHub never returns a pre-release from, so
+    /// an opted-out user cannot be shown a beta even by accident.
+    ///
+    /// Turning it on widens what is offered, it does not force a beta: the
+    /// updater still picks whichever release is newest, so a stable always
+    /// supersedes its own betas.
+    @Published var receiveBetaUpdates: Bool {
+        didSet {
+            guard receiveBetaUpdates != oldValue else { return }
+            UserDefaults.standard.set(receiveBetaUpdates, forKey: Keys.receiveBetaUpdates)
+            // Opting out has to withdraw a beta that is already on offer, not
+            // just stop the next one. Otherwise the banner still installs it.
+            UpdateChecker.shared.discardPrereleaseOfferIfOptedOut()
+        }
+    }
+
+    /// Whether this update must not be offered because it is a pre-release and
+    /// the user is not opted into betas. One definition, used both when a
+    /// check completes and when the toggle changes, so the two cannot drift.
+    func suppressesPrerelease(_ update: AvailableUpdate) -> Bool {
+        !receiveBetaUpdates && AppInfo.isPrerelease(update.version)
     }
 
     @Published var hideEmptyPorts: Bool {
@@ -235,6 +261,8 @@ final class AppSettings: ObservableObject {
         } else {
             self.notifyOnUpdates = UserDefaults.standard.bool(forKey: Keys.notifyOnUpdates)
         }
+        // Betas are opt-in; an unset key reads false, which is what we want.
+        self.receiveBetaUpdates = UserDefaults.standard.bool(forKey: Keys.receiveBetaUpdates)
         self.hideEmptyPorts = UserDefaults.standard.bool(forKey: Keys.hideEmptyPorts)
         // Menu bar mode is the default; UserDefaults returns false for unset
         // bool keys, so explicitly check presence.

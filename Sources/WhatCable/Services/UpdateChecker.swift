@@ -18,7 +18,12 @@ final class UpdateChecker: ObservableObject {
     static let shared = UpdateChecker()
 
     private nonisolated static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "updates")
-    private static let endpoint = URL(string: "https://api.github.com/repos/darrylmorley/whatcable/releases/latest")!
+    /// Stable-only feed. GitHub never returns a pre-release from this, which
+    /// is the first of the three layers keeping opted-out users off betas.
+    private nonisolated static let latestEndpoint = URL(string: "https://api.github.com/repos/darrylmorley/whatcable/releases/latest")!
+    /// Beta feed. The list endpoint is the only one that can see a
+    /// pre-release. Drafts stay invisible to unauthenticated requests.
+    private nonisolated static let listEndpoint = URL(string: "https://api.github.com/repos/darrylmorley/whatcable/releases?per_page=10")!
     private static let pollInterval: TimeInterval = 6 * 60 * 60 // 6h
 
     @Published private(set) var available: AvailableUpdate?
@@ -80,7 +85,11 @@ final class UpdateChecker: ObservableObject {
         isChecking = true
         pendingVisibleCheck = !silent
 
-        URLSession.shared.dataTask(with: Self.makeReleaseRequest()) { [weak self] data, _, error in
+        // Read the preference on the main actor before hopping onto the
+        // session's callback queue.
+        let betas = AppSettings.shared.receiveBetaUpdates
+
+        URLSession.shared.dataTask(with: Self.makeReleaseRequest(includingBetas: betas)) { [weak self] data, _, error in
             Task { @MainActor in
                 guard let self else { return }
                 self.isChecking = false
@@ -100,7 +109,7 @@ final class UpdateChecker: ObservableObject {
                     return
                 }
 
-                guard let data, let release = Self.parseRelease(from: data) else {
+                guard let data, let release = Self.newestRelease(from: data, allowPrerelease: betas) else {
                     if visible { self.showAlert(title: "Couldn't check for updates", message: "Unexpected response from GitHub.") }
                     return
                 }
@@ -108,6 +117,23 @@ final class UpdateChecker: ObservableObject {
                 // Only a successful, parsed response counts as a check for
                 // throttle purposes.
                 self.lastCheck = Date()
+
+                // The preference was read before the request went out. If the
+                // user switched betas off while it was in flight, that snapshot
+                // is stale, so re-read now and drop a pre-release rather than
+                // offering something they just opted out of (Codex review,
+                // finding 1). Re-reading here is safe: this closure is already
+                // back on the main actor.
+                if AppSettings.shared.suppressesPrerelease(release) {
+                    self.available = nil
+                    if visible {
+                        self.showAlert(
+                            title: "You're up to date",
+                            message: "WhatCable \(AppInfo.version) is the latest version."
+                        )
+                    }
+                    return
+                }
 
                 if Self.isNewer(remote: release.version, current: AppInfo.version) {
                     let update = release
@@ -139,9 +165,10 @@ final class UpdateChecker: ObservableObject {
     /// Returns nil on any network or parse error: callers fall back to
     /// whatever update they already had.
     func fetchLatestRelease() async -> AvailableUpdate? {
+        let betas = AppSettings.shared.receiveBetaUpdates
         do {
-            let (data, _) = try await URLSession.shared.data(for: Self.makeReleaseRequest())
-            return Self.parseRelease(from: data)
+            let (data, _) = try await URLSession.shared.data(for: Self.makeReleaseRequest(includingBetas: betas))
+            return Self.newestRelease(from: data, allowPrerelease: betas)
         } catch {
             Self.log.error("Pre-install update re-check failed: \(error.localizedDescription, privacy: .public)")
             return nil
@@ -151,12 +178,26 @@ final class UpdateChecker: ObservableObject {
     /// Build the `releases/latest` request used by both the background poll and
     /// the pre-install re-check, so the endpoint, headers and timeout live in
     /// one place.
-    private nonisolated static func makeReleaseRequest() -> URLRequest {
-        var request = URLRequest(url: endpoint)
+    nonisolated static func makeReleaseRequest(includingBetas: Bool = false) -> URLRequest {
+        var request = URLRequest(url: includingBetas ? listEndpoint : latestEndpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("WhatCable/\(AppInfo.version)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 15
         return request
+    }
+
+    /// Drop an outstanding pre-release offer when the user opts out of betas.
+    ///
+    /// Without this, a tester could opt in, be shown a beta, opt out, and
+    /// still install it from the banner that was already on screen, which
+    /// makes the settings caption a lie (Codex review, finding 2). Called by
+    /// `AppSettings` when the toggle changes.
+    func discardPrereleaseOfferIfOptedOut() {
+        guard let current = available else { return }
+        if AppSettings.shared.suppressesPrerelease(current) {
+            available = nil
+            notifiedVersion = nil
+        }
     }
 
     /// Sync the published `available` pointer when a pre-install re-check finds
@@ -169,16 +210,60 @@ final class UpdateChecker: ObservableObject {
     /// Parse GitHub's `releases/latest` JSON into an `AvailableUpdate`. Returns
     /// nil if the payload is missing the fields we need. Does not compare
     /// against the running version; callers apply `isNewer` themselves.
-    nonisolated static func parseRelease(from data: Data) -> AvailableUpdate? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tag = json["tag_name"] as? String,
+    nonisolated static func parseRelease(from data: Data, allowPrerelease: Bool = false) -> AvailableUpdate? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        return parseRelease(json: json, allowPrerelease: allowPrerelease)
+    }
+
+    /// Pick the newest release from a response, handling both shapes: the
+    /// single object `releases/latest` returns, and the array `releases`
+    /// returns.
+    ///
+    /// The array is ordered by creation date, NOT by version, so taking the
+    /// first entry offers the wrong build whenever a stable ships after a
+    /// beta. Compare every candidate and keep the semver-newest, which is
+    /// what makes a stable supersede its own betas for opted-in users.
+    nonisolated static func newestRelease(from data: Data, allowPrerelease: Bool = false) -> AvailableUpdate? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) else { return nil }
+
+        if let object = json as? [String: Any] {
+            return parseRelease(json: object, allowPrerelease: allowPrerelease)
+        }
+        guard let array = json as? [[String: Any]] else { return nil }
+
+        var best: AvailableUpdate?
+        for item in array {
+            guard let candidate = parseRelease(json: item, allowPrerelease: allowPrerelease) else { continue }
+            if let current = best {
+                if AppInfo.isNewer(remote: candidate.version, current: current.version) {
+                    best = candidate
+                }
+            } else {
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    private nonisolated static func parseRelease(json: [String: Any], allowPrerelease: Bool) -> AvailableUpdate? {
+        guard let tag = json["tag_name"] as? String,
               let urlString = json["html_url"] as? String,
               let url = URL(string: urlString) else {
             return nil
         }
         // releases/latest never returns pre-releases, but this is a client-side
         // backstop so a mis-flagged release can never be offered as an update.
-        if json["prerelease"] as? Bool == true {
+        // Opted-in beta users pass allowPrerelease, which lifts only this
+        // check; every other gate (trusted host, signature, notarisation)
+        // stays in force.
+        if !allowPrerelease, json["prerelease"] as? Bool == true {
+            return nil
+        }
+        // A draft has no usable asset and should never be offered. Drafts are
+        // invisible to unauthenticated requests, so this is belt and braces.
+        if json["draft"] as? Bool == true {
             return nil
         }
         let remote = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
@@ -252,6 +337,63 @@ final class UpdateChecker: ObservableObject {
     /// Compare dot-separated numeric versions. Non-numeric segments compare lexically.
     nonisolated static func isNewer(remote: String, current: String) -> Bool {
         AppInfo.isNewer(remote: remote, current: current)
+    }
+
+    /// Whether this copy is managed by a Homebrew cask.
+    ///
+    /// The layout is the opposite way round to the obvious guess, and the
+    /// obvious guess shipped in the first draft of this feature. Homebrew's
+    /// `app` artifact MOVES WhatCable.app into /Applications and leaves a
+    /// symlink behind in the Caskroom pointing at it. So the running bundle
+    /// resolves to /Applications/WhatCable.app and a "does my path contain
+    /// Caskroom" test is false for every real cask install.
+    ///
+    /// Verified on a live cask install (v0.22.0):
+    ///   /Applications/WhatCable.app                                 real directory
+    ///   /opt/homebrew/Caskroom/whatcable/0.22.0/WhatCable.app  ->  /Applications/WhatCable.app
+    ///
+    /// So ask the question from the other end: does any Caskroom entry point
+    /// at the bundle we are running from?
+    ///
+    /// Only used to decide whether to warn that `brew upgrade` can replace a
+    /// beta with the current stable. Nothing about updating is blocked by it.
+    static var isHomebrewInstall: Bool {
+        let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath().path
+        return caskroomAppLinks().contains { link in
+            isSameBundle(caskLinkTarget: link, bundlePath: bundle)
+        }
+    }
+
+    /// Every `WhatCable.app` entry Homebrew has under a Caskroom, across the
+    /// prefixes a cask can live at: HOMEBREW_PREFIX if set, /opt/homebrew on
+    /// Apple Silicon, /usr/local on Intel.
+    private static func caskroomAppLinks() -> [URL] {
+        var prefixes = ["/opt/homebrew", "/usr/local"]
+        if let custom = ProcessInfo.processInfo.environment["HOMEBREW_PREFIX"], !custom.isEmpty {
+            prefixes.insert(custom, at: 0)
+        }
+        let fm = FileManager.default
+        var found: [URL] = []
+        for prefix in prefixes {
+            // <prefix>/Caskroom/whatcable/<version>/WhatCable.app
+            let caskDir = URL(fileURLWithPath: prefix)
+                .appendingPathComponent("Caskroom")
+                .appendingPathComponent("whatcable")
+            guard let versions = try? fm.contentsOfDirectory(
+                at: caskDir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            ) else { continue }
+            for version in versions {
+                found.append(version.appendingPathComponent("WhatCable.app"))
+            }
+        }
+        return found
+    }
+
+    /// Pure comparison, so the rule is unit-tested without needing a real
+    /// cask install on the test runner. A Caskroom entry identifies this copy
+    /// when it resolves to the same bundle we are running from.
+    nonisolated static func isSameBundle(caskLinkTarget: URL, bundlePath: String) -> Bool {
+        caskLinkTarget.resolvingSymlinksInPath().path == bundlePath
     }
 
     /// Only accept download URLs from GitHub's release asset CDN.

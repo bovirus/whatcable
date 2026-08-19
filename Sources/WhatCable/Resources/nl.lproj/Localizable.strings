@@ -184,3 +184,10 @@
 "Serial" = "Serienummer";
 "USB" = "USB";
 "Hide hubs" = "Verberg hubs";
+
+/* Beta update channel (opt-in pre-release updates). */
+"Updates" = "Updates";
+"Include beta versions" = "Bètaversies opnemen";
+"Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "Voorlopige versies, een paar dagen voor een stabiele release. Verwacht ruwe randjes.";
+"Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "Dit uitzetten stopt toekomstige bèta's. Het haalt je niet terug van een bèta die je al gebruikt. De volgende stabiele release doet dat.";
+"You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "Je hebt WhatCable met Homebrew geïnstalleerd. brew upgrade kan een bèta vervangen door de huidige stabiele release.";

@@ -49,6 +49,13 @@ public enum AppInfo {
     /// pre-release suffixes (e.g. "1.2.0-beta.1"). Non-numeric segments in
     /// the core version compare as 0. A plain release beats any pre-release
     /// of the same core version (so a stable build outranks its own betas).
+    /// Whether a version string carries a pre-release suffix ("1.5.0-beta.3").
+    /// Shares `splitPrerelease` with `isNewer` so there is one definition of
+    /// what a pre-release is, rather than a stray `contains("-")` somewhere.
+    public static func isPrerelease(_ version: String) -> Bool {
+        splitPrerelease(version).suffix != nil
+    }
+
     public static func isNewer(remote: String, current: String) -> Bool {
         let (rCore, rSuffix) = splitPrerelease(remote)
         let (cCore, cSuffix) = splitPrerelease(current)

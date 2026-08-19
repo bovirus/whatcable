@@ -563,7 +563,7 @@ ALLOWED_IDENTICAL = {
     },
     "WhatCable (app)": {
         "de": {
-            "%lld displays connected", "Built-in %1$@ port %2$lld", "COMMUNITY",
+            "Updates", "%lld displays connected", "Built-in %1$@ port %2$lld", "COMMUNITY",
             "Display connected", "Gen 1", "Host (%@)", "OK", "Pro", "SuperSpeed", "USB",
         },
         "es": {
@@ -604,7 +604,7 @@ ALLOWED_IDENTICAL = {
             "Gen 1", "OK", "Pro", "SuperSpeed", "USB",
         },
         "nl": {
-            "%lld displays connected", "Built-in %1$@ port %2$lld", "COMMUNITY", "Direct",
+            "Updates", "%lld displays connected", "Built-in %1$@ port %2$lld", "COMMUNITY", "Direct",
             "Display connected", "Gen 1", "Host (%@)", "OK", "Privacy", "Pro", "SuperSpeed",
             "Thunderbolt fabric", "USB",
         },

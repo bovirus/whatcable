@@ -184,3 +184,10 @@
 "Serial" = "Seri numarası";
 "USB" = "USB";
 "Hide hubs" = "Hub'ları gizle";
+
+/* Beta update channel (opt-in pre-release updates). */
+"Updates" = "Güncellemeler";
+"Include beta versions" = "Beta sürümleri dahil et";
+"Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "Kararlı sürümden birkaç gün önce yayımlanan ön sürümler. Pürüzler bekleyin.";
+"Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "Bunu kapatmak sonraki betaları durdurur. Hâlihazırda kullandığınız bir betadan geri almaz. Bunu bir sonraki kararlı sürüm yapar.";
+"You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "WhatCable'ı Homebrew ile kurdunuz. brew upgrade çalıştırmak bir betayı geçerli kararlı sürümle değiştirebilir.";

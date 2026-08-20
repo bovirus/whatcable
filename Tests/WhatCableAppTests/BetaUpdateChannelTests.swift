@@ -256,6 +256,209 @@ final class BetaUpdateChannelTests: XCTestCase {
         )
     }
 
+    // MARK: - Update notifications are independent of the cable-change toggle (issue #550)
+    //
+    // The two toggles used to be nested: "Notify on app updates" only fired
+    // when "Notify on cable changes" was also on. This proves the gate now
+    // reads notifyOnUpdates alone.
+
+    func testUpdateNotificationFiresWithCableChangeToggleOff() {
+        XCTAssertTrue(
+            UpdateChecker.shouldNotify(notifyOnUpdates: true),
+            "An update notification must fire on notifyOnUpdates alone, regardless of notifyOnChanges"
+        )
+    }
+
+    func testUpdateNotificationStaysOffWhenItsOwnToggleIsOff() {
+        XCTAssertFalse(
+            UpdateChecker.shouldNotify(notifyOnUpdates: false),
+            "Turning off notifyOnUpdates must still silence update notifications"
+        )
+    }
+
+    // These two exercise `postNotification` itself, the real call site, not
+    // just the pure `shouldNotify` rule above. The pure-function tests alone
+    // pass even if the call site reintroduces `guard notifyOnChanges, ...`,
+    // because they never call the site that would carry that guard. Driving
+    // `postNotification` with an injected `notificationSink` closes that gap.
+
+    @MainActor
+    func testPostNotificationFiresWithCableChangeToggleOffButUpdatesOn() {
+        let settings = AppSettings.shared
+        let checker = UpdateChecker.shared
+        let originalNotifyOnChanges = settings.notifyOnChanges
+        let originalNotifyOnUpdates = settings.notifyOnUpdates
+        let originalSink = checker.notificationSink
+        let originalEnsure = checker.ensureNotificationAuthorization
+        let originalRequester = settings.requestNotificationAuthorization
+        // Toggling a notification setting on requests OS permission, which
+        // crashes under the `swift test` runner (no signed app bundle). Swap
+        // in a no-op for the duration of this test.
+        settings.requestNotificationAuthorization = {}
+        defer {
+            settings.notifyOnChanges = originalNotifyOnChanges
+            settings.notifyOnUpdates = originalNotifyOnUpdates
+            checker.notificationSink = originalSink
+            checker.ensureNotificationAuthorization = originalEnsure
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnChanges = false
+        settings.notifyOnUpdates = true
+
+        var posted: AvailableUpdate?
+        checker.notificationSink = { posted = $0 }
+        checker.ensureNotificationAuthorization = { completion in completion(true) }
+        let update = AvailableUpdate(version: "9.9.8", url: URL(string: "https://example.com")!, downloadURL: nil, notes: nil)
+        checker.postNotification(update)
+
+        XCTAssertEqual(
+            posted?.version,
+            "9.9.8",
+            "postNotification itself must fire with notifyOnChanges off, not just the pure shouldNotify rule"
+        )
+    }
+
+    @MainActor
+    func testPostNotificationStaysSilentWhenItsOwnToggleIsOff() {
+        let settings = AppSettings.shared
+        let checker = UpdateChecker.shared
+        let originalNotifyOnUpdates = settings.notifyOnUpdates
+        let originalSink = checker.notificationSink
+        let originalRequester = settings.requestNotificationAuthorization
+        // Restoring notifyOnUpdates below may flip it back to true, which
+        // requests OS permission; that crashes under the `swift test` runner
+        // (no signed app bundle), same reasoning as the test above.
+        settings.requestNotificationAuthorization = {}
+        defer {
+            settings.notifyOnUpdates = originalNotifyOnUpdates
+            checker.notificationSink = originalSink
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnUpdates = false
+
+        var posted: AvailableUpdate?
+        checker.notificationSink = { posted = $0 }
+        let update = AvailableUpdate(version: "9.9.7", url: URL(string: "https://example.com")!, downloadURL: nil, notes: nil)
+        checker.postNotification(update)
+
+        XCTAssertNil(posted, "postNotification must stay silent with notifyOnUpdates off")
+    }
+
+    // MARK: - Authorization gate at post time (owner decision, issue #550)
+    //
+    // notifyOnUpdates now defaults on independent of notifyOnChanges, so
+    // nothing is guaranteed to have requested notification permission before
+    // the first update is found. postNotification requests it itself via the
+    // injected ensureNotificationAuthorization, and must only stamp
+    // notifiedVersion once a post genuinely happens: a denial must not stamp,
+    // or a later grant for the same version would find it "already notified"
+    // and stay silent forever.
+
+    @MainActor
+    func testPostNotificationDeniedAuthorizationDoesNotPostOrStamp() {
+        let checker = UpdateChecker.shared
+        let originalSink = checker.notificationSink
+        let originalEnsure = checker.ensureNotificationAuthorization
+        defer {
+            checker.notificationSink = originalSink
+            checker.ensureNotificationAuthorization = originalEnsure
+        }
+
+        var posted: [AvailableUpdate] = []
+        checker.notificationSink = { posted.append($0) }
+        let update = AvailableUpdate(version: "9.9.6", url: URL(string: "https://example.com")!, downloadURL: nil, notes: nil)
+
+        checker.ensureNotificationAuthorization = { completion in completion(false) }
+        checker.postNotification(update)
+        XCTAssertTrue(posted.isEmpty, "A denied authorization request must not post")
+
+        // Same version, now granted: must still fire. If the denial above had
+        // stamped notifiedVersion, this retry would be silently swallowed.
+        checker.ensureNotificationAuthorization = { completion in completion(true) }
+        checker.postNotification(update)
+        XCTAssertEqual(
+            posted.map(\.version),
+            ["9.9.6"],
+            "A later grant for the same version must still post, since a denial must not stamp"
+        )
+    }
+
+    @MainActor
+    func testPostNotificationGrantedAuthorizationPostsAndStamps() {
+        let checker = UpdateChecker.shared
+        let originalSink = checker.notificationSink
+        let originalEnsure = checker.ensureNotificationAuthorization
+        defer {
+            checker.notificationSink = originalSink
+            checker.ensureNotificationAuthorization = originalEnsure
+        }
+
+        var posted: [AvailableUpdate] = []
+        checker.notificationSink = { posted.append($0) }
+        checker.ensureNotificationAuthorization = { completion in completion(true) }
+        let update = AvailableUpdate(version: "9.9.5", url: URL(string: "https://example.com")!, downloadURL: nil, notes: nil)
+
+        checker.postNotification(update)
+        XCTAssertEqual(posted.map(\.version), ["9.9.5"], "A granted authorization request must post")
+
+        checker.postNotification(update)
+        XCTAssertEqual(
+            posted.map(\.version),
+            ["9.9.5"],
+            "The same version must not post twice; a genuine post must stamp notifiedVersion"
+        )
+    }
+
+    // Race: notifiedVersion is only stamped inside the async authorization
+    // completion, but the guard against a duplicate is checked synchronously
+    // at the top of postNotification. check(silent:) resets isChecking
+    // before postNotification runs, so a second check (the 6h timer,
+    // checkIfStale past its 30-minute throttle, or a manual "Check for
+    // Updates" click) can call postNotification again for the same version
+    // while the first call's authorization request is still pending, a wide
+    // window while the system's .notDetermined permission dialog is open.
+    // Without pendingAuthVersion both calls would start their own
+    // authorization request and, if both grant, post twice.
+
+    @MainActor
+    func testPostNotificationOverlappingCallsForSameVersionPostOnlyOnce() {
+        let checker = UpdateChecker.shared
+        let originalSink = checker.notificationSink
+        let originalEnsure = checker.ensureNotificationAuthorization
+        defer {
+            checker.notificationSink = originalSink
+            checker.ensureNotificationAuthorization = originalEnsure
+        }
+
+        var posted: [AvailableUpdate] = []
+        checker.notificationSink = { posted.append($0) }
+
+        // Capture completions instead of invoking them, so both calls below
+        // start (or attempt to start) their authorization request before
+        // either resolves, reproducing the pending-dialog window.
+        var completions: [(Bool) -> Void] = []
+        checker.ensureNotificationAuthorization = { completion in completions.append(completion) }
+
+        let update = AvailableUpdate(version: "9.9.4", url: URL(string: "https://example.com")!, downloadURL: nil, notes: nil)
+        checker.postNotification(update)
+        checker.postNotification(update)
+
+        for completion in completions { completion(true) }
+
+        XCTAssertEqual(
+            posted.map(\.version),
+            ["9.9.4"],
+            "Two overlapping calls for the same version must post exactly once, even if both authorization requests grant"
+        )
+
+        // A further call for the same version, now settled, must still be
+        // swallowed by the notifiedVersion stamp.
+        checker.postNotification(update)
+        XCTAssertEqual(posted.map(\.version), ["9.9.4"], "The version is already notified; a later call must not post again")
+    }
+
     @MainActor
     func testOptingOutLeavesAStableOfferAlone() {
         let settings = AppSettings.shared

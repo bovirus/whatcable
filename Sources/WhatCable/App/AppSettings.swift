@@ -47,26 +47,38 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// How turning a notification toggle on requests OS permission. Injected
+    /// (default is the real call) so a test can flip `notifyOnChanges` /
+    /// `notifyOnUpdates` without touching `UNUserNotificationCenter`, which
+    /// crashes when the running binary is not a signed app bundle (true of
+    /// the `swift test` process, not of the shipped app).
+    var requestNotificationAuthorization: () -> Void = { NotificationManager.shared.requestAuthorizationIfNeeded() }
+
     @Published var notifyOnChanges: Bool {
         didSet {
             guard notifyOnChanges != oldValue else { return }
             UserDefaults.standard.set(notifyOnChanges, forKey: Keys.notifyOnChanges)
             if notifyOnChanges {
-                NotificationManager.shared.requestAuthorizationIfNeeded()
+                requestNotificationAuthorization()
             }
         }
     }
 
     /// Whether the "WhatCable X.Y available" update notification is posted.
-    /// Sits under `notifyOnChanges`: update notifications only fire when both
-    /// this and the master cable-changes toggle are on. Defaults true so
-    /// existing users who already get update notifications keep getting them;
-    /// turning it off silences only update alerts, leaving cable-change
-    /// notifications and the in-window update notice untouched.
+    /// Independent of `notifyOnChanges` (issue #550): the two toggles used to
+    /// be nested, so update notifications only fired when both were on. Each
+    /// now stands alone. Defaults true (owner decision) so existing users who
+    /// already got update notifications keep getting them regardless of their
+    /// notifyOnChanges setting; turning it off silences only update alerts,
+    /// leaving cable-change notifications and the in-window update notice
+    /// untouched.
     @Published var notifyOnUpdates: Bool {
         didSet {
             guard notifyOnUpdates != oldValue else { return }
             UserDefaults.standard.set(notifyOnUpdates, forKey: Keys.notifyOnUpdates)
+            if notifyOnUpdates {
+                requestNotificationAuthorization()
+            }
         }
     }
 
@@ -254,8 +266,16 @@ final class AppSettings: ObservableObject {
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         // Notifications default off — opt in to avoid noise.
         self.notifyOnChanges = UserDefaults.standard.bool(forKey: Keys.notifyOnChanges)
-        // Update notifications default on; absent key reads as on so existing
-        // users keep their current behaviour after upgrade.
+        // Update notifications default on, independent of notifyOnChanges
+        // (owner decision on issue #550): absent key reads as on for fresh
+        // installs and upgraders alike. This is a deliberate reversal of an
+        // earlier migration that inherited notifyOnChanges instead; the owner
+        // decided update notifications should default on regardless of
+        // whether cable-change notifications are on, even though that means
+        // an upgrader who had deliberately left notifyOnChanges off starts
+        // getting update notifications after upgrading. See postNotification
+        // in UpdateChecker for how the resulting authorization gap (nothing
+        // else requests permission before the first post) is closed.
         if UserDefaults.standard.object(forKey: Keys.notifyOnUpdates) == nil {
             self.notifyOnUpdates = true
         } else {

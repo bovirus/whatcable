@@ -137,10 +137,7 @@ struct SettingsForm: View {
 
             Section {
                 Toggle(String(localized: "Notify on cable changes", bundle: _appLocalizedBundle), isOn: $settings.notifyOnChanges)
-                if settings.notifyOnChanges {
-                    Toggle(String(localized: "Notify on app updates", bundle: _appLocalizedBundle), isOn: $settings.notifyOnUpdates)
-                        .padding(.leading, 20)
-                }
+                Toggle(String(localized: "Notify on app updates", bundle: _appLocalizedBundle), isOn: $settings.notifyOnUpdates)
             } header: {
                 sectionHeader("Notifications")
             }

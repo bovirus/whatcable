@@ -32,6 +32,17 @@ final class UpdateChecker: ObservableObject {
 
     private var timer: Timer?
     private var notifiedVersion: String?
+    /// Set immediately (synchronously) when postNotification starts an
+    /// authorization request for a version, cleared once that request's
+    /// completion runs (grant or deny). notifiedVersion is only stamped
+    /// inside a grant, which happens asynchronously, so there is a window
+    /// between the synchronous notifiedVersion guard and the async stamp
+    /// where a second postNotification call for the same version (the 6h
+    /// timer, checkIfStale, or a manual click landing while a system
+    /// permission dialog is still open) would sail past that guard and
+    /// start a second authorization request, posting twice if both grant.
+    /// This field closes that window.
+    private var pendingAuthVersion: String?
     /// When a manual "Check for Updates" click arrives while a silent
     /// background check is in flight, we set this so the in-flight result
     /// surfaces a visible alert instead of being silently swallowed.
@@ -276,19 +287,80 @@ final class UpdateChecker: ObservableObject {
         return AvailableUpdate(version: remote, url: url, downloadURL: downloadURL, notes: notes)
     }
 
-    private func postNotification(_ update: AvailableUpdate) {
-        guard AppSettings.shared.notifyOnChanges, AppSettings.shared.notifyOnUpdates else { return }
-        // Stamp only once we actually post, not when the version is first seen.
-        // Otherwise re-enabling either toggle after an update was already
-        // detected would find this version "already notified" and stay silent.
-        guard notifiedVersion != update.version else { return }
-        notifiedVersion = update.version
+    /// Pure notification-gating decision (issue #550): update notifications
+    /// no longer depend on the cable-change toggle, only on this one. Split
+    /// out so the rule is unit-tested without touching
+    /// `UNUserNotificationCenter`.
+    nonisolated static func shouldNotify(notifyOnUpdates: Bool) -> Bool {
+        notifyOnUpdates
+    }
+
+    /// Where an update notification actually gets posted. Injected (default
+    /// is the real system call) so a test can drive `postNotification` itself,
+    /// the real call site, rather than only the pure `shouldNotify` rule.
+    /// Without this seam a test could pass while the gating guard in
+    /// `postNotification` had drifted back to depending on notifyOnChanges.
+    var notificationSink: (AvailableUpdate) -> Void = { update in
         let content = UNMutableNotificationContent()
         content.title = "WhatCable \(update.version) available"
         content.body = "You're on \(AppInfo.version). Click to view release notes."
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "update-\(update.version)", content: content, trigger: nil)
         )
+    }
+
+    /// Ask whether posting is currently allowed, requesting authorization
+    /// first if it has never been decided. notifyOnUpdates now defaults on
+    /// independent of notifyOnChanges (owner decision, issue #550), so
+    /// nothing else is guaranteed to have requested notification permission
+    /// before the first update is found; this closes that gap at post time
+    /// instead. Injected (default is the real UNUserNotificationCenter flow)
+    /// so a test can drive `postNotification`'s authorization gate without
+    /// touching UNUserNotificationCenter, which crashes under the swift test
+    /// runner (no signed app bundle). The completion always runs on the main
+    /// actor, matching the pattern used for the URLSession completion above.
+    var ensureNotificationAuthorization: (@escaping (Bool) -> Void) -> Void = { completion in
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            switch settings.authorizationStatus {
+            case .authorized, .provisional, .ephemeral:
+                Task { @MainActor in completion(true) }
+            case .notDetermined:
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, error in
+                    if let error {
+                        UpdateChecker.log.error("Notification auth failed: \(error.localizedDescription, privacy: .public)")
+                    }
+                    Task { @MainActor in completion(granted) }
+                }
+            default:
+                Task { @MainActor in completion(false) }
+            }
+        }
+    }
+
+    func postNotification(_ update: AvailableUpdate) {
+        guard Self.shouldNotify(notifyOnUpdates: AppSettings.shared.notifyOnUpdates) else { return }
+        // Stamp only once a post genuinely happens, not when the version is
+        // first seen and not merely because a post was attempted. A denied
+        // authorization request must not stamp: otherwise a user who later
+        // grants permission (e.g. in System Settings) would find this version
+        // already marked "notified" and never see it. Stamping happens only
+        // inside the authorization completion below.
+        guard notifiedVersion != update.version else { return }
+        // A second call for the same version must not start a second
+        // authorization request while the first is still pending (see
+        // pendingAuthVersion's doc comment for why this race exists).
+        guard pendingAuthVersion != update.version else { return }
+        pendingAuthVersion = update.version
+        ensureNotificationAuthorization { [weak self] granted in
+            guard let self else { return }
+            // Clear on every outcome, grant or deny, so a denial still
+            // allows a later retry instead of latching this version out
+            // forever.
+            self.pendingAuthVersion = nil
+            guard granted else { return }
+            self.notifiedVersion = update.version
+            self.notificationSink(update)
+        }
     }
 
     private func showAlert(title: String, message: String) {

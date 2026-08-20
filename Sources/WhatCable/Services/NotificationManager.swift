@@ -15,7 +15,7 @@ final class NotificationManager {
 
     private var cancellables = Set<AnyCancellable>()
 
-    private var knownDevices: [UInt64: String] = [:]
+    private var knownDevices: [UInt64: USBDeviceChangeGrouper.Snapshot] = [:]
     private var knownChargerLabels: [String: String] = [:]
     private var didPrimeBaseline = false
 
@@ -32,6 +32,19 @@ final class NotificationManager {
     /// with margin. See issue #227 follow-up.
     private let chargerSettleWindow: Duration = .milliseconds(1500)
 
+    private var deviceSettleTask: Task<Void, Never>?
+    /// A hub's own termination and its children's terminations don't arrive
+    /// from IOKit as one atomic batch: unplugging a hub can surface the
+    /// child's "gone" callback and the hub's "gone" callback in separate
+    /// fires, sometimes with the hub arriving late, sometimes the other way
+    /// round. Diffing every publish in isolation reports whatever happened to
+    /// have settled by that point, so which device names show up in the
+    /// notification varies. Mirrors `chargerSettleWindow`: wait for the
+    /// published device list to stop changing, then diff once, so a hub
+    /// teardown (or a hub-and-children connect) lands inside a single diff
+    /// instead of being split across several. See issue #551.
+    private let deviceSettleWindow: Duration = .milliseconds(1500)
+
     private init() {}
 
     func start() {
@@ -39,8 +52,9 @@ final class NotificationManager {
         // of "connected" notifications for things already plugged in at launch.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            let baselineSnapshots = WatcherHub.shared.deviceWatcher.devices.map(self.snapshot(for:))
             self.knownDevices = Dictionary(
-                WatcherHub.shared.deviceWatcher.devices.map { ($0.id, $0.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)) },
+                baselineSnapshots.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             // Prime with canonicalJoinKey to match reconcileChargers, so the
@@ -51,7 +65,7 @@ final class NotificationManager {
         }
 
         WatcherHub.shared.deviceWatcher.$devices
-            .sink { [weak self] devices in self?.diffDevices(devices) }
+            .sink { [weak self] _ in self?.scheduleDeviceDiff() }
             .store(in: &cancellables)
 
         WatcherHub.shared.powerWatcher.$sources
@@ -77,36 +91,85 @@ final class NotificationManager {
         }
     }
 
+    /// Trailing-edge debounce mirroring `diffSources`/`reconcileChargers`:
+    /// keep resetting the timer while the device list is still changing,
+    /// then diff once it settles. This is what coalesces a hub's split-fire
+    /// termination (child gone, then hub gone in a later publish) into one
+    /// diff. See `deviceSettleWindow` and issue #551.
+    private func scheduleDeviceDiff() {
+        deviceSettleTask?.cancel()
+        deviceSettleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: self?.deviceSettleWindow ?? .milliseconds(1500))
+            guard !Task.isCancelled, let self else { return }
+            self.diffDevices(WatcherHub.shared.deviceWatcher.devices)
+        }
+    }
+
     private func diffDevices(_ current: [USBDevice]) {
         guard didPrimeBaseline else { return }
-        let currentIDs = Set(current.map(\.id))
-        let added = current.filter { !knownDevices.keys.contains($0.id) }
-        let removedNames = knownDevices.filter { !currentIDs.contains($0.key) }.map(\.value).sorted()
+
+        let previousSnapshots = Array(knownDevices.values)
+        let currentSnapshots = current.map(snapshot(for:))
         knownDevices = Dictionary(
-            current.map { ($0.id, $0.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)) },
+            currentSnapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
 
         guard AppSettings.shared.notifyOnChanges else { return }
 
-        for device in added {
-            let name = device.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)
-            postNotification(
-                title: String(localized: "Connected: \(name)", bundle: _appLocalizedBundle),
-                body: "\(device.speedLabel)\(device.vendorName.map { " · \($0)" } ?? "")"
-            )
+        let (addedGroups, removedGroups) = USBDeviceChangeGrouper.diff(
+            previous: previousSnapshots,
+            current: currentSnapshots
+        )
+
+        // A device can disconnect and re-enumerate under a new entryID
+        // within one settle window (e.g. a hub power-cycling), so the same
+        // settled diff can hold both a removal and an addition for what was
+        // physically one event. Post the removal first: it happened first,
+        // chronologically, and a "Connected" banner landing after
+        // "Disconnected" reads as what actually occurred, not the reverse.
+        postRemovedGroupNotifications(removedGroups)
+        postAddedGroupNotifications(addedGroups, current: current)
+    }
+
+    private func postAddedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup], current: [USBDevice]) {
+        // Recover the full USBDevice for the speed/vendor body of a
+        // single-member group by identity (rootID), not by name: two hubs of
+        // the same model report the same product name, so name matching
+        // could pick the wrong one.
+        let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        for group in groups {
+            let title = String(localized: "Connected: \(group.rootName)", bundle: _appLocalizedBundle)
+            if group.memberNames.isEmpty {
+                let rootDevice = currentByID[group.rootID]
+                let body = rootDevice.map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" } ?? ""
+                postNotification(title: title, body: body)
+            } else {
+                postNotification(title: title, body: group.memberNames.joined(separator: ", "))
+            }
         }
-        if let name = removedNames.first, removedNames.count == 1 {
-            postNotification(
-                title: String(localized: "Disconnected: \(name)", bundle: _appLocalizedBundle),
-                body: ""
-            )
-        } else if removedNames.count > 1 {
+    }
+
+    private func postRemovedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup]) {
+        if groups.count == 1, let group = groups.first {
+            let title = String(localized: "Disconnected: \(group.rootName)", bundle: _appLocalizedBundle)
+            postNotification(title: title, body: group.memberNames.joined(separator: ", "))
+        } else if groups.count > 1 {
+            let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
             postNotification(
                 title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
-                body: removedNames.joined(separator: ", ")
+                body: allNames.joined(separator: ", ")
             )
         }
+    }
+
+    private func snapshot(for device: USBDevice) -> USBDeviceChangeGrouper.Snapshot {
+        USBDeviceChangeGrouper.Snapshot(
+            id: device.id,
+            locationID: device.locationID,
+            name: device.productName ?? String(localized: "USB device", bundle: _appLocalizedBundle)
+        )
     }
 
     private func diffSources(_ current: [PowerSource]) {

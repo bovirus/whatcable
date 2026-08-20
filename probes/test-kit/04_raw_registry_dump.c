@@ -338,6 +338,29 @@ int main(void) {
         "IOUSBHostDevice",
         "AppleUSBVHCIPort",
         "IOThunderboltPort",
+        // Base classes, appended LAST. Two reasons for the position: every
+        // "=== <class> ===" header this probe has ever emitted keeps its exact
+        // name and order for the corpus sweeps that read them literally, and
+        // this probe stops at a byte budget (overBudget() below), so the added
+        // terms spend what is left rather than displacing existing output.
+        //
+        // IOServiceMatching matches subclasses, so a base class reaches
+        // variants no leaf name covers:
+        //   AppleHPMARM   - the bus transport is per-machine. 58 of the 98
+        //                   probe-41 machines publish AppleHPMARMSPMI, the
+        //                   other 40 publish AppleHPMARMI2C, never both.
+        //   AppleTypeCPhy - the PHY class is per-die, one per machine, and the
+        //                   corpus holds 8 of them. AppleT8132TypeCPhy covers
+        //                   roughly a quarter of the fleet.
+        // Both leaves are kept above as a floor, so a base class that turns out
+        // not to exist costs nothing. On a machine that publishes the leaf the
+        // base pass re-matches the same roots; matched roots carry
+        // forceOwnProperties, so each root's own properties print again while
+        // its subtree collapses to "[already dumped, see above]". Measured on
+        // an M5 (SPMI + T8132, the worst case where both leaves hit): output
+        // grew 768 KB -> 776 KB against a 3 MB budget.
+        "AppleHPMARM",
+        "AppleTypeCPhy",
         NULL
     };
 

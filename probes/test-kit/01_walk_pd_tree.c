@@ -210,6 +210,7 @@ int main(void) {
         "AppleHPMInterface",                // adds Type18 (A-series) and future TypeNN
         "AppleTypeCPhy",                    // adds per-die PHYs beyond the T8132 variant
         "IOPortFeature",                    // adds LDCM, overcurrent, future features
+        "AppleHPMARM",                      // adds the I2C bus transport (SPMI and I2C are mutually exclusive per machine)
         NULL
     };
 

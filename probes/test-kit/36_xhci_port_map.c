@@ -306,6 +306,54 @@ static void dumpUsbIOPortHPMJoin(const char *cls) {
     IOObjectRelease(iter);
 }
 
+// Every xHCI port on the machine, matched on the BASE class AppleUSBXHCIPort.
+//
+// The two sections above match AppleUSB30XHCIARMPort / AppleUSB20XHCIARMPort,
+// which is not the only port family Apple ships. Machines driven by
+// AppleSynopsysUSB40XHCI publish AppleUSB40XHCITypeCPort,
+// AppleT8103USB40XHCITypeCPort and AppleUSB30XHCIInternalPort instead, none of
+// which inherits from the ARMPort classes. Measured on the corpus: the USB3
+// ARMPort section is empty on 57 Apple Silicon folders while the USB2 section
+// on the same machine lists ports normally.
+//
+// IOServiceMatching matches subclasses, so AppleUSBXHCIPort (the shared
+// ancestor of every family above) reaches all of them, including whatever
+// Apple ships next. Each row prints its real class so the family stays visible.
+//
+// Deliberately appended at the END, after the UsbIOPort join, and in a row
+// format that matches none of the existing line regexes. The corpus parser for
+// this probe keeps its section state sticky, so a new section placed between
+// the old ones would have had its rows silently attributed to the previous
+// section. Old sections stay byte-identical; this one is purely additive.
+static void dumpAllXHCIPorts(void) {
+    io_iterator_t iter;
+    if (IOServiceGetMatchingServices(kIOMainPortDefault,
+                                     IOServiceMatching("AppleUSBXHCIPort"), &iter) != KERN_SUCCESS) {
+        printf("  (AppleUSBXHCIPort: match failed)\n");
+        return;
+    }
+    io_service_t s;
+    int n = 0;
+    while ((s = IOIteratorNext(iter))) {
+        io_name_t cls = {0}, name = {0};
+        IOObjectGetClass(s, cls);
+        IORegistryEntryGetName(s, name);
+        long long portNum = readPortNumber(s, CFSTR("usb-c-port-number"));
+        long long loc = readNumber(s, CFSTR("locationID"));
+        char ioport[512];
+        if (!readString(s, CFSTR("UsbIOPort"), ioport, sizeof(ioport)) || !ioport[0])
+            snprintf(ioport, sizeof(ioport), "(none)");
+        printf("  class=%-28s port=%-24s usb-c-port=%lld  loc=0x%llx  usbioport=%s\n",
+               cls, name, portNum, (unsigned long long)loc, ioport);
+        n++;
+        IOObjectRelease(s);
+    }
+    if (n == 0) printf("  (AppleUSBXHCIPort: none)\n");
+    if (n > 0 && !IOIteratorIsValid(iter))
+        printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
+    IOObjectRelease(iter);
+}
+
 int main(void) {
     printf("=== USB host-controller port -> physical USB-C port map ===\n");
     printf("device locationID -> XHCI port locationID (solid). usb-c-port-number may differ from HPM @N (probe 35); compare, do not assume equal.\n\n");
@@ -351,6 +399,9 @@ int main(void) {
     dumpUsbIOPortHPMJoin("AppleUSB30XHCIARMPort");
     printf("\nAppleUSB20XHCIARMPort (USB2):\n");
     dumpUsbIOPortHPMJoin("AppleUSB20XHCIARMPort");
+
+    printf("\n=== All XHCI ports via base class AppleUSBXHCIPort ===\n");
+    dumpAllXHCIPorts();
 
     return 0;
 }

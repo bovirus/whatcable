@@ -69,28 +69,124 @@ def hx32(v):
     return "0x{:08X}".format(v) if v is not None else None
 
 
-def expected_db_row_count(md_rows):
-    """Reproduce scripts/build-cable-db.swift's insert logic (~line 536-627)
-    to predict how many rows whatcable.db's `cables` table SHOULD have from
-    the current known-cables.md, so a raw row-count mismatch can be told
-    apart from expected deduplication.
+# md-row field name for each cables-table column the unique index can name.
+# Anything outside this map means the schema grew a column this script has
+# never seen, which is a stop-and-look, not something to guess through.
+_COL_TO_MD_FIELD = {
+    "vid": "vid",
+    "pid": "pid",
+    "cable_vdo": "vdo",
+    "brand": "brand_ctx",
+}
+
+
+def quote_ident(name):
+    """SQLite identifier quoting for a PRAGMA argument."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def dedup_columns(con):
+    """Read the cables table's UNIQUE INDEX out of the database and return the
+    key columns it covers, so this script dedups on whatever identity the
+    builder actually enforces.
+
+    Deliberately NOT restated from build-cable-db.swift. It used to be, as a
+    docstring describing a partial index ON cables(vid, pid) WHERE vid != 0
+    AND pid != 0, and that stopped being the builder's index in d808786e
+    (2026-06-02, "Identify cables by VID+PID, never the Cable VDO"). The
+    restatement rotted silently and made this script under-count by 4 rows:
+    four (vid, pid) pairs legitimately carry two rows each, differing in
+    cable_vdo or brand, and the stale key folded them together.
+
+    Read through PRAGMA index_list / index_xinfo rather than by pattern-matching
+    sqlite_master.sql. The DDL text is prose: an ordinary index named "unique"
+    or carrying a /* UNIQUE */ comment would pass a \bUNIQUE\b test, and a full
+    unique index whose name happened to contain "where" would fail a partial-index
+    test. The PRAGMAs report uniqueness, partialness and the key columns as
+    structured fields, which is what we actually need to know.
+
+    Raises on anything this script cannot model, rather than falling back to a
+    guess: no unique index, more than one, a partial index, an expression key,
+    a non-BINARY collation (which would change what counts as a duplicate), or
+    a column outside _COL_TO_MD_FIELD.
+    """
+    indexes = con.execute("PRAGMA index_list('cables')").fetchall()
+    # (seq, name, unique, origin, partial); older SQLite builds return 3 columns.
+    unique = []
+    for row in indexes:
+        name, is_unique = row[1], row[2]
+        partial = row[4] if len(row) > 4 else 0
+        if is_unique:
+            unique.append((name, partial))
+    if len(unique) != 1:
+        raise SystemExit(
+            "cable-db-diff: expected exactly one UNIQUE INDEX on cables, found "
+            f"{len(unique)}: {[n for n, _ in unique]}. Schema changed; update "
+            "dedup_columns() rather than guessing."
+        )
+    name, partial = unique[0]
+    if partial:
+        raise SystemExit(
+            f"cable-db-diff: {name} is a partial index. This script only models "
+            "a full unique index; update dedup_columns()."
+        )
+
+    cols = []
+    for row in con.execute(f"PRAGMA index_xinfo({quote_ident(name)})").fetchall():
+        # (seqno, cid, name, desc, coll, key); key == 0 rows are the trailing
+        # rowid/covering columns, not part of the enforced identity.
+        _seqno, cid, col, _desc, coll, key = row[:6]
+        if not key:
+            continue
+        if col is None or cid is not None and cid < 0:
+            raise SystemExit(
+                f"cable-db-diff: {name} has an expression key column this script "
+                "cannot map to a known-cables.md field. Update dedup_columns()."
+            )
+        if coll and coll.upper() != "BINARY":
+            raise SystemExit(
+                f"cable-db-diff: {name} column {col} uses collation {coll}. "
+                "Non-BINARY collation changes what counts as a duplicate; "
+                "update dedup_columns()."
+            )
+        cols.append(col)
+    if not cols:
+        raise SystemExit(f"cable-db-diff: {name} reported no key columns.")
+    unknown = [c for c in cols if c not in _COL_TO_MD_FIELD]
+    if unknown:
+        raise SystemExit(
+            f"cable-db-diff: {name} covers column(s) this script cannot map to "
+            f"a known-cables.md field: {unknown}. Update _COL_TO_MD_FIELD."
+        )
+    return cols
+
+
+def expected_db_row_count(md_rows, dedup_cols):
+    """Reproduce scripts/build-cable-db.swift's insert logic to predict how many
+    rows whatcable.db's `cables` table SHOULD have from the current
+    known-cables.md, so a raw row-count mismatch can be told apart from
+    expected deduplication.
 
     The build script:
     1. Skips rows with brand "(needs review)" (no usable identity yet).
     2. Skips all-zero rows (vid==0 and pid==0 and cable_vdo==0): unmatchable,
        not worth storing.
-    3. Inserts everything else via INSERT OR IGNORE against a UNIQUE INDEX
-       ON cables(vid, pid) WHERE vid != 0 AND pid != 0 (build-cable-db.swift
-       ~line 104). That partial index means: for rows where BOTH vid and pid
-       are nonzero, only the first row per (vid, pid) in file order is kept,
-       later duplicates of that identity are skipped. Rows where vid==0 or
-       pid==0 (but not all-zero) fall outside the index entirely and are
-       NOT deduplicated at all, even if two such rows share every field.
+    3. Inserts everything else via INSERT OR IGNORE against the table's UNIQUE
+       INDEX, so the first row per identity in file order wins and later
+       duplicates of that identity are skipped. `dedup_cols` comes from
+       dedup_columns(), i.e. from the database itself.
+
+    Note there is no carve-out for rows with a zero vid or pid. The index is
+    full, not partial, so every row is deduplicated on the same key. 56 rows
+    in the db currently have vid == 0 or pid == 0, and two of them sharing
+    every indexed field would collapse to one row exactly like any other
+    duplicate.
 
     A row whose vid or pid didn't parse as hex is dropped before this
     function ever sees it (parse_known_cables() already requires both to
     match `0x...`), matching the build script's `guard let ... else continue`.
     """
+    fields = [_COL_TO_MD_FIELD[c] for c in dedup_cols]
     seen_identity = set()
     expected = 0
     for r in md_rows:
@@ -99,10 +195,10 @@ def expected_db_row_count(md_rows):
         vid, pid, vdo = r["vid"] or 0, r["pid"] or 0, r["vdo"] or 0
         if vid == 0 and pid == 0 and vdo == 0:
             continue
-        if vid != 0 and pid != 0:
-            if (vid, pid) in seen_identity:
-                continue
-            seen_identity.add((vid, pid))
+        key = tuple(r[f] for f in fields)
+        if key in seen_identity:
+            continue
+        seen_identity.add(key)
         expected += 1
     return expected
 
@@ -218,7 +314,7 @@ def main():
     cur = con.cursor()
     cur.execute("SELECT count(*) FROM cables")
     db_row_count = cur.fetchone()[0]
-    expected_row_count = expected_db_row_count(md_rows)
+    expected_row_count = expected_db_row_count(md_rows, dedup_columns(con))
 
     records = load_corpus()
 
@@ -363,8 +459,9 @@ def main():
           f"{headline['known_cables_nonzero_identities']} distinct nonzero identities. "
           f"whatcable.db compiled cables table: {headline['whatcable_db_rows']} rows, "
           f"expected {headline['whatcable_db_expected_rows']} "
-          "(the build script dedups to one row per nonzero (vid,pid) identity, so this is "
-          "normally lower than the md row count, not a staleness signal by itself) "
+          "(the build script skips \"(needs review)\" and all-zero rows and dedups on the "
+          "cables table's UNIQUE INDEX, so this is normally lower than the md row count, "
+          "not a staleness signal by itself) "
           f"({'STALE vs expected, run swift scripts/build-cable-db.swift' if headline['db_stale'] else 'in sync with expected'}).")
     print(f"Nonzero corpus pairs absent from known-cables.md: {headline['absent_nonzero_pairs']} "
           f"({headline['absent_pairs_pid_zero']} of those have PID=0x0000, never resolvable at runtime). "

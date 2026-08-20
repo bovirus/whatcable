@@ -116,6 +116,22 @@ int main(void) {
         "IOUSBHostDevice",
         "IOPortFeaturePowerIn",
         "IOPortFeatureLDCM",
+        // Base classes, appended LAST so every header this probe has ever
+        // emitted keeps its exact name and position: corpus sweeps read these
+        // "=== <class> ===" headers literally. IOServiceMatching matches
+        // subclasses, so a base class reaches variants no leaf name covers.
+        //
+        // AppleHPMARM: the HPM bus transport is per-machine. 58 of the 98
+        // corpus machines that ran probe 41 publish AppleHPMARMSPMI, the other
+        // 40 publish AppleHPMARMI2C, never both. As a result the
+        // AppleHPMARMSPMI section is empty on 500 of 1177 Apple Silicon folders.
+        //
+        // AppleTypeCPhy: the PHY class is per-die, one per machine, and there
+        // are 8 of them in the corpus (T6000, T6040, T6050, T8103, T8112,
+        // T8122, T8130, T8132). The AppleT8132TypeCPhy section is empty on
+        // 899 of 1177 Apple Silicon folders.
+        "AppleHPMARM",
+        "AppleTypeCPhy",
         NULL
     };
 

@@ -246,6 +246,58 @@ int main(void) {
         "IOThunderboltSwitch",
         "IOIOThunderboltSwitch",
         "IOThunderboltConnection",
+        // Appended LAST, so it lands after every section this probe has ever
+        // emitted and cannot displace the hop tables if output is ever cut
+        // short. IOServiceMatching matches subclasses, and the tunnel adapters
+        // are the part of the fabric no probe searches for BY CLASS: 11 classes
+        // under this parent appear in the probe-41 census
+        // (AppleThunderboltDPInAdapterOS/OS2, DPOutAdapterOS/OS2/CM,
+        // PCIUp/PCIDown, USBUp/USBDown, USBType2Down), 10 to 20 nodes on a
+        // typical machine.
+        //
+        // Probe 04 does reach some of them incidentally, as children of the
+        // IOThunderboltPort subtrees it walks, so the corpus is not starting
+        // from zero here. It is close to it: of 1282 probe-04 dumps, only 172
+        // carry an adapter node at all and only 31 carry "Established DP Link
+        // Rate", because probe 04 walks from other roots and its dumps get cut
+        // (107 sit at the 65536-byte pipe cap, 14 more print its own 3 MB
+        // budget marker). Matching the class directly reaches them on every
+        // machine with a Thunderbolt fabric.
+        //
+        // Tunnels are currently reconstructed from hop tables. These nodes are
+        // the host's own view of each tunnel endpoint, and they carry real
+        // signal the hop tables do not: a first run on an M5 with a display
+        // attached returned 34 nodes carrying "Established DP Link Rate",
+        // "Established DP Lane Count", "Established DP Bandwidth", "Cached
+        // Estimated Bandwidth", "Remote DP Capabilities", "DPI BWAM Support",
+        // "Common ALPM Support" and the HPD state machine. Everything is kept
+        // verbatim, IOKit matching boilerplate included, rather than filtered
+        // through a denylist of our own: the point of the kit is to capture
+        // what we do not yet know to look for. That costs about 25 KB, which
+        // is why this section is last, where a truncated capture would lose the
+        // new data and never the hop tables. The 64 KB pipe cap that produced
+        // the historical truncations is gone (13 corpus captures sit at exactly
+        // 65536 bytes, none later than 2026-06-29, while 21 later ones run up
+        // to 163 KB), so the 25 KB is not pushing anyone back over a live cap.
+        //
+        // One checked hazard: inspect-probe.py's tb_tunnels() scans the WHOLE
+        // probe-29 text for Path = "<uuid>" and Depth = <n>, unscoped to any
+        // section, so a new section carrying either key would inflate the
+        // tunnel count. Checked against the Thunderbolt adapter nodes already
+        // captured in corpus probe-04 dumps, by extracting each node's own
+        // property KEY names (probe 04 prints "Key": value, so grepping for
+        // probe 29's Path = value form would have matched nothing whatever the
+        // truth was, and passed vacuously). Neither key appears on any adapter
+        // class. Two parsers were run over roughly 2,380 first-seen adapter
+        // node instances and agree on zero; they differ by a handful on the
+        // instance count itself, which is why no exact figure is quoted here.
+        // The keys these nodes actually carry are Adapter Type, the DP
+        // capability and HPD fields, Vendor/Device ID, State and Group ID. The app skips these same
+        // shims when enumerating ports (IOThunderboltSwitchWatcher filters on
+        // "Port" in the class name) because they are driver matches rather than
+        // link-state carriers; that is a reason not to read them for port
+        // state, not a reason to leave them uncaptured.
+        "IOThunderboltTunnelDriver",
         NULL
     };
 

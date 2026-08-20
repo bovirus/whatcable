@@ -45,8 +45,8 @@ static int recordAndCheck(io_service_t service) {
 
 // `suppress` is 0 for the original AppleHPMARMSPMI walk (so its output is
 // byte-identical to before this change: nodes are always recorded but never
-// skipped) and 1 for the appended IOAccessoryManager walk (so it contributes
-// only nodes the SPMI walk didn't already reach).
+// skipped) and 1 for the appended IOAccessoryManager and AppleHPMARM walks (so
+// they contribute only nodes the SPMI walk didn't already reach).
 static void walkTree(io_service_t service, int depth, const char *plane, int suppress) {
     if (depth > 8) return;
 
@@ -308,6 +308,41 @@ int main(void) {
         IOObjectRelease(iter);
     } else {
         printf("No IOAccessoryManager found\n");
+    }
+
+    // Appended for I2C-transport coverage, same reasoning and same shape as the
+    // IOAccessoryManager walk above. The two walks at the top of this probe
+    // match the AppleHPMARMSPMI leaf, but the HPM bus transport is per-machine:
+    // of the 98 corpus machines that ran probe 41, 58 publish AppleHPMARMSPMI
+    // and the other 40 publish AppleHPMARMI2C, never both. Measured directly on
+    // probe 27 output, the AppleHPMARMSPMI section is empty on 500 of 1177
+    // Apple Silicon folders. AppleHPMARM is the shared parent, so matching it
+    // reaches both transports and any future one.
+    //
+    // Appended and separately suppressed, NOT merged into the walks above, so
+    // the original two headers and their output stay byte-identical for
+    // existing corpus sweeps. Deduped by registry entry ID, so on an SPMI
+    // machine this section prints nothing new.
+    printf("\n\n=== Walking from AppleHPMARM in IOService plane "
+           "(added for I2C-transport coverage) ===\n\n");
+    kr = IOServiceGetMatchingServices(
+        kIOMainPortDefault,
+        IOServiceMatching("AppleHPMARM"),
+        &iter
+    );
+    if (kr == KERN_SUCCESS) {
+        io_service_t service;
+        int sawAny = 0;
+        while ((service = IOIteratorNext(iter))) {
+            sawAny = 1;
+            walkTree(service, 0, kIOServicePlane, 1);
+            IOObjectRelease(service);
+        }
+        if (sawAny && !IOIteratorIsValid(iter))
+            printf("--- TRUNCATED: iterator invalidated mid-walk (registry changed) ---\n");
+        IOObjectRelease(iter);
+    } else {
+        printf("No AppleHPMARM found\n");
     }
 
     if (g_seenLookupFailures > 0 || g_seenOverflow > 0) {

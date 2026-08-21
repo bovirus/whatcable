@@ -146,7 +146,7 @@ final class NotificationManager {
                 let body = rootDevice.map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" } ?? ""
                 postNotification(title: title, body: body)
             } else {
-                postNotification(title: title, body: group.memberNames.joined(separator: ", "))
+                postNotification(title: title, body: group.memberNames.joined(separator: "\n"))
             }
         }
     }
@@ -154,12 +154,12 @@ final class NotificationManager {
     private func postRemovedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup]) {
         if groups.count == 1, let group = groups.first {
             let title = String(localized: "Disconnected: \(group.rootName)", bundle: _appLocalizedBundle)
-            postNotification(title: title, body: group.memberNames.joined(separator: ", "))
+            postNotification(title: title, body: group.memberNames.joined(separator: "\n"))
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
             postNotification(
                 title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
-                body: allNames.joined(separator: ", ")
+                body: allNames.joined(separator: "\n")
             )
         }
     }

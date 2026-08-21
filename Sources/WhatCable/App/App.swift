@@ -116,6 +116,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// close (the v1.5.0-beta.2 popover-won't-close bug).
     private var pendingReanchor: DispatchWorkItem?
 
+    /// Observes the status item's own window moving, so the open popover can be
+    /// re-pointed when a NEIGHBOURING menu bar item appears or disappears (issue
+    /// #543). `reanchorPopoverAfterWidthChange` only fires when OUR button
+    /// changes width; it has nothing to say about another app's icon sliding
+    /// ours sideways while its own size stays the same. AppKit's claim that a
+    /// popover "automatically moves when the location of the positioning view
+    /// changes" doesn't hold for status items (see the doc comment above
+    /// `reanchorPopoverAfterWidthChange`), so this needs the same explicit fix.
+    /// Ported from the equivalent observer in the sibling app WhatPort, which
+    /// shipped this fix first.
+    private var statusItemMoveObserver: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         log.notice("launch: version=\(AppInfo.version, privacy: .public) macOS=\(ProcessInfo.processInfo.operatingSystemVersionString, privacy: .public)")
         registerWidgetExtension()
@@ -407,6 +419,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             }
             statusItem = item
             log.notice("menuBar: statusItem created, isVisible=\(item.isVisible)")
+            observeStatusItemMoves()
         }
         // Turn on the watcher's charger-in read if the toggle is already on, then
         // paint the initial state from whatever it has published.
@@ -597,6 +610,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         return abs(currentWidth - lastWidth) > 0.5
     }
 
+    /// Watch for `didMoveNotification`, so a neighbouring menu bar item
+    /// appearing or disappearing (which slides our item, and its window,
+    /// sideways without changing its width) re-points the open popover too
+    /// (issue #543). Idempotent: removes any previous observer first, so
+    /// calling this again (e.g. a future re-setup) can't stack two.
+    ///
+    /// Registered unscoped (`object: nil`) rather than pinned to a captured
+    /// `item.button?.window`, and filtered by identity inside the handler
+    /// instead. The object-pinned version was the first cut here and review
+    /// flagged it: the button's window at status-item creation is a one-time
+    /// snapshot of an undocumented value, never guaranteed non-nil by AppKit.
+    /// If it were nil at registration the fix would silently disarm, and if
+    /// AppKit ever rehosts the status item in a different window later, a
+    /// pinned observer would be left watching the old one and never fire
+    /// again. Filtering by identity per notification instead follows
+    /// whatever window is current at the moment of the move, so a window
+    /// replacement is handled automatically, for the cost of one pointer
+    /// compare per menu-bar-wide move.
+    ///
+    /// This does NOT go through `pendingReanchor`'s deferred-block machinery.
+    /// That deferral exists in `reanchorPopoverAfterWidthChange` because a
+    /// `variableLength` status item reflows to its new width on the status
+    /// bar's own schedule, so the width has to be read a runloop turn later to
+    /// avoid a stale read. `didMoveNotification` is different: it fires AFTER
+    /// the window has already moved, so `button.bounds` read inside the handler
+    /// is already current, there is nothing left to wait for. And unlike the
+    /// deferred width path, writing `positioningRect` here can't race a
+    /// concurrent `performClose`: it's a synchronous property assignment on the
+    /// main thread, made directly inside a main-queue notification callback, not
+    /// a block queued to run later that a close could have to cancel out from
+    /// under.
+    private func observeStatusItemMoves() {
+        stopObservingStatusItemMoves()
+        statusItemMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            // queue: .main above guarantees this block runs on the main
+            // thread no matter which thread posted the notification, which is
+            // what makes assumeIsolated safe here.
+            MainActor.assumeIsolated {
+                guard let self, notification.object as? NSWindow === self.statusItem?.button?.window else { return }
+                self.reanchorPopoverAfterStatusItemMove()
+            }
+        }
+    }
+
+    private func stopObservingStatusItemMoves() {
+        guard let statusItemMoveObserver else { return }
+        NotificationCenter.default.removeObserver(statusItemMoveObserver)
+        self.statusItemMoveObserver = nil
+    }
+
+    /// Re-point the open popover's arrow after the status item's window itself
+    /// moved (see `observeStatusItemMoves`). Mirrors the animation-suppression
+    /// trick in `reanchorPopoverAfterWidthChange`: without it the arrow visibly
+    /// slides to its new spot instead of just being there.
+    private func reanchorPopoverAfterStatusItemMove() {
+        guard let popover, popover.isShown,
+              let button = statusItem?.button, button.window != nil
+        else { return }
+        let animated = popover.animates
+        popover.animates = false
+        popover.positioningRect = button.bounds
+        popover.animates = animated
+    }
+
     /// Single entry point that paints the status item for the current state: the
     /// plain glyph, the glyph plus the numeric "NNW" readout, or the glyph plus a
     /// power bar. One renderer so the icon swap, the watts update, and the style
@@ -744,6 +825,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // can't fire against a button/popover that no longer exists.
         pendingReanchor?.cancel()
         pendingReanchor = nil
+        stopObservingStatusItemMoves()
         if let popover, popover.isShown { popover.performClose(nil) }
         popover = nil
         if let statusItem {

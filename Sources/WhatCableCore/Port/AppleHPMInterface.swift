@@ -410,6 +410,19 @@ public struct AppleHPMInterface: Identifiable, Hashable {
         guard let lhs, let rhs else { return true }
         return lhs == rhs
     }
+
+    /// Stable display order: `serviceName` alone, no "active first" grouping.
+    ///
+    /// Used to be active-first-then-alphabetical, but macOS re-attributing a
+    /// single power source between two ports every 1-2 seconds (#536) made
+    /// `connectionActive` flip on its own, reordering the card list on every
+    /// flip. `serviceName` never changes for the life of a physical port, so
+    /// sorting on it alone keeps card order stable regardless of attribution
+    /// churn. Extracted as a pure comparator so the sort itself is
+    /// unit-testable without IOKit.
+    public static func stableOrder(_ lhs: AppleHPMInterface, _ rhs: AppleHPMInterface) -> Bool {
+        lhs.serviceName < rhs.serviceName
+    }
 }
 
 // MARK: - Property-dictionary parsing helpers

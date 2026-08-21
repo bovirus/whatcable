@@ -79,3 +79,45 @@ public func isPortLive(
 
     return false
 }
+
+/// Splits `isPortLive`'s branches into the two halves `PortVisibilityTracker`
+/// (#536) needs to tell a real disconnect from a power-attribution flap:
+/// `nonPower` (device, PD identity, structurally-scoped tunnel, or bare
+/// non-MagSafe `connectionActive`) and `power` (an actual power source
+/// corroborated by `connectionActive`, on either MagSafe or USB-C).
+///
+/// `nonPower || power` always equals `isPortLive`'s own verdict for the same
+/// inputs; `PortLivenessSplitTests` pins that with an exhaustive truth table.
+/// Kept as a second function rather than having `isPortLive` call this one
+/// and OR the results, so `isPortLive`'s existing branch order and early
+/// returns (documented above) are untouched for its other callers.
+///
+/// Bare non-MagSafe `connectionActive` is deliberately on the `nonPower`
+/// side: it means "the port itself reports something plugged in" (a USB2
+/// -only device, a display with no power role), which has nothing to do with
+/// a power source being attributed here. Putting it on the power side (an
+/// earlier version of this split did, by calling `isPortLive` with
+/// `matchingDevices`/`identities` forced empty) misread a real device
+/// disconnect as a power-only change and gave it an undeserved fade.
+public func portLivenessSplit(
+    port: AppleHPMInterface,
+    powerSources: [PowerSource],
+    identities: [USBPDSOP],
+    matchingDevices: [USBDevice],
+    chargerAttached: Bool = false,
+    hasStructurallyScopedTunnelledDevices: Bool = false
+) -> (nonPower: Bool, power: Bool) {
+    let isMagSafe = port.portTypeDescription?.hasPrefix("MagSafe") == true
+    let bareConnectionActive = !isMagSafe && port.connectionActive == true
+
+    let nonPower = !matchingDevices.isEmpty
+        || hasStructurallyScopedTunnelledDevices
+        || !identities.isEmpty
+        || bareConnectionActive
+
+    let magSafeChargerAttached = isMagSafe && port.connectionActive == true && chargerAttached
+    let powerSourceCorroborated = !powerSources.isEmpty && port.connectionActive == true
+    let power = magSafeChargerAttached || powerSourceCorroborated
+
+    return (nonPower, power)
+}

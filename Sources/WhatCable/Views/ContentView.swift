@@ -27,6 +27,18 @@ struct ContentView: View {
     /// mid-session overcurrent trips and repeated drops surface as a free
     /// inline banner on the relevant port card.
     @StateObject private var faultTracker = ConnectionFaultTracker()
+    /// Purely visual smoothing for macOS's #536 power-source attribution
+    /// churn (the same power source flips between MagSafe and a USB-C port
+    /// every 1-2 seconds). `@State` so the tracker's internal per-port
+    /// history survives across `ContentView` re-inits, same as any other
+    /// `@State`; it isn't `ObservableObject` because re-renders are driven
+    /// by `portVisibilityStates` and the periodic tick below, not by the
+    /// tracker itself.
+    @State private var portVisibilityTracker = PortVisibilityTracker()
+    /// Latest visibility verdict per port (`serviceName`), recomputed on the
+    /// tick below. Only ever read to decide "Hide empty ports" membership
+    /// and card opacity; never affects JSON/CLI/widget output.
+    @State private var portVisibilityStates: [String: PortVisibilityState] = [:]
 
     private var showAdvanced: Bool {
         settings.showTechnicalDetails || refresh.optionHeld
@@ -122,6 +134,106 @@ struct ContentView: View {
                 refresh.activeProScreen = nil
             }
         }
+        // Recompute immediately whenever any signal the tracker reads
+        // changes, so a new plug-in or a real unplug shows up the same
+        // frame instead of lagging up to 500ms behind the periodic tick
+        // below. Mirrors the `onChange(of: portWatcher.ports)` plumbing
+        // already above. Review finding.
+        .onChange(of: portWatcher.ports) { _, _ in recomputePortVisibility() }
+        .onChange(of: deviceWatcher.devices) { _, _ in recomputePortVisibility() }
+        .onChange(of: pdWatcher.identities) { _, _ in recomputePortVisibility() }
+        .onChange(of: powerWatcher.sources) { _, _ in recomputePortVisibility() }
+        .onChange(of: tbWatcher.switches) { _, _ in recomputePortVisibility() }
+        // A reopened popover/window starts from whatever `portVisibilityStates`
+        // held last (SwiftUI `@State` can outlive a close), so recompute once
+        // synchronously on appear rather than waiting for the first `onChange`
+        // or the first tick. Review finding.
+        .onAppear { recomputePortVisibility() }
+        // The `onChange` handlers above cover every real transition, so this
+        // tick exists for exactly one thing: expiring a fade into `.hidden`
+        // once `PortVisibilityTracker.graceWindow` elapses with nothing else
+        // changing (no new IOKit event fires to trigger an `onChange`).
+        // `recomputePortVisibility` is a single cheap pass (one batched
+        // structural-scoping call, then a dictionary build), so this just
+        // re-runs it unconditionally rather than tracking "is anything
+        // currently fading" separately; gating on that would need its own
+        // bookkeeping to save re-running something that's already cheap.
+        // `.task` is scoped to this view's lifetime (cancelled automatically
+        // when the popover/window closes), matching the same "poll only
+        // while a surface is visible" cadence `WatcherHub` already uses for
+        // its own 1 Hz active poll (see its `activeInterval`). #536.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(500))
+                guard !Task.isCancelled else { return }
+                recomputePortVisibility()
+            }
+        }
+    }
+
+    /// Rebuilds `portVisibilityStates` from the current watcher signals.
+    /// Every physical port (not just currently-visible ones) is evaluated
+    /// each pass, since `portWatcher.ports` always lists every port
+    /// controller regardless of connection state (see `isRealPort`); only
+    /// its liveness changes.
+    ///
+    /// `structurallyScopedTunnelledDevices` is computed once for the whole
+    /// pass via the batched static helper (the same one `mainContent` uses),
+    /// not per port: review finding, the per-port `TunnelledDeviceGrouping`
+    /// call this used to make was the same O(ports × devices) walk repeated
+    /// once per port for no reason.
+    private func recomputePortVisibility() {
+        // `systemUptime` is monotonic (immune to wall-clock/NTP jumps), which
+        // is what a fade duration wants; `ConnectionFaultTracker` uses
+        // `Date()` instead because it needs wall-clock semantics for its own
+        // purpose, so the two clocks deliberately differ. One accepted
+        // cosmetic effect: `systemUptime` pauses while the Mac sleeps, so a
+        // fade started just before a nap can read as still-fading for a
+        // moment after wake, one tick longer than 3 real seconds.
+        let now = ProcessInfo.processInfo.systemUptime
+        let ports = portWatcher.ports
+        let structuralScoping = Self.structurallyScopedTunnelledDevices(
+            ports: ports, devices: deviceWatcher.devices, thunderboltSwitches: tbWatcher.switches
+        )
+        var next: [String: PortVisibilityState] = [:]
+        next.reserveCapacity(ports.count)
+        for port in ports {
+            let signals = liveSignals(
+                for: port, structurallyScopedDevices: structuralScoping.byPort[port.serviceName] ?? []
+            )
+            next[port.serviceName] = portVisibilityTracker.evaluate(
+                portKey: port.serviceName, nonPowerLive: signals.nonPower, powerLive: signals.power, now: now
+            )
+        }
+        // Drop history for any port key that's dropped out of the registry
+        // entirely (review finding: FIX 3), not just lost its signals.
+        portVisibilityTracker.reconcile(keeping: Set(ports.map(\.serviceName)))
+        if next != portVisibilityStates { portVisibilityStates = next }
+    }
+
+    /// The two halves `PortVisibilityTracker` needs, delegating to
+    /// `WhatCableCore.portLivenessSplit` (the pure, tested split of
+    /// `isPortLive`'s branches) rather than duplicating that logic here.
+    ///
+    /// Review finding: an earlier version of this called `isPortLive` with
+    /// `matchingDevices`/`identities` forced to `[]` to isolate "power", but
+    /// `isPortLive` still returned `true` off its bare non-MagSafe
+    /// `connectionActive` branch, which has nothing to do with power. That
+    /// misclassified a USB2-only device or a power-role-less display as
+    /// "power", so a real unplug of one of those would fade instead of
+    /// hiding immediately. `portLivenessSplit` fixes that by mirroring
+    /// `PortLiveness.swift`'s conditions one-for-one instead.
+    private func liveSignals(
+        for port: AppleHPMInterface, structurallyScopedDevices: [USBDevice]
+    ) -> (nonPower: Bool, power: Bool) {
+        WhatCableCore.portLivenessSplit(
+            port: port,
+            powerSources: powerWatcher.sources(for: port),
+            identities: pdWatcher.identities(for: port),
+            matchingDevices: matchingDevices(for: port),
+            chargerAttached: chargerAttached,
+            hasStructurallyScopedTunnelledDevices: !structurallyScopedDevices.isEmpty
+        )
     }
 
     private var mainContent: some View {
@@ -161,9 +273,22 @@ struct ContentView: View {
                 thunderboltSwitches: tbWatcher.switches
             )
             let structurallyScopedByPort = structuralScoping.byPort
+            // "Hide empty ports" consults `portVisibilityStates` (the
+            // fading-aware tracker) rather than raw `isPortLive`, so a
+            // charger-only port whose power attribution flaps away for a
+            // moment stays in the list instead of popping in and out (#536).
             let visiblePorts = settings.hideEmptyPorts
-                ? portWatcher.ports.filter {
-                    isPortLive($0, structurallyScopedDevices: structurallyScopedByPort[$0.serviceName] ?? [])
+                ? portWatcher.ports.filter { port in
+                    switch portVisibilityStates[port.serviceName] {
+                    case .hidden: return false
+                    case .live, .fading: return true
+                    case nil:
+                        // Not yet evaluated by the periodic tick (e.g. the
+                        // very first frame). Fall back to the immediate
+                        // signal so a freshly-plugged port isn't briefly
+                        // hidden.
+                        return isPortLive(port, structurallyScopedDevices: structurallyScopedByPort[port.serviceName] ?? [])
+                    }
                 }
                 : portWatcher.ports
             // Native HDMI / built-in display ports come from a parallel source.
@@ -268,6 +393,12 @@ struct ContentView: View {
                                 connectionDiagnostic: faultTracker.diagnostic(for: port.portKey),
                                 federatedIdentities: federatedIdentities
                             )
+                            // Reduced opacity is the only visible trace of
+                            // the fade: a charger-only port whose power
+                            // attribution just flapped away stays in place
+                            // instead of disappearing, so #536's churn reads
+                            // as a flicker rather than the list reshuffling.
+                            .opacity(portVisibilityStates[port.serviceName] == .fading ? 0.5 : 1.0)
                         }
                         // Tunnelled devices normally nest inside their host
                         // port's card (above). Fall back to a flat card when the

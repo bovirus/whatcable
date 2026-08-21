@@ -125,12 +125,11 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
             }
         }
 
-        rebuilt.sort { lhs, rhs in
-            let lhsActive = lhs.connectionActive == true
-            let rhsActive = rhs.connectionActive == true
-            if lhsActive != rhsActive { return lhsActive }
-            return lhs.serviceName < rhs.serviceName
-        }
+        // Stable order (serviceName only, no active-first grouping). See
+        // `AppleHPMInterface.stableOrder` for why: macOS's #536 power-source
+        // attribution churn flips `connectionActive` on its own, and an
+        // active-first sort reordered the card list on every flip.
+        rebuilt.sort(by: AppleHPMInterface.stableOrder)
         if rebuilt != ports { ports = rebuilt }
     }
 
@@ -147,13 +146,9 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
             guard let port, !ports.contains(where: { $0.id == port.id }) else { continue }
             ports.append(port)
         }
-        // Active connections first, then alphabetically within each group.
-        ports.sort { lhs, rhs in
-            let lhsActive = lhs.connectionActive == true
-            let rhsActive = rhs.connectionActive == true
-            if lhsActive != rhsActive { return lhsActive }
-            return lhs.serviceName < rhs.serviceName
-        }
+        // Stable order (serviceName only). See `refresh()` above and
+        // `AppleHPMInterface.stableOrder`.
+        ports.sort(by: AppleHPMInterface.stableOrder)
     }
 
     /// Subscribe to property/state changes on a port controller. The kernel

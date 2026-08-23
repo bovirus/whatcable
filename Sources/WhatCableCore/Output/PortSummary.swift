@@ -434,7 +434,7 @@ extension PortSummary {
             if !pdCapable {
                 emarkerSubtitle = String(localized: "This port can't read cable details: USB-only, no Power Delivery.", bundle: _coreLocalizedBundle)
             } else if readConditionsMet {
-                emarkerSubtitle = String(localized: "No e-marker. This cable doesn't advertise its capabilities.", bundle: _coreLocalizedBundle)
+                emarkerSubtitle = String(localized: "No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V).", bundle: _coreLocalizedBundle)
             } else {
                 emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }

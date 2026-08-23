@@ -570,7 +570,7 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Ir, bet šajā savienojumā nav nolasīts. Mēģiniet kabeli pievienot vēlreiz; daži lādētāji un dokstacijas bloķē nolasīšanu.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Ir, bet šajā savienojumā nav nolasīts. macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Šis ports nevar nolasīt kabeļa datus: tikai USB, bez Power Delivery.";
-"No e-marker. This cable doesn't advertise its capabilities." = "Nav e-marķiera. Šis kabelis nepaziņo savas iespējas.";
+"No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V)." = "Nav e-marķiera. Šis kabelis nepaziņo savas iespējas, tāpēc uzlāde ir ierobežota līdz 3 A (60 W pie 20 V).";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marķieris nav nolasīts. Kabelim tāds var būt; macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Pasīvs (bez signāla apstrādes elektronikas)";
 "%@ isn't in our bundled vendor list" = "%1$@ nav mūsu iekļautajā ražotāju sarakstā";

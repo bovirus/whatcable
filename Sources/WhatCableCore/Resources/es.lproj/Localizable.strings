@@ -571,7 +571,7 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Presente, pero no leído en esta conexión. Prueba a volver a conectar el cable; algunos cargadores y docks bloquean la lectura.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Presente, pero no leído en esta conexión. macOS normalmente solo lo lee por encima de 3 A o mediante Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Este puerto no puede leer los detalles del cable: solo USB, sin Power Delivery.";
-"No e-marker. This cable doesn't advertise its capabilities." = "Sin e-marker. Este cable no declara sus capacidades.";
+"No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V)." = "Sin e-marker. Este cable no declara sus capacidades, por lo que la carga está limitada a 3 A (60 W a 20 V).";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "No se leyó ningún e-marker. El cable puede tener uno; macOS normalmente solo lo lee por encima de 3 A o mediante Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Pasivo (sin electrónica de acondicionamiento de señal)";
 "%@ isn't in our bundled vendor list" = "%1$@ no está en nuestra lista de fabricantes incluida";

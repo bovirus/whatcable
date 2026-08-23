@@ -570,7 +570,7 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Присутствует, но не считан при этом подключении. Попробуйте переподключить кабель; некоторые зарядные устройства и док-станции блокируют считывание.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Присутствует, но не считан при этом подключении. macOS обычно считывает его только выше 3 А или через Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Этот порт не может считать данные кабеля: только USB, без Power Delivery.";
-"No e-marker. This cable doesn't advertise its capabilities." = "Нет e-marker. Этот кабель не сообщает о своих возможностях.";
+"No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V)." = "Нет e-marker. Этот кабель не сообщает о своих возможностях, поэтому зарядка ограничена 3 А (60 Вт при 20 В).";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker не считан. Он может быть у кабеля; macOS обычно считывает его только выше 3 А или через Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Пассивный (без электроники обработки сигнала)";
 "%@ isn't in our bundled vendor list" = "%1$@ отсутствует в нашем встроенном списке производителей";

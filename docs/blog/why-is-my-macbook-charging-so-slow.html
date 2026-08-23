@@ -504,7 +504,7 @@
 <h3>3. Optimised Battery Charging is holding at 80%</h3>
 <p>macOS learns your routine and parks the battery at 80% if it thinks you're about to leave it plugged in for hours. From its perspective this is a feature, since holding at 80% is much kinder to long-term battery health than sitting at 100% all day.</p>
 <p>From your perspective it looks like the charger isn't doing its job.</p>
-<p>How to confirm: System Settings → Battery → Battery Health → check the charging schedule. If Optimised Charging is on and the battery is sitting at exactly 80%, that's the cause. Click &quot;Charge to 100%&quot; if you actually need it now.</p>
+<p>How to confirm: System Settings → Battery → Battery Health → check the charging schedule. If Optimised Charging is on and the battery is sitting at exactly 80%, that's the cause. Click &quot;Charge to Full Now&quot; if you actually need it now.</p>
 <h3>4. The workload is outpacing the supply</h3>
 <p>If you're rendering video, compiling a large project, or running a sustained GPU load on a 14&quot; or 16&quot; MBP, you can genuinely draw more than the adapter delivers. The battery makes up the difference and the percentage creeps down despite being plugged in.</p>
 <p>How to confirm: open Activity Monitor → Energy tab → look at Energy Impact. If you're maxing out CPU or GPU, you're not going to charge while doing it on a 30W or 70W adapter.</p>
@@ -523,8 +523,8 @@
 <li>What the port itself can do</li>
 <li>Where the bottleneck is, if there is one</li>
 </ul>
-<p><img src="https://images.whatcable.uk/1779373950977-screenshot-2026-05-19-at-22-02-19.webp" alt="WhatCable showing the active PD contract at 20V and 2.99A (60W), alongside the cable's e-marker rating of 250W, confirming the cable is not the bottleneck" title="WhatCable reading the active power contract and cable e-marker"></p>
-<p>A healthy reading on a 16&quot; MBP with a 140W adapter and a 240W USB4 cable: 20V at around 5A, cable rated for 240W, port rated for 140W. Everything matches.</p>
+<p><img src="https://images.whatcable.uk/1779373950977-screenshot-2026-05-19-at-22-02-19.webp" alt="WhatCable showing the active PD contract at 20V and 2.99A (60W), alongside the cable's e-marker rating, confirming the cable is not the bottleneck" title="WhatCable reading the active power contract and cable e-marker"></p>
+<p>A healthy reading on a 16&quot; MBP with a 140W adapter and a 240W USB4 cable: 28V at 5A, cable rated for 240W, port rated for 140W. Everything matches.</p>
 <p>A throttled reading on the same setup but with a wrong cable: 20V at 3A, cable rated for 60W, port still rated for 140W. The cable is the bottleneck and you can see it.</p>
 <p>That's the answer to &quot;why is it slow.&quot; You can stop guessing.</p>
 <hr>

@@ -265,6 +265,7 @@ KNOWN_EXTRA = {
 ALLOWED_IDENTICAL = {
     "WhatCableCore": {
         "de": {
+            "OK",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
             "Battery, %@ to %@, %@", "Built-in %1$@ port %2$lld",
@@ -284,6 +285,7 @@ ALLOWED_IDENTICAL = {
             "WhatCable Pro",
         },
         "es": {
+            "OK",
             "experimental",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
@@ -304,6 +306,7 @@ ALLOWED_IDENTICAL = {
             "USB4 Gen 4 (80 Gbps)", "Variable, %@ to %@ @ %@", "WhatCable Pro",
         },
         "fr": {
+            "OK",
             "%@ Port %lld", "%@ port %lld", "%lld displays connected", "%lld × %lld", "1-5 mW",
             "3 A", "5 A", "5-10 mW", "50-200 µW", "< 50 µW", "> 10 mW",
             "Battery full, not drawing power", "Battery, %@ to %@, %@",
@@ -360,6 +363,7 @@ ALLOWED_IDENTICAL = {
             "Thunderbolt", "Thunderbolt / USB4", "Variable, %@ to %@ @ %@", "WhatCable Pro",
         },
         "it": {
+            "OK",
             "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW", "50-200 µW", "< 50 µW",
             "> 10 mW", "Host", "MagSafe 3", "Monitor", "No", "Re-driver", "Re-timer",
             "Thunderbolt", "Thunderbolt / USB4", "USB 2.0 (480 Mbps)",
@@ -367,6 +371,7 @@ ALLOWED_IDENTICAL = {
             "Video", "WhatCable Pro", "video",
         },
         "ja": {
+            "OK",
             "%lld displays connected", "%lld × %lld", "0.2-0.5 mW", "0.5-1 mW", "1-5 mW",
             "3 A", "5 A", "5-10 mW", "50-200 µW", "< 50 µW", "> 10 mW",
             "Battery full, not drawing power", "Battery, %@ to %@, %@",
@@ -420,6 +425,7 @@ ALLOWED_IDENTICAL = {
             "USB4 Gen 4 (80 Gbps)", "Video", "WhatCable Pro", "video",
         },
         "nb": {
+            "OK",
             "%@ Port %lld", "%@ port %lld", "%lld displays connected", "%lld × %lld", "3 A",
             "5 A", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
             "Battery, %@ to %@, %@", "Built-in %1$@ port %2$lld",
@@ -438,6 +444,7 @@ ALLOWED_IDENTICAL = {
             "Video", "WhatCable Pro", "adapter %lld", "via %lld hubs", "video",
         },
         "nl": {
+            "OK",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",
             "Battery, %@ to %@, %@", "Built-in %1$@ port %2$lld", "Connector", "Data",
@@ -458,6 +465,7 @@ ALLOWED_IDENTICAL = {
             "Video", "WhatCable Pro", "adapter %lld", "via %lld hubs", "video",
         },
         "pl": {
+            "OK",
             "%@ Port %lld", "%@ port %lld", "%lld displays connected", "%lld × %lld", "1-5 mW",
             "3 A", "5 A", "5-10 mW", "50-200 µW", "< 50 µW", "> 10 mW", "Alert",
             "Battery full, not drawing power", "Battery, %@ to %@, %@",
@@ -478,6 +486,7 @@ ALLOWED_IDENTICAL = {
             "USB4 Gen 4 (80 Gbps)", "Variable, %@ to %@ @ %@", "WhatCable Pro", "adapter %lld",
         },
         "pt-BR": {
+            "OK",
             "experimental",
             "%lld displays connected", "%lld × %lld", "1-5 mW", "3 A", "5 A", "5-10 mW",
             "50-200 µW", "< 50 µW", "> 10 mW", "Battery full, not drawing power",

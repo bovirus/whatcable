@@ -539,6 +539,16 @@
 "Occasional caution" = "Պատահական զգուշություն";
 "Performing" = "Գործում է";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "Ճանաչված է իր e-marker-ով (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "Ունի e-marker, բայց եզակի ID չկա (արտադրանքի ID-ն սահմանված չէ)";
+"Has an e-marker, but the maker never programmed an ID" = "Ունի e-marker, բայց արտադրողը երբեք ID չի ծրագրավորել";
+"This cable has no e-marker, so it can't be tracked." = "Այս մալուխն e-marker չունի, ուստի այն չի կարող հետևվել։";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Համընկնում է ձեր պահված մալուխի հետ՝ %@։ Նույն մոդելի երկու օրինակները հնարավոր չէ տարբերել, ուստի եթե սա նույնպես պահեք, նրանց պատմությունը կմիավորվի։";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Այս մալուխն e-marker չունի, ուստի դրա համար ոչինչ նոր չի կարող գրանցվել։ Դրա եղած պատմությունը մնում է հասանելի։";
+"Can't add this cable" = "Հնարավոր չէ ավելացնել այս մալուխը";
+"OK" = "Լավ";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

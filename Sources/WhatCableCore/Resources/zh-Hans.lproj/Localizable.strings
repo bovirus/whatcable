@@ -539,6 +539,16 @@
 "Occasional caution" = "偶尔需注意";
 "Performing" = "运行正常";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "已通过 e-marker 识别（VID 0x%04X，PID 0x%04X）";
+"Has an e-marker, but no unique ID (product ID not set)" = "有 e-marker，但没有唯一 ID（产品 ID 未设置）";
+"Has an e-marker, but the maker never programmed an ID" = "有 e-marker，但厂商从未写入 ID";
+"This cable has no e-marker, so it can't be tracked." = "这根线缆没有 e-marker，因此无法追踪。";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "与您保存的线缆 %@ 匹配。同一型号的两根线缆无法区分，如果您也保存这一根，它们的记录会合并。";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "这根线缆没有 e-marker，因此无法为它记录新的内容。现有记录仍然可用。";
+"Can't add this cable" = "无法添加此线缆";
+"OK" = "好";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "已连接 %lld 台显示器";
 "Built-in %1$@ port %2$lld" = "内置 %1$@ 端口 %2$lld";

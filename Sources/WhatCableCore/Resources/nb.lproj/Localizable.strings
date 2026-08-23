@@ -539,6 +539,16 @@
 "Occasional caution" = "Sporadisk forsiktighet";
 "Performing" = "Fungerer";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "Identifisert av e-markeren (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "Har en e-marker, men ingen unik ID (produkt-ID ikke angitt)";
+"Has an e-marker, but the maker never programmed an ID" = "Har en e-marker, men produsenten programmerte aldri en ID";
+"This cable has no e-marker, so it can't be tracked." = "Denne kabelen har ingen e-marker, så den kan ikke spores.";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Samsvarer med den lagrede kabelen din %@. To eksemplarer av samme modell kan ikke skilles fra hverandre, så historikken deres slås sammen hvis du lagrer denne også.";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Denne kabelen har ingen e-marker, så ingenting nytt kan registreres for den. Den eksisterende historikken er fortsatt tilgjengelig.";
+"Can't add this cable" = "Kan ikke legge til denne kabelen";
+"OK" = "OK";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

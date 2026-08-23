@@ -540,6 +540,16 @@
 "Occasional caution" = "時々注意";
 "Performing" = "正常動作";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "e-markerで識別済み（VID 0x%04X、PID 0x%04X）";
+"Has an e-marker, but no unique ID (product ID not set)" = "e-markerはあるが固有IDなし（製品IDが未設定）";
+"Has an e-marker, but the maker never programmed an ID" = "e-markerはあるが、メーカーがIDを書き込んでいない";
+"This cable has no e-marker, so it can't be tracked." = "このケーブルにはe-markerがないため、追跡できません。";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "保存済みのケーブル「%@」と一致します。同じモデルの2本は区別できないため、これも保存すると履歴が統合されます。";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "このケーブルにはe-markerがないため、新しい記録を追加できません。既存の履歴は引き続き利用できます。";
+"Can't add this cable" = "このケーブルは追加できません";
+"OK" = "OK";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

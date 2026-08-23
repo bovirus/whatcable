@@ -543,6 +543,16 @@
 "Occasional caution" = "Occasional caution";
 "Performing" = "Performing";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "Identified by its e-marker (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "Has an e-marker, but no unique ID (product ID not set)";
+"Has an e-marker, but the maker never programmed an ID" = "Has an e-marker, but the maker never programmed an ID";
+"This cable has no e-marker, so it can't be tracked." = "This cable has no e-marker, so it can't be tracked.";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too.";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available.";
+"Can't add this cable" = "Can't add this cable";
+"OK" = "OK";
+
 /* Built-in display port card (issue #352). Used by the CLI text formatter
    and the widget snapshot, when a native HDMI port is showing a display. */
 "%lld displays connected" = "%lld displays connected";

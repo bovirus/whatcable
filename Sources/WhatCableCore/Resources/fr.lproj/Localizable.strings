@@ -539,6 +539,16 @@
 "Occasional caution" = "Attention occasionnelle";
 "Performing" = "Performant";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "Identifié par son e-marker (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "A un e-marker, mais pas d'identifiant unique (ID produit non définie)";
+"Has an e-marker, but the maker never programmed an ID" = "A un e-marker, mais le fabricant n'a jamais programmé d'identifiant";
+"This cable has no e-marker, so it can't be tracked." = "Ce câble n'a pas d'e-marker, il ne peut donc pas être suivi.";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Correspond à votre câble enregistré %@. Deux unités du même modèle ne peuvent pas être distinguées : leur historique sera fusionné si vous enregistrez celui-ci aussi.";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Ce câble n'a pas d'e-marker, donc aucune nouvelle activité ne peut être enregistrée pour lui. Son historique existant reste disponible.";
+"Can't add this cable" = "Impossible d'ajouter ce câble";
+"OK" = "OK";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

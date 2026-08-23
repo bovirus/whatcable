@@ -538,6 +538,16 @@
 "Occasional caution" = "कभी-कभी सावधानी";
 "Performing" = "प्रदर्शन कर रहा है";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "इसके e-marker से पहचाना गया (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "इसमें e-marker है, पर कोई यूनिक ID नहीं (प्रोडक्ट ID सेट नहीं)";
+"Has an e-marker, but the maker never programmed an ID" = "इसमें e-marker है, पर निर्माता ने कभी कोई ID प्रोग्राम नहीं की";
+"This cable has no e-marker, so it can't be tracked." = "इस केबल में कोई e-marker नहीं है, इसलिए इसे ट्रैक नहीं किया जा सकता।";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "आपकी सेव की गई केबल %@ से मेल खाता है। एक ही मॉडल की दो केबलों को अलग नहीं पहचाना जा सकता, इसलिए अगर आप इसे भी सेव करते हैं तो दोनों का इतिहास मिल जाएगा।";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "इस केबल में कोई e-marker नहीं है, इसलिए इसके लिए कुछ भी नया रिकॉर्ड नहीं किया जा सकता। इसका मौजूदा इतिहास उपलब्ध रहेगा।";
+"Can't add this cable" = "यह केबल जोड़ी नहीं जा सकती";
+"OK" = "ठीक है";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

@@ -538,6 +538,16 @@
 "Occasional caution" = "Редкие сбои";
 "Performing" = "Работает нормально";
 
+/* Cable history: full-blob identity */
+"Identified by its e-marker (VID 0x%04X, PID 0x%04X)" = "Определён по e-marker (VID 0x%04X, PID 0x%04X)";
+"Has an e-marker, but no unique ID (product ID not set)" = "Есть e-marker, но нет уникального ID (ID продукта не задан)";
+"Has an e-marker, but the maker never programmed an ID" = "Есть e-marker, но производитель так и не задал ID";
+"This cable has no e-marker, so it can't be tracked." = "У этого кабеля нет e-marker, поэтому его нельзя отслеживать.";
+"Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Совпадает с сохранённым кабелем %@. Два экземпляра одной модели неразличимы, поэтому их история объединится, если вы сохраните и этот.";
+"This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "У этого кабеля нет e-marker, поэтому для него нельзя записать ничего нового. Прежняя история остаётся доступной.";
+"Can't add this cable" = "Не удаётся добавить этот кабель";
+"OK" = "ОК";
+
 /* Built-in display port card (issue #352). English placeholders, community can refine. */
 "%lld displays connected" = "%lld displays connected";
 "Built-in %1$@ port %2$lld" = "Built-in %1$@ port %2$lld";

@@ -77,6 +77,7 @@
 "Transports" = "ट्रांसपोर्ट";
 "USB active" = "USB सक्रिय";
 "USB device" = "USB डिवाइस";
+"USB devices connected" = "USB डिवाइस कनेक्ट हुए";
 "USB devices disconnected" = "USB डिवाइस डिस्कनेक्ट हुए";
 "Unknown" = "अज्ञात";
 "Verifying signature…" = "हस्ताक्षर सत्यापित हो रहा है…";

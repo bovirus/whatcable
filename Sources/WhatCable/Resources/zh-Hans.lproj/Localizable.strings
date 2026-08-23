@@ -78,6 +78,7 @@
 "Transports" = "传输";
 "USB active" = "USB 活跃";
 "USB device" = "USB 设备";
+"USB devices connected" = "USB 设备已连接";
 "USB devices disconnected" = "USB 设备已断开";
 "Unknown" = "未知";
 "Verifying signature…" = "正在验证签名…";

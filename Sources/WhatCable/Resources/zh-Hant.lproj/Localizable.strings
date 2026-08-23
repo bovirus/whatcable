@@ -78,6 +78,7 @@
 "Transports" = "傳輸模式";
 "USB active" = "USB 作用中";
 "USB device" = "USB 裝置";
+"USB devices connected" = "USB 裝置已連接";
 "USB devices disconnected" = "USB 裝置已中斷連接";
 "Unknown" = "未知";
 "Verifying signature…" = "正在驗證簽章…";

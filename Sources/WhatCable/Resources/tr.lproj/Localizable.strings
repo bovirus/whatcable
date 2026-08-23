@@ -77,6 +77,7 @@
 "Transports" = "Aktarımlar";
 "USB active" = "USB etkin";
 "USB device" = "USB aygıtı";
+"USB devices connected" = "USB aygıtları bağlandı";
 "USB devices disconnected" = "USB aygıtları çıkarıldı";
 "Unknown" = "Bilinmiyor";
 "Verifying signature…" = "İmza doğrulanıyor…";

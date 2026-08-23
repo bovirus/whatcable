@@ -80,6 +80,7 @@
 "Transports" = "Transports";
 "USB active" = "USB active";
 "USB device" = "USB device";
+"USB devices connected" = "USB devices connected";
 "USB devices disconnected" = "USB devices disconnected";
 "Unknown" = "Unknown";
 "Verifying signature…" = "Verifying signature…";

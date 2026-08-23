@@ -77,6 +77,7 @@
 "Transports" = "Transporter";
 "USB active" = "USB aktiv";
 "USB device" = "USB-enhet";
+"USB devices connected" = "USB-enheter tilkoblet";
 "USB devices disconnected" = "USB-enheter frakoblet";
 "Unknown" = "Ukjent";
 "Verifying signature…" = "Verifiserer signatur…";

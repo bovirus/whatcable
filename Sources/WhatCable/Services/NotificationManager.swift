@@ -132,6 +132,42 @@ final class NotificationManager {
         postAddedGroupNotifications(addedGroups, current: current)
     }
 
+    /// A single notification's title and body, decided independently of
+    /// `UNUserNotificationCenter` so the merge decision below is testable
+    /// without posting anything. See issue #556.
+    struct NotificationContent: Equatable {
+        let title: String
+        let body: String
+    }
+
+    /// Decides what to post for one settled batch of added groups. A dock
+    /// with several subtrees (main USB3 hub, USB2 companion hubs, PD device)
+    /// arrives as multiple groups in a single settle window; posting one
+    /// `UNUserNotificationCenter.add` per group produced 2-3 simultaneous
+    /// banners with only the last one visible, so most of the devices never
+    /// showed up as "connected" even though they were posted. Mirrors
+    /// `postRemovedGroupNotifications`'s merge so >1 group becomes ONE
+    /// notification, same as a disconnect. See issue #556.
+    nonisolated static func addedNotificationContents(
+        groups: [USBDeviceChangeGrouper.ChangeGroup],
+        singleDeviceBody: (UInt64) -> String?
+    ) -> [NotificationContent] {
+        if groups.count == 1, let group = groups.first {
+            let title = String(localized: "Connected: \(group.rootName)", bundle: _appLocalizedBundle)
+            let body = group.memberNames.isEmpty
+                ? (singleDeviceBody(group.rootID) ?? "")
+                : group.memberNames.joined(separator: "\n")
+            return [NotificationContent(title: title, body: body)]
+        } else if groups.count > 1 {
+            let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
+            return [NotificationContent(
+                title: String(localized: "USB devices connected", bundle: _appLocalizedBundle),
+                body: allNames.joined(separator: "\n")
+            )]
+        }
+        return []
+    }
+
     private func postAddedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup], current: [USBDevice]) {
         // Recover the full USBDevice for the speed/vendor body of a
         // single-member group by identity (rootID), not by name: two hubs of
@@ -139,15 +175,11 @@ final class NotificationManager {
         // could pick the wrong one.
         let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        for group in groups {
-            let title = String(localized: "Connected: \(group.rootName)", bundle: _appLocalizedBundle)
-            if group.memberNames.isEmpty {
-                let rootDevice = currentByID[group.rootID]
-                let body = rootDevice.map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" } ?? ""
-                postNotification(title: title, body: body)
-            } else {
-                postNotification(title: title, body: group.memberNames.joined(separator: "\n"))
-            }
+        let contents = Self.addedNotificationContents(groups: groups) { rootID in
+            currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
+        }
+        for content in contents {
+            postNotification(title: content.title, body: content.body)
         }
     }
 

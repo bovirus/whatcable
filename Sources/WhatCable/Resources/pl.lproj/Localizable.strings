@@ -77,6 +77,7 @@
 "Transports" = "Transporty";
 "USB active" = "USB aktywne";
 "USB device" = "Urządzenie USB";
+"USB devices connected" = "Urządzenia USB podłączone";
 "USB devices disconnected" = "Urządzenia USB odłączone";
 "Unknown" = "Nieznane";
 "Verifying signature…" = "Weryfikacja podpisu…";

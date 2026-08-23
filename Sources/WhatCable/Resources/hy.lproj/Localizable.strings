@@ -77,6 +77,7 @@
 "Transports" = "Տվյալների փոխանցում";
 "USB active" = "USB-ն ակտիվ է";
 "USB device" = "USB սարք";
+"USB devices connected" = "USB սարքերը միացվեցին";
 "USB devices disconnected" = "USB սարքերն անջատվեցին";
 "Unknown" = "Անհայտ";
 "Verifying signature…" = "Ստուգվում է թվային ստորագրությունը…";

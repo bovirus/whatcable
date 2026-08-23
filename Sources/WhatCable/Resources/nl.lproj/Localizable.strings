@@ -77,6 +77,7 @@
 "Transports" = "Transporten";
 "USB active" = "USB actief";
 "USB device" = "USB-apparaat";
+"USB devices connected" = "USB-apparaten verbonden";
 "USB devices disconnected" = "USB-apparaten verbroken";
 "Unknown" = "Onbekend";
 "Verifying signature…" = "Handtekening verifiëren…";

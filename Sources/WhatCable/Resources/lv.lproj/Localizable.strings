@@ -77,6 +77,7 @@
 "Transports" = "Transporti";
 "USB active" = "USB aktīvs";
 "USB device" = "USB ierīce";
+"USB devices connected" = "USB ierīces pievienotas";
 "USB devices disconnected" = "USB ierīces atvienotas";
 "Unknown" = "Nezināms";
 "Verifying signature…" = "Pārbauda parakstu…";

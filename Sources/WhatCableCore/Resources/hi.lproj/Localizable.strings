@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "वीडियो चल रहा है। जब तक आप एक्सेसरी को मंज़ूरी नहीं देते, macOS डेटा रोके रखता है।";
 "USB device, data blocked · %lldW charger" = "USB डिवाइस, डेटा अवरुद्ध · %lld W चार्जर";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। केबल दोबारा लगाकर देखें।";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। macOS इसे केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। केबल दोबारा लगाकर देखें; कुछ चार्जर और डॉक पढ़ने में रुकावट डाल सकते हैं।";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। macOS इसे आमतौर पर केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
 "This port can't read cable details: USB-only, no Power Delivery." = "यह पोर्ट केबल की जानकारी नहीं पढ़ सकता: केवल USB, कोई Power Delivery नहीं।";
 "No e-marker. This cable doesn't advertise its capabilities." = "कोई e-marker नहीं। यह केबल अपनी क्षमताएँ नहीं बताता।";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "कोई e-marker नहीं पढ़ा गया। केबल में एक हो सकता है; macOS इसे केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "कोई e-marker नहीं पढ़ा गया। केबल में एक हो सकता है; macOS इसे आमतौर पर केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
 "Passive (no signal-conditioning electronics)" = "पैसिव (कोई सिग्नल-कंडीशनिंग इलेक्ट्रॉनिक्स नहीं)";
 "%@ isn't in our bundled vendor list" = "%1$@ हमारी शामिल वेंडर सूची में नहीं है";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ हमारी USB-IF रजिस्ट्री की प्रति में नहीं है";

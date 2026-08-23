@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Відео працює. macOS не передає дані, доки ви не дозволите аксесуар.";
 "USB device, data blocked · %lldW charger" = "USB-пристрій, передавання даних заблоковано · зарядний пристрій %lldW";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Наявний, але не зчитаний під час цього підключення. Спробуйте перепідключити кабель.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Наявний, але не зчитаний під час цього підключення. macOS зчитує його лише понад 3 А або через Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Наявний, але не зчитаний під час цього підключення. Спробуйте перепідключити кабель; деякі зарядні пристрої та док-станції блокують зчитування.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Наявний, але не зчитаний під час цього підключення. macOS зазвичай зчитує його лише понад 3 А або через Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Цей порт не може зчитати дані кабелю: лише USB, без Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Немає e-marker. Цей кабель не повідомляє про свої можливості.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "E-marker не зчитано. Кабель може його мати; macOS зчитує його лише понад 3 А або через Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker не зчитано. Кабель може його мати; macOS зазвичай зчитує його лише понад 3 А або через Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Пасивний (без електроніки обробки сигналу)";
 "%@ isn't in our bundled vendor list" = "%1$@ відсутній у нашому вбудованому списку виробників";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ відсутній у нашій копії реєстру USB-IF";

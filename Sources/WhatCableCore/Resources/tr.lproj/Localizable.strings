@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Görüntü çalışıyor. macOS, aksesuarı onaylayana kadar veriyi tutuyor.";
 "USB device, data blocked · %lldW charger" = "USB aygıtı, veri engellendi · %lldW şarj aleti";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Mevcut, ancak bu bağlantıda okunmadı. Kabloyu yeniden takmayı deneyin.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Mevcut, ancak bu bağlantıda okunmadı. macOS bunu yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Mevcut, ancak bu bağlantıda okunmadı. Kabloyu yeniden takmayı deneyin; bazı şarj cihazları ve dokingler okumayı engeller.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Mevcut, ancak bu bağlantıda okunmadı. macOS bunu genellikle yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Bu bağlantı noktası kablo ayrıntılarını okuyamıyor: yalnızca USB, Power Delivery yok.";
 "No e-marker. This cable doesn't advertise its capabilities." = "E-marker yok. Bu kablo yeteneklerini bildirmiyor.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "E-marker okunmadı. Kabloda bir tane olabilir; macOS bunu yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker okunmadı. Kabloda bir tane olabilir; macOS bunu genellikle yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
 "Passive (no signal-conditioning electronics)" = "Pasif (sinyal düzenleme elektroniği yok)";
 "%@ isn't in our bundled vendor list" = "%1$@ yerleşik üretici listemizde yok";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ USB-IF kayıt kopyamızda yok";

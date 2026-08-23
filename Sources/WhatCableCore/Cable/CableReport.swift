@@ -214,7 +214,7 @@ extension CableReport.Payload {
             // Spell that out so the blank vendor ID is not read as a faulty or
             // counterfeit cable. A note paragraph, not a table row, so
             // sync-cable-reports still parses the fingerprint cleanly.
-            lines.append("> Note: this cable's e-marker was not read on this connection. macOS only reads it above 3A or over Thunderbolt, so no vendor or capability data is shown. This does not mean the cable is blank or faulty.")
+            lines.append("> Note: this cable's e-marker was not read on this connection. macOS usually reads it above 3A or over Thunderbolt, so no vendor or capability data is shown. This does not mean the cable is blank or faulty.")
             lines.append("")
         }
         if !cable.vdos.isEmpty {

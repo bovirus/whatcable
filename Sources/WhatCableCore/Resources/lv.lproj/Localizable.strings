@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Attēls darbojas. macOS aiztur datus, līdz apstiprināsi piederumu.";
 "USB device, data blocked · %lldW charger" = "USB ierīce, dati bloķēti · %lld W lādētājs";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Ir, bet šajā savienojumā nav nolasīts. Mēģiniet kabeli pievienot vēlreiz.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Ir, bet šajā savienojumā nav nolasīts. macOS to nolasa tikai virs 3 A vai caur Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Ir, bet šajā savienojumā nav nolasīts. Mēģiniet kabeli pievienot vēlreiz; daži lādētāji un dokstacijas bloķē nolasīšanu.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Ir, bet šajā savienojumā nav nolasīts. macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Šis ports nevar nolasīt kabeļa datus: tikai USB, bez Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Nav e-marķiera. Šis kabelis nepaziņo savas iespējas.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "E-marķieris nav nolasīts. Kabelim tāds var būt; macOS to nolasa tikai virs 3 A vai caur Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marķieris nav nolasīts. Kabelim tāds var būt; macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Pasīvs (bez signāla apstrādes elektronikas)";
 "%@ isn't in our bundled vendor list" = "%1$@ nav mūsu iekļautajā ražotāju sarakstā";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ nav mūsu USB-IF reģistra kopijā";

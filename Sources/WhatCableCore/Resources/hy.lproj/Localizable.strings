@@ -568,11 +568,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Տեսանյութն աշխատում է: macOS-ը պահում է տվյալները, մինչև չհաստատեք պարագան:";
 "USB device, data blocked · %lldW charger" = "USB սարք, տվյալները արգելափակված են · %lldW լիցքավորիչ";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ Փորձեք նորից միացնել մալուխը։";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ macOS-ը կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ Փորձեք նորից միացնել մալուխը. որոշ լիցքավորիչներ և դոկեր կարող են արգելափակել ընթերցումը։";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "This port can't read cable details: USB-only, no Power Delivery." = "Այս պորտը չի կարող կարդալ մալուխի տվյալները՝ միայն USB, առանց Power Delivery-ի։";
 "No e-marker. This cable doesn't advertise its capabilities." = "E-marker չկա։ Այս մալուխը չի հայտարարում իր հնարավորությունները։";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "E-marker չի կարդացվել։ Մալուխը կարող է ունենալ այն. macOS-ը կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker չի կարդացվել։ Մալուխը կարող է ունենալ այն. macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "Passive (no signal-conditioning electronics)" = "Պասիվ (առանց ազդանշանի մշակման էլեկտրոնիկայի)";
 "%@ isn't in our bundled vendor list" = "%1$@-ը մեր ներկառուցված արտադրողների ցանկում չկա";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@-ը մեր USB-IF ռեեստրի պատճենում չկա";

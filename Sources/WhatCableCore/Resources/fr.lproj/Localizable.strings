@@ -568,11 +568,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "La vidéo fonctionne. macOS bloque les données jusqu'à ce que vous autorisiez l'accessoire.";
 "USB device, data blocked · %lldW charger" = "Appareil USB, données bloquées · chargeur %lld W";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Présent, mais non lu sur cette connexion. Essayez de rebrancher le câble.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Présent, mais non lu sur cette connexion. macOS ne le lit qu'au-delà de 3 A ou via Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Présent, mais non lu sur cette connexion. Essayez de rebrancher le câble ; certains chargeurs et stations d'accueil bloquent la lecture.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Présent, mais non lu sur cette connexion. macOS ne le lit généralement qu'au-delà de 3 A ou via Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Ce port ne peut pas lire les détails du câble : USB uniquement, sans Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Pas d'e-marker. Ce câble n'annonce pas ses capacités.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "Aucun e-marker lu. Le câble en a peut-être un ; macOS ne le lit qu'au-delà de 3 A ou via Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "Aucun e-marker lu. Le câble en a peut-être un ; macOS ne le lit généralement qu'au-delà de 3 A ou via Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passif (aucune électronique de conditionnement du signal)";
 "%@ isn't in our bundled vendor list" = "%1$@ ne figure pas dans notre liste de fabricants intégrée";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ ne figure pas dans notre copie du registre USB-IF";

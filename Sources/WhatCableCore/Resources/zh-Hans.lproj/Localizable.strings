@@ -568,11 +568,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "视频正常。在你允许此配件之前，macOS 会阻止数据传输。";
 "USB device, data blocked · %lldW charger" = "USB 设备，数据已阻止 · %lldW 充电器";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "存在，但本次连接未读取。请尝试重新插拔线缆。";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "存在，但本次连接未读取。macOS 仅在超过 3 A 或通过 Thunderbolt 时读取。";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "存在，但本次连接未读取。请尝试重新插拔线缆；某些充电器和扩展坞会阻止读取。";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "存在，但本次连接未读取。macOS 通常仅在超过 3 A 或通过 Thunderbolt 时读取。";
 "This port can't read cable details: USB-only, no Power Delivery." = "此端口无法读取线缆信息：仅 USB，无 Power Delivery。";
 "No e-marker. This cable doesn't advertise its capabilities." = "无 e-marker。此线缆不声明自身能力。";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "未读取到 e-marker。线缆可能有一个；macOS 仅在超过 3 A 或通过 Thunderbolt 时读取。";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "未读取到 e-marker。线缆可能有一个；macOS 通常仅在超过 3 A 或通过 Thunderbolt 时读取。";
 "Passive (no signal-conditioning electronics)" = "被动式（无信号调理电路）";
 "%@ isn't in our bundled vendor list" = "%1$@ 不在内置厂商列表中";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ 不在我们的 USB-IF 注册表副本中";

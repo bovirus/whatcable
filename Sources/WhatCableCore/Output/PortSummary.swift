@@ -427,8 +427,8 @@ extension PortSummary {
         if hasEmarker {
             if !emarkerRead {
                 emarkerSubtitle = readConditionsMet
-                    ? String(localized: "Present, but not read on this connection. Try reconnecting the cable.", bundle: _coreLocalizedBundle)
-                    : String(localized: "Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
+                    ? String(localized: "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read.", bundle: _coreLocalizedBundle)
+                    : String(localized: "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }
         } else if hasPayload && !isMagSafe {
             if !pdCapable {
@@ -436,7 +436,7 @@ extension PortSummary {
             } else if readConditionsMet {
                 emarkerSubtitle = String(localized: "No e-marker. This cable doesn't advertise its capabilities.", bundle: _coreLocalizedBundle)
             } else {
-                emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
+                emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }
         }
 

@@ -573,11 +573,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Video is working. macOS is holding data back until you approve the accessory.";
 "USB device, data blocked · %lldW charger" = "USB device, data blocked · %lldW charger";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Present, but not read on this connection. Try reconnecting the cable.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "This port can't read cable details: USB-only, no Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "No e-marker. This cable doesn't advertise its capabilities.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passive (no signal-conditioning electronics)";
 "%@ isn't in our bundled vendor list" = "%1$@ isn't in our bundled vendor list";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ isn't in our copy of the USB-IF registry";

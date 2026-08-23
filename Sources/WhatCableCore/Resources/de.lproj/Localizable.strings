@@ -568,11 +568,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Das Bild funktioniert. macOS hält die Daten zurück, bis du das Zubehör bestätigst.";
 "USB device, data blocked · %lldW charger" = "USB-Gerät, Daten blockiert · %lld-W-Ladegerät";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Vorhanden, aber bei dieser Verbindung nicht gelesen. Ziehen Sie das Kabel ab und stecken Sie es wieder ein.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Vorhanden, aber bei dieser Verbindung nicht gelesen. macOS liest ihn nur über 3 A oder über Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Vorhanden, aber bei dieser Verbindung nicht gelesen. Ziehen Sie das Kabel ab und stecken Sie es wieder ein; manche Ladegeräte und Docks blockieren das Auslesen.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Vorhanden, aber bei dieser Verbindung nicht gelesen. macOS liest ihn in der Regel nur über 3 A oder über Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Dieser Anschluss kann keine Kabeldetails lesen: nur USB, kein Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Kein E-Marker. Dieses Kabel gibt seine Fähigkeiten nicht an.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "Kein E-Marker gelesen. Das Kabel hat möglicherweise einen; macOS liest ihn nur über 3 A oder über Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "Kein E-Marker gelesen. Das Kabel hat möglicherweise einen; macOS liest ihn in der Regel nur über 3 A oder über Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passiv (keine Signalaufbereitungselektronik)";
 "%@ isn't in our bundled vendor list" = "%1$@ ist nicht in unserer mitgelieferten Herstellerliste";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ ist nicht in unserer Kopie des USB-IF-Registers";

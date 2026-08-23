@@ -568,11 +568,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "Bildet fungerer. macOS holder tilbake data til du godkjenner tilbehøret.";
 "USB device, data blocked · %lldW charger" = "USB-enhet, data blokkert · %lld W-lader";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Til stede, men ikke lest på denne tilkoblingen. Prøv å koble til kabelen på nytt.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Til stede, men ikke lest på denne tilkoblingen. macOS leser den bare over 3 A eller via Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Til stede, men ikke lest på denne tilkoblingen. Prøv å koble til kabelen på nytt; enkelte ladere og dokker blokkerer lesingen.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Til stede, men ikke lest på denne tilkoblingen. macOS leser den vanligvis bare over 3 A eller via Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Denne porten kan ikke lese kabeldetaljer: kun USB, ingen Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Ingen e-marker. Denne kabelen oppgir ikke egenskapene sine.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "Ingen e-marker lest. Kabelen kan ha en; macOS leser den bare over 3 A eller via Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "Ingen e-marker lest. Kabelen kan ha en; macOS leser den vanligvis bare over 3 A eller via Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passiv (ingen signalbehandlingselektronikk)";
 "%@ isn't in our bundled vendor list" = "%1$@ finnes ikke i vår innebygde produsentliste";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ finnes ikke i vår kopi av USB-IF-registeret";

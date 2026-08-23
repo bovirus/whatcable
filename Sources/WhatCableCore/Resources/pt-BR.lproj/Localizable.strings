@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "O vídeo funciona. O macOS retém os dados até você aprovar o acessório.";
 "USB device, data blocked · %lldW charger" = "Dispositivo USB, dados bloqueados · carregador de %lld W";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "Presente, mas não lido nesta conexão. Tente reconectar o cabo.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "Presente, mas não lido nesta conexão. O macOS só o lê acima de 3 A ou por Thunderbolt.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Presente, mas não lido nesta conexão. Tente reconectar o cabo; alguns carregadores e docks bloqueiam a leitura.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Presente, mas não lido nesta conexão. O macOS geralmente só o lê acima de 3 A ou por Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Esta porta não consegue ler os detalhes do cabo: apenas USB, sem Power Delivery.";
 "No e-marker. This cable doesn't advertise its capabilities." = "Sem e-marker. Este cabo não declara suas capacidades.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "Nenhum e-marker lido. O cabo pode ter um; o macOS só o lê acima de 3 A ou por Thunderbolt.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "Nenhum e-marker lido. O cabo pode ter um; o macOS geralmente só o lê acima de 3 A ou por Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passivo (sem eletrônica de condicionamento de sinal)";
 "%@ isn't in our bundled vendor list" = "%1$@ não está na nossa lista de fabricantes incluída";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ não está na nossa cópia do registro USB-IF";

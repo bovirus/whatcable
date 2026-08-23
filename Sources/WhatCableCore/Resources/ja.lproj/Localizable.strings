@@ -569,11 +569,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "映像は出ています。アクセサリを許可するまで、macOSがデータを保留しています。";
 "USB device, data blocked · %lldW charger" = "USBデバイス、データはブロック中 · %lld W充電器";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "検出されましたが、この接続では読み取れませんでした。ケーブルを接続し直してください。";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "検出されましたが、この接続では読み取れませんでした。macOS は 3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "検出されましたが、この接続では読み取れませんでした。ケーブルを接続し直してください。一部の充電器やドックでは読み取りがブロックされることがあります。";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "検出されましたが、この接続では読み取れませんでした。macOS は通常、3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
 "This port can't read cable details: USB-only, no Power Delivery." = "このポートはケーブル情報を読み取れません: USB のみで Power Delivery なし。";
 "No e-marker. This cable doesn't advertise its capabilities." = "e-marker なし。このケーブルは自身の能力を通知しません。";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "e-marker を読み取れませんでした。ケーブルに搭載されている可能性はあります。macOS は 3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "e-marker を読み取れませんでした。ケーブルに搭載されている可能性はあります。macOS は通常、3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
 "Passive (no signal-conditioning electronics)" = "パッシブ (信号処理回路なし)";
 "%@ isn't in our bundled vendor list" = "%1$@ は内蔵ベンダーリストにありません";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@ は当社の USB-IF レジストリの控えにありません";

@@ -567,11 +567,11 @@
 "Video is working. macOS is holding data back until you approve the accessory." = "영상은 정상입니다. 액세서리를 승인할 때까지 macOS가 데이터를 보류합니다.";
 "USB device, data blocked · %lldW charger" = "USB 기기, 데이터 차단됨 · %lldW 충전기";
 /* Port card source attribution (grouped headers + e-marker read state) */
-"Present, but not read on this connection. Try reconnecting the cable." = "있지만 이 연결에서는 읽지 못했습니다. 케이블을 다시 연결해 보십시오.";
-"Present, but not read on this connection. macOS only reads it above 3A or over Thunderbolt." = "있지만 이 연결에서는 읽지 못했습니다. macOS는 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
+"Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "있지만 이 연결에서는 읽지 못했습니다. 케이블을 다시 연결해 보십시오. 일부 충전기와 도크는 읽기를 차단합니다.";
+"Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "있지만 이 연결에서는 읽지 못했습니다. macOS는 보통 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
 "This port can't read cable details: USB-only, no Power Delivery." = "이 포트는 케이블 정보를 읽을 수 없습니다: USB 전용, Power Delivery 없음.";
 "No e-marker. This cable doesn't advertise its capabilities." = "e-marker 없음. 이 케이블은 자신의 성능을 알리지 않습니다.";
-"No e-marker read. The cable may have one; macOS only reads it above 3A or over Thunderbolt." = "e-marker를 읽지 못했습니다. 케이블에 있을 수 있습니다. macOS는 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
+"No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "e-marker를 읽지 못했습니다. 케이블에 있을 수 있습니다. macOS는 보통 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
 "Passive (no signal-conditioning electronics)" = "패시브 (신호 조정 회로 없음)";
 "%@ isn't in our bundled vendor list" = "%1$@은(는) 내장 제조사 목록에 없습니다";
 "%@ isn't in our copy of the USB-IF registry" = "%1$@은(는) USB-IF 등록부 사본에 없습니다";

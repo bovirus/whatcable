@@ -261,6 +261,22 @@ final class AppSettings: ObservableObject {
         !hasCompletedOnboarding && UserDefaults.standard.object(forKey: Keys.useMenuBarMode) == nil
     }
 
+    /// Whether a never-touched `receiveBetaUpdates` key should default to on,
+    /// given the value already stored (nil if the key is absent) and the
+    /// running build's version string.
+    ///
+    /// Discussion #555: two testers assumed a beta build would offer them
+    /// betas automatically and missed a release because the toggle read off.
+    /// A pre-release build IS the opt-in (manually installing one is a
+    /// deliberate act), so a beta install now defaults the toggle on. An
+    /// explicit choice, on or off, is never overridden: `storedValue` being
+    /// non-nil short-circuits regardless of what it holds. Pure and
+    /// UserDefaults-free so the five-row matrix can be tested without a
+    /// suite-isolated defaults dance.
+    nonisolated static func defaultsReceiveBetaUpdates(storedValue: Any?, runningVersion: String) -> Bool {
+        storedValue == nil && AppInfo.isPrerelease(runningVersion)
+    }
+
     private init() {
         // Launch at Login is owned by the system; read its current state.
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -281,7 +297,17 @@ final class AppSettings: ObservableObject {
         } else {
             self.notifyOnUpdates = UserDefaults.standard.bool(forKey: Keys.notifyOnUpdates)
         }
-        // Betas are opt-in; an unset key reads false, which is what we want.
+        // Betas are opt-in; an unset key reads false. Exception: a build
+        // whose own version is a pre-release defaults the key to true, once,
+        // the first time it ever launches (discussion #555, see
+        // defaultsReceiveBetaUpdates above). A stored value, explicit true or
+        // explicit false, is never touched.
+        if AppSettings.defaultsReceiveBetaUpdates(
+            storedValue: UserDefaults.standard.object(forKey: Keys.receiveBetaUpdates),
+            runningVersion: AppInfo.version
+        ) {
+            UserDefaults.standard.set(true, forKey: Keys.receiveBetaUpdates)
+        }
         self.receiveBetaUpdates = UserDefaults.standard.bool(forKey: Keys.receiveBetaUpdates)
         self.hideEmptyPorts = UserDefaults.standard.bool(forKey: Keys.hideEmptyPorts)
         // Menu bar mode is the default; UserDefaults returns false for unset

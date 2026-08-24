@@ -77,6 +77,33 @@ struct ChainAttributionProbeSweepTests {
         /// read at all, matching production's `IOThunderboltSwitch.from`.
         let dromVendorID: Int?
         let dromModelID: Int?
+        /// TB5 tunnel-hub attribution: the route-string formula's own input. Not previously
+        /// parsed by this sweep (the previous `model()` hardcoded 0,
+        /// which every earlier check here was indifferent to since nothing
+        /// used route strings before this pass).
+        let routeString: Int64
+        /// Raw `USB Port Map` property (TB5 tunnel-hub attribution), if the block published one.
+        /// Independent parser (`portMapData(_:)` below), not
+        /// `USBPortMapEntry.parse` itself: the file's OWN triplet parser is
+        /// unit-tested against the reference hex; this only needs to turn
+        /// probe 29's `USB Port Map =     Data[15]: 01 81 94 ...` text into
+        /// the raw `Data` production reads from a live property.
+        let usbPortMap: Data?
+    }
+
+    /// Probe 29 prints the raw `USB Port Map` bytes as
+    /// `USB Port Map =     Data[15]: 01 81 94 02 82 95 ...` (space-separated
+    /// hex pairs, "Data[N]:" prefix). Returns `nil` when the key is absent.
+    private static func portMapData(_ body: String) -> Data? {
+        for line in body.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("USB Port Map = ") else { continue }
+            guard let colon = trimmed.firstIndex(of: ":") else { return nil }
+            let hexPart = trimmed[trimmed.index(after: colon)...]
+            let bytes = hexPart.split(separator: " ").compactMap { UInt8($0, radix: 16) }
+            return bytes.isEmpty ? nil : Data(bytes)
+        }
+        return nil
     }
 
     /// Instance blocks for one IOKit class. Probe 29 writes
@@ -142,7 +169,9 @@ struct ChainAttributionProbeSweepTests {
                 vendor: stringValue(body, "Device Vendor Name") ?? "",
                 className: name.replacingOccurrences(of: "--- IOThunderboltSwitch", with: ""),
                 dromVendorID: intValue(body, "Device Vendor ID").map(Int.init),
-                dromModelID: intValue(body, "Device Model ID").map(Int.init)
+                dromModelID: intValue(body, "Device Model ID").map(Int.init),
+                routeString: intValue(body, "Route String") ?? 0,
+                usbPortMap: Self.portMapData(body)
             )
         }
         return byEntry.values.sorted { $0.entryID < $1.entryID }
@@ -157,7 +186,7 @@ struct ChainAttributionProbeSweepTests {
             modelName: raw.model,
             routerID: raw.depth,
             depth: raw.depth,
-            routeString: 0,
+            routeString: raw.routeString,
             upstreamPortNumber: 1,
             maxPortNumber: 12,
             supportedSpeed: SupportedSpeedMask(rawValue: 0),
@@ -166,7 +195,8 @@ struct ChainAttributionProbeSweepTests {
             // link to be internally consistent, which it is.
             parentSwitchUID: raw.parentEntryID == 0 ? nil : raw.parentEntryID,
             dromVendorID: raw.dromVendorID,
-            dromModelID: raw.dromModelID
+            dromModelID: raw.dromModelID,
+            usbPortMap: raw.usbPortMap
         )
     }
 
@@ -1139,5 +1169,185 @@ struct ChainAttributionProbeSweepTests {
                 "\(folder): CalDigit hub descendant \(descendant.device.productName ?? "?") must not be attributed to the OWC's switch id \(owcSwitch.sw.id)"
             )
         }
+    }
+
+    // MARK: - TB5 Gen T shared-controller tunnel-hub mapping
+
+    /// Corpus-replay sweep for the new pass specifically. Runs
+    /// `ChainDeviceAttribution.resolveTB5TunnelHubMap` DIRECTLY (not just
+    /// through `resolve()`) over every single-chain folder, so a folder
+    /// where the pass fires (returns a non-empty bijection) is unambiguous:
+    /// it is by construction a folder whose attribution is NEW relative to
+    /// pre-TB5-pass production, since nothing else in `ChainDeviceAttribution`
+    /// ever placed these anonymous Intel tunnel hubs before this pass
+    /// existed (spec section 1: name, inheritance and vendor continuity all
+    /// fail to place them). That makes "the pass fired" and "old vs new
+    /// differ for this folder" the same fact here, without needing to run
+    /// two builds of production side by side.
+    ///
+    /// Floor (spec section 8 phase 4): the sweep must find the 5 known
+    /// route-byte points named in the ticket evidence
+    /// (`whatcable-app-notes/tree-attribution/TICKET.md`: byte 3 -> port 1
+    /// x3, byte 5 -> port 2, byte 7 -> port 3), so a silent regression in
+    /// the pass cannot pass as a clean "found nothing" run.
+    @Test("TB5 corpus sweep: the TB5 tunnel-hub pass fires on known folders and never wrongly")
+    func tb5TunnelHubMapSweep() throws {
+        var swept = 0
+        var passFired = 0
+        var hubsMapped = 0
+        var hubsAttributedInFullResult = 0
+        var perFolderDiff: [String] = []
+        var knownRouteBytePoints: Set<String> = []
+
+        for folder in Self.folders() {
+            guard let text29 = Self.probeText(folder, "29_usb4_router_interfaces.json"),
+                  let text38 = Self.probeText(folder, "38_usb_device_tree.json")
+            else { continue }
+            let raws = Self.rawSwitches(text29)
+            let allChains = Self.chains(raws)
+            var devices = Self.usbDevices(text38)
+            guard allChains.count == 1, !devices.isEmpty else { continue }
+
+            if let text37 = Self.probeText(folder, "37_tb_tunnel_port_map.json") {
+                let depths = Self.probe37BridgeDepths(text37)
+                if !depths.isEmpty { devices = Self.applyBridgeDepths(devices, depths) }
+            }
+
+            let chain = allChains[0]
+            let chainNodes = ThunderboltTopology.flatten(chain)
+            guard chainNodes.count >= 2 else { continue } // needs a real daisy chain
+            swept += 1
+
+            let forest = USBDeviceNode.buildTree(from: devices)
+            // Known plumbing gap, documented rather than hidden: this
+            // sweep's `usbTunnelSwitchUIDs(chainNodes:devices:)` helper
+            // (shared with the main `sweep()` test) derives from probe 37's
+            // PCIe BRIDGE depth, which production never uses for the
+            // scope gate either, and which is structurally unable to name
+            // 2+ switches sharing ONE tunnelled controller anyway: every
+            // device behind a SHARED controller reports the SAME bridge
+            // depth (that IS the bug this pass exists to fix), so
+            // `switchIDByDepth` can only ever resolve ONE depth bucket from
+            // it, undercounting exactly the shape this test needs to
+            // exercise. Production's real signal is hop-table-derived
+            // (`ThunderboltTopology.tunnels(...).filter { $0.kind == .usb
+            // }`), which needs per-port `Hop Table` parsing this sweep does
+            // not do (`model()` never populates `ports`). Rather than
+            // silently under-testing the scope gate, this passes every
+            // chain switch as "confirmed" for a 2+-switch chain: the scope
+            // gate's OWN pass/fail correctness is covered at the unit-test
+            // level (`tb5ScopeGateClosedWithoutEitherSignal` /
+            // `tb5GenTAdapterAloneOpensScopeGate`), so this sweep is free to
+            // focus on what it CAN validate against real data: the
+            // route-byte arithmetic, the candidate/silicon gate, and the
+            // isomorphism walk.
+            let usbTunnelSwitchUIDs = chainNodes.count >= 2 ? Set(chainNodes.map(\.sw.id)) : []
+
+            guard let hubMap = ChainDeviceAttribution.resolveTB5TunnelHubMap(
+                chainNodes: chainNodes, forest: forest, usbTunnelSwitchUIDs: usbTunnelSwitchUIDs
+            ), !hubMap.isEmpty else { continue }
+
+            passFired += 1
+            hubsMapped += hubMap.count
+            perFolderDiff.append("\(folder): \(hubMap.count) hub(s) newly mapped by the TB5 pass")
+
+            // The 5 known route-byte points (spec: verified on 5 independent
+            // corpus/live points, byte 3 -> port 1 x3, byte 5 -> port 2,
+            // byte 7 -> port 3). Recorded by (folder, routeByte) so the
+            // floor assertion below can check every named point actually
+            // replays, not just that SOME folder fired.
+            for node in chainNodes where node.sw.depth >= 1 {
+                let shift = 8 * (node.sw.depth - 1)
+                guard shift < 64 else { continue }
+                let byte = (node.sw.routeString >> shift) & 0xFF
+                if byte == 3 || byte == 5 || byte == 7 {
+                    knownRouteBytePoints.insert("\(folder):\(byte)")
+                }
+            }
+
+            // No folder may produce a hub claimed against its OWN
+            // name/numeric evidence: cross-check every mapped hub that also
+            // carries a product name against the SAME exact-name rule
+            // production's `resolve()` uses. Independent re-derivation
+            // (normalise + exact string compare), not a call into
+            // production's `normalized`/`affiliated`.
+            let result = ChainDeviceAttribution.resolve(
+                chain: chain, forest: forest, usbTunnelSwitchUIDs: usbTunnelSwitchUIDs
+            )
+            for (hubID, mappedSwitchID) in hubMap {
+                guard let hubDevice = devices.first(where: { $0.id == hubID }) else { continue }
+                if let product = hubDevice.productName, Self.normalise(product).count >= 3 {
+                    let exactNameMatches = chainNodes.filter { Self.normalise($0.sw.modelName) == Self.normalise(product) }
+                    if exactNameMatches.count == 1, let namedSwitchID = exactNameMatches.first?.sw.id {
+                        #expect(
+                            namedSwitchID == mappedSwitchID || result.regionOwner[hubID] != mappedSwitchID,
+                            "\(folder): hub \(hubID) has an exact name match to switch \(namedSwitchID) but the TB5 pass placed it under \(mappedSwitchID) in the final result, contradicting its own name"
+                        )
+                    }
+                }
+                if result.regionOwner[hubID] == mappedSwitchID {
+                    hubsAttributedInFullResult += 1
+                }
+                // Every mapped switch id is a real chain switch on this port
+                // (defence against a stale/foreign id leaking through).
+                #expect(chainNodes.contains { $0.sw.id == mappedSwitchID },
+                    "\(folder): TB5 pass mapped hub \(hubID) to switch \(mappedSwitchID), which is not on this port's chain")
+            }
+        }
+
+        print("""
+            [TB5 tunnel-hub sweep] daisy chains swept: \(swept), pass fired: \(passFired), \
+            hubs newly mapped: \(hubsMapped), of which reflected in the final result: \(hubsAttributedInFullResult)
+              known route-byte points replayed: \(knownRouteBytePoints.sorted())
+              per-folder diff (every folder whose attribution changed vs. pre-TB5-pass production):
+            \(perFolderDiff.sorted().map { "    \($0)" }.joined(separator: "\n"))
+            """)
+
+        guard swept >= 5 else {
+            // Review fix: this used to return silently in both cases (no
+            // corpus at all, or a corpus present but suspiciously thin),
+            // which is the "green from no data looks identical to green
+            // from good data" trap the house rules call out. The two cases
+            // are now told apart: a genuinely absent corpus (no `research`
+            // symlink, matching every sibling sweep's skip-not-fail
+            // convention, e.g. `PowerSourceSynthesisProbeSweepTests`) still
+            // skips quietly, but a corpus that IS on disk failing to clear
+            // 5 daisy chains is a FAILURE, not a skip: this checkout's
+            // corpus sweeps 37 (verified by running this test before this
+            // fix), so 5 is a safe floor, and a run that swept fewer than
+            // that on a present corpus means something upstream broke, not
+            // that the corpus is merely small.
+            if Self.folders().isEmpty {
+                print("[TB5 tunnel-hub sweep] skipping floor: no corpus on disk (research symlink missing?)")
+                return
+            }
+            Issue.record("[TB5 tunnel-hub sweep] corpus is present (\(Self.folders().count) folder(s)) but only \(swept) daisy chain(s) swept, below the 5-chain floor")
+            return
+        }
+        // Floor: the pass must fire at least once (a clean "found nothing"
+        // run must not pass silently), and at least one of the named
+        // route-byte points from the ticket evidence must replay. Not all 5
+        // named points are guaranteed present in every corpus snapshot
+        // (folder suffix letters are positional and the corpus keeps
+        // growing), so this checks the SHAPE of the evidence (known byte
+        // values appear somewhere) rather than an exact count.
+        #expect(passFired >= 1, "the TB5 tunnel-hub pass never fired on real corpus data; it is probably broken or the gate is too strict")
+        #expect(hubsMapped >= 2, "the pass fired but mapped almost nothing")
+        let observedBytes = Set(knownRouteBytePoints.map { $0.split(separator: ":").last.map(String.init) ?? "" })
+        #expect(observedBytes.contains("3"), "byte 3 -> hub port 1 is the reference machine's own shape and must replay")
+        // Byte 7 -> hub port 3 is present in this corpus snapshot via
+        // `m2max_macos26.5.2_f` (verified: this folder's own edge carries
+        // route byte 7, printed in `knownRouteBytePoints` above), so it is
+        // asserted alongside byte 3 rather than left as an unchecked extra
+        // data point. Byte 5 -> hub port 2 is NOT asserted here: it is
+        // spec-verified from live-desk evidence (section 2 point 3 of
+        // `planning/dar-356-tb5-tunnel-hub-attribution.md`), but this
+        // corpus snapshot's tracked single-active-port subset carries no
+        // folder whose edge presents a route byte of 5 (checked: this run's
+        // `knownRouteBytePoints` never contains a `:5` entry), so asserting
+        // it here would either fail on every checkout or silently pass
+        // vacuously depending on `swept`. Revisit once a byte-5 folder is
+        // ingested.
+        #expect(observedBytes.contains("7"), "byte 7 -> hub port 3 (m2max_macos26.5.2_f) is in this corpus snapshot and must replay")
     }
 }

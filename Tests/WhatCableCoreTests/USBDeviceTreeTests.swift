@@ -29,6 +29,46 @@ struct USBDeviceTreeTests {
         #expect(USBDevice.parentLocationID(0) == nil)
     }
 
+    // MARK: - childHubPort (TB5 tunnel-hub attribution)
+
+    @Test("Real capture: UGreen dock tunnel hub sits at port 1 under the Studio Display's tunnel hub")
+    func childHubPortRealCapture() {
+        // whatcable-app-notes/tree-attribution/json-dock.json: the display's
+        // anonymous Intel tunnel hub is 0x03200000 (a forest root); the
+        // dock's own anonymous Intel tunnel hub is 0x03210000, directly
+        // under it. Independently confirmed by the route-string formula
+        // (route byte 3 -> hub port (3-1)/2 = 1) in
+        // `ChainDeviceAttributionTests`.
+        #expect(USBDevice.childHubPort(parent: 0x03200000, child: 0x03210000) == 1)
+    }
+
+    @Test("Real capture: WD Game Drive is one hop further under the dock's tunnel hub")
+    func childHubPortGameDriveUnderDockHub() {
+        #expect(USBDevice.childHubPort(parent: 0x03210000, child: 0x03211000) == 1)
+    }
+
+    @Test("Non-child (same locationID) returns nil")
+    func childHubPortSameLocationIsNotAChild() {
+        #expect(USBDevice.childHubPort(parent: 0x03200000, child: 0x03200000) == nil)
+    }
+
+    @Test("Non-child (unrelated locationID) returns nil")
+    func childHubPortUnrelatedIsNotAChild() {
+        #expect(USBDevice.childHubPort(parent: 0x03200000, child: 0x03100000) == nil)
+    }
+
+    @Test("Two hops away (grandchild, not child) returns nil")
+    func childHubPortGrandchildIsNotAChild() {
+        // 0x03211000 is a grandchild of 0x03200000 (child is 0x03210000 in
+        // between), so it must not read as directly under the root.
+        #expect(USBDevice.childHubPort(parent: 0x03200000, child: 0x03211000) == nil)
+    }
+
+    @Test("Zero locationID child returns nil")
+    func childHubPortZeroChildIsNil() {
+        #expect(USBDevice.childHubPort(parent: 0x03200000, child: 0) == nil)
+    }
+
     // MARK: - buildTree
 
     @Test("Empty input returns empty tree")

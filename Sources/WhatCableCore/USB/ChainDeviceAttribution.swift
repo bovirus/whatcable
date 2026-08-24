@@ -245,6 +245,216 @@ public struct ChainDeviceAttribution: Equatable {
         return .matched(winner)
     }
 
+    // MARK: - TB5 Gen T shared-controller tunnel-hub mapping
+
+    /// Intel silicon known to publish an anonymous internal USB3 hub on a
+    /// TB5 Gen T shared-controller tunnel tree (spec 3.2's known-silicon
+    /// table). Extend from corpus evidence; unknown silicon fails the
+    /// candidate-count gate closed rather than guessing.
+    private static let tb5TunnelHubProductIDs: Set<UInt16> = [0x0B40, 0x0B41, 0x5787]
+    private static let tb5TunnelHubVendorID: UInt16 = 0x8087
+
+    /// Per the TB5 tunnel-hub attribution spec (planning/dar-356-tb5-tunnel-hub-attribution.md, sections 3.1-3.4): on a TB5 chain where every box's USB3 tunnel
+    /// shares ONE tunnelled controller (Gen T tunneling), each box
+    /// contributes one anonymous Intel internal hub to that shared USB
+    /// forest, with no name or vendor string tying it to its box (the
+    /// existing name/inheritance/vendor-continuity signals cannot place
+    /// them). This walks the fabric's route strings to compute which hub
+    /// belongs to which box, and returns the full `[hub deviceID: switch
+    /// id]` bijection only when the topology resolves one-to-one. Every gate
+    /// fails closed (returns `nil`), mirroring
+    /// `resolvePCIeTunnelCandidate`'s shape: pure, no IOKit, callable
+    /// directly from tests and the corpus-replay sweep.
+    static func resolveTB5TunnelHubMap(
+        chainNodes: [IOThunderboltSwitchNode],
+        forest: [USBDeviceNode],
+        usbTunnelSwitchUIDs: Set<Int64>
+    ) -> [UInt64: Int64]? {
+        guard !chainNodes.isEmpty else { return nil }
+
+        // 3.1 Scope gate: the shared-controller shape, primarily. The
+        // owner's own JHL9580 dock capture publishes plain `usb3Up`
+        // (0x200102) adapters, not Gen T (0x210102), so the Gen T adapter
+        // check alone would refuse the exact machine this pass exists for.
+        // `usbTunnelSwitchUIDs` already names every chain switch THIS
+        // port's fabric confirms carries a USB tunnel
+        // (`ThunderboltTopology.tunnels(...).filter { $0.kind == .usb }`).
+        // Two or more of them on one port's chain means they share ONE
+        // `AppleUSBXHCITR` controller by construction: a TB3/TB4
+        // separate-controller chain gives every box its OWN tunnelled
+        // controller, so it can never produce two-or-more members here.
+        // The Gen T adapter check is kept as a corroborating OR (spec's
+        // "with the Gen T adapter check as a corroborating OR, not the
+        // sole trigger"), for silicon that does publish it.
+        let confirmedTunnelSwitchCount = chainNodes.filter { usbTunnelSwitchUIDs.contains($0.sw.id) }.count
+        let sharedControllerShape = confirmedTunnelSwitchCount >= 2
+        let genTAdapterPresent = chainNodes.contains { node in
+            node.sw.ports.contains { $0.adapterType == .usbGenTUp }
+        }
+        guard sharedControllerShape || genTAdapterPresent else { return nil }
+
+        // 3.2 Candidate tunnel hubs: Intel known-silicon VID/PID, positioned
+        // either at the top of this port's USB forest or directly under
+        // another candidate (a chain of anonymous hubs, one per box).
+        let allNodes = USBDeviceNode.flatten(forest)
+        var parentOfDevice: [UInt64: UInt64] = [:]
+        for node in allNodes {
+            for child in node.children { parentOfDevice[child.device.id] = node.device.id }
+        }
+        let vendorMatches = allNodes.filter {
+            $0.device.vendorID == tb5TunnelHubVendorID && tb5TunnelHubProductIDs.contains($0.device.productID)
+        }
+        let vendorMatchIDs = Set(vendorMatches.map(\.device.id))
+        let candidates = vendorMatches.filter { node in
+            guard let parentID = parentOfDevice[node.device.id] else { return true }
+            return vendorMatchIDs.contains(parentID)
+        }
+        // Hard gate (spec 3.2's one-to-one invariant): candidate count must
+        // equal chain box count EXACTLY. Fewer (a box in USB fallback,
+        // its own follow-up ticket) or more (unknown silicon, duplicated PIDs)
+        // aborts the whole pass rather than attributing a partial or
+        // ambiguous set.
+        guard candidates.count == chainNodes.count, !candidates.isEmpty else { return nil }
+        let candidateByID = Dictionary(uniqueKeysWithValues: candidates.map { ($0.device.id, $0) })
+
+        let rootCandidates = candidates.filter { parentOfDevice[$0.device.id] == nil }
+        guard rootCandidates.count == 1, let rootCandidate = rootCandidates.first else { return nil }
+
+        // 3.3 Expected topology from the fabric side: which chain switch is
+        // the depth-1 box (attaches directly to the host root, so it is not
+        // any other chain switch's child), and the parent -> child switch
+        // edges among the rest.
+        var switchByID: [Int64: IOThunderboltSwitchNode] = [:]
+        for node in chainNodes { switchByID[node.sw.id] = node }
+        var childSwitchesOf: [Int64: [IOThunderboltSwitchNode]] = [:]
+        var rootSwitches: [IOThunderboltSwitchNode] = []
+        for node in chainNodes {
+            if let parentUID = node.sw.parentSwitchUID, switchByID[parentUID] != nil {
+                childSwitchesOf[parentUID, default: []].append(node)
+            } else {
+                rootSwitches.append(node)
+            }
+        }
+        // Mirrors 3.4's "two candidates at root position, abort" rule on the
+        // fabric side: this pass is built for one linear chain per port (the
+        // shape the bug report is about), so more than one depth-1 box on
+        // the same port's chain is refused rather than guessed at.
+        guard rootSwitches.count == 1, let rootSwitch = rootSwitches.first else { return nil }
+
+        // 3.4 Matching: walk the expected tree onto the candidate hubs,
+        // exact bijection or nothing. The depth-1 box claims the root
+        // candidate unconditionally (spec 3.3); every other edge computes an
+        // expected hub port from the child switch's own route-string byte
+        // and requires exactly one unclaimed candidate there.
+        var hubForSwitch: [Int64: UInt64] = [rootSwitch.sw.id: rootCandidate.device.id]
+        var claimedHubs: Set<UInt64> = [rootCandidate.device.id]
+        var queue: [IOThunderboltSwitchNode] = [rootSwitch]
+        while !queue.isEmpty {
+            let parent = queue.removeFirst()
+            guard let parentHubID = hubForSwitch[parent.sw.id], let parentHub = candidateByID[parentHubID]
+            else { return nil }
+            for child in childSwitchesOf[parent.sw.id] ?? [] {
+                // Spec 2 point 1: the child's Route String byte at index
+                // (depth - 1) is the Adapter Number of the PARENT's
+                // downstream lane port the child is plugged into. Verified
+                // against `DataLinkDiagnostic.partnerSwitch`'s own
+                // routeString-low-byte convention (a depth-1 partner's low
+                // byte, index 0, is the parent's port number): index scales
+                // with depth the same way here.
+                let depth = child.sw.depth
+                guard depth >= 1 else { return nil }
+                let shift = 8 * (depth - 1)
+                guard shift < 64 else { return nil }
+                let routeByte = UInt8((child.sw.routeString >> shift) & 0xFF)
+                // Spec 2 point 3 / 3.3: hub_port = (route_byte - 1) / 2,
+                // requiring an odd byte in range. A non-odd or zero byte is
+                // not a valid Adapter Number under this formula: abort the
+                // whole pass rather than guess a rounded value.
+                guard routeByte >= 1, routeByte % 2 == 1 else { return nil }
+                let expectedPort = Int(routeByte - 1) / 2
+
+                // Cross-check against the parent switch's `USB Port Map`
+                // when it publishes one (spec 3.3). Review fix: this used
+                // to check only that SOME entry named `expectedPort` as its
+                // `usb4Port`, never reading `usb3Adapter` at all, so the
+                // field the spec is actually about (USB4 2.0 s5.2.5's
+                // "USB4 ports pair with USB3 adapters in order of
+                // increasing Adapter Numbers") went unverified. Now:
+                // - Order the parent's own USB3-capable adapter ports
+                //   ascending by `portNumber`. Measured live on the
+                //   JHL-family reference rig (2026-08-24): this includes
+                //   the switch's UPSTREAM adapter (`.usb3Up`/`.usbGenTUp`),
+                //   not just its downstream ones. A first version of this
+                //   check ordered downstream adapters only, which put
+                //   usb4Port 1 at ordinal 0 against the wrong adapter (a
+                //   downstream one instead of the upstream one the map
+                //   actually names) and made the whole pass abort on the
+                //   owner's own dock. Confirmed pairing: usb4Port 1 pairs
+                //   the upstream USB3 adapter, usb4Ports 2+ pair downstream
+                //   adapters in ascending order (the JHL9580 reference:
+                //   port 20 = usb3Up pairs usb4Port 1, ports 21-23 =
+                //   usb3Down pair usb4Ports 2-4). Ordinal 0 -> usb4Port 1,
+                //   and so on. This ordinal comparison is verified on this
+                //   silicon family (JHL-class) only.
+                // - The entry for `expectedPort` must exist AND its
+                //   `usb3Adapter` must equal the adapter at ordinal
+                //   `expectedPort - 1` in that ordered list. A swapped
+                //   pairing (right port numbers, wrong adapter) now aborts
+                //   instead of silently passing.
+                // - When the parent's `ports` carries no USB3-capable
+                //   adapter at all (some fixtures/probe-29 replays never
+                //   populate `ports`), there is nothing to order against,
+                //   so this falls back to the weaker existence check: the
+                //   entry for `expectedPort` must exist, unpaired.
+                // A missing or empty map (truncated on a zero-downstream
+                // box, or an older capture) still skips the check entirely
+                // rather than aborting: the formula alone is the
+                // 5/5-verified primary signal.
+                if let rawMap = parent.sw.usbPortMap {
+                    let entries = USBPortMapEntry.parse(rawMap)
+                    if !entries.isEmpty {
+                        guard let mapEntry = entries.first(where: { $0.usb4Port == expectedPort }) else { return nil }
+                        let orderedAdapters = parent.sw.ports
+                            .filter {
+                                $0.adapterType == .usb3Up || $0.adapterType == .usb3Down
+                                    || $0.adapterType == .usbGenTUp || $0.adapterType == .usbGenTDown
+                            }
+                            .sorted { $0.portNumber < $1.portNumber }
+                        if !orderedAdapters.isEmpty {
+                            let ordinal = expectedPort - 1
+                            guard ordinal >= 0, ordinal < orderedAdapters.count,
+                                  orderedAdapters[ordinal].portNumber == mapEntry.usb3Adapter
+                            else { return nil }
+                        }
+                    }
+                }
+
+                let matchingCandidates = candidates.filter { candidate in
+                    !claimedHubs.contains(candidate.device.id)
+                        && USBDevice.childHubPort(
+                            parent: parentHub.device.locationID,
+                            child: candidate.device.locationID
+                        ) == expectedPort
+                }
+                guard matchingCandidates.count == 1, let matched = matchingCandidates.first else { return nil }
+                hubForSwitch[child.sw.id] = matched.device.id
+                claimedHubs.insert(matched.device.id)
+                queue.append(child)
+            }
+        }
+
+        // Every box must claim exactly one hub and every candidate hub must
+        // be claimed (spec 3.4): the count gate above makes this an exact
+        // bijection once the walk succeeds, but a switch the walk never
+        // reached (a `parentSwitchUID` graph that doesn't cover every chain
+        // switch) would otherwise silently return a partial map.
+        guard hubForSwitch.count == chainNodes.count, claimedHubs.count == candidates.count else { return nil }
+
+        var result: [UInt64: Int64] = [:]
+        for (switchID, hubID) in hubForSwitch { result[hubID] = switchID }
+        return result
+    }
+
     // MARK: - Resolution
 
     /// - Parameters:
@@ -470,7 +680,14 @@ public struct ChainDeviceAttribution: Equatable {
         // pass); `.usbTunnelDepth` and `.pcieStageAShortcut` keep the
         // existing, weaker `structurallyConflicted` rule (excluded from
         // `absorbed` only). See the contradiction check below.
-        enum CandidateSource { case usbTunnelDepth, pcieStageAShortcut, pcieStageBMatch }
+        // `.tb5TunnelHubMap`: the route-string/USB-Port-Map join
+        // in `resolveTB5TunnelHubMap`. Same precedence tier as
+        // `.usbTunnelDepth` below (falls into the `structurallyConflicted`
+        // branch, never `forcedPortLevel`): it is an inference chain (route
+        // byte -> formula -> locationID nibble), the same strength class as
+        // the bridge-depth arithmetic, not the Stage B registry-instance
+        // proof (spec 3.5).
+        enum CandidateSource { case usbTunnelDepth, pcieStageAShortcut, pcieStageBMatch, tb5TunnelHubMap }
         struct StructuralCandidate { let id: UInt64; let switchID: Int64; let rootName: String?; let source: CandidateSource }
         var rawCandidates: [StructuralCandidate] = []
         // Stage B v2 terminal outcome (plan step 8/9): devices the PCI-Path
@@ -526,6 +743,41 @@ public struct ChainDeviceAttribution: Equatable {
             }
         }
 
+        // TB5 Gen T shared-controller tunnel-hub mapping (spec
+        // 3.1-3.5). Runs once per port, over the whole forest, rather than
+        // per device: appended AFTER the per-device loop above so that, in
+        // the rare case a hub device also satisfies the existing
+        // `usbTunnelDepth` conditions (every device behind a SHARED
+        // controller reports the SAME `tunnelBridgeDepth`, which is exactly
+        // why that pass cannot solve this shape: see spec section 1), this
+        // pass's own per-hub answer is the one `rawCandidates` processing
+        // order lets win.
+        if let tb5HubMap = Self.resolveTB5TunnelHubMap(
+            chainNodes: chainNodes, forest: forest, usbTunnelSwitchUIDs: usbTunnelSwitchUIDs
+        ) {
+            // Review fix: `tb5HubMap` is a `Dictionary`, with no defined
+            // iteration order. The comment just above this block promises
+            // rawCandidates processing order puts a parent before its
+            // child (the `for candidate in rawCandidates` loop further
+            // down reads `structuralOwner[parentID]`), so appending in
+            // dictionary order made that guarantee accidental rather than
+            // real: 25 randomised runs never caught it, but nothing
+            // enforced it either. Sorting by each hub's USB-tree preorder
+            // position (parents always precede their children in a
+            // preorder walk) makes the order deterministic and restores
+            // the guarantee on purpose.
+            let preorderIndex: [UInt64: Int] = Dictionary(
+                uniqueKeysWithValues: allNodes.enumerated().map { ($1.device.id, $0) }
+            )
+            let orderedHubs = tb5HubMap.sorted {
+                (preorderIndex[$0.key] ?? Int.max) < (preorderIndex[$1.key] ?? Int.max)
+            }
+            for (hubDeviceID, switchID) in orderedHubs {
+                let rootName = nodeByID[hubDeviceID]?.device.tunnelRootName
+                rawCandidates.append(StructuralCandidate(id: hubDeviceID, switchID: switchID, rootName: rootName, source: .tb5TunnelHubMap))
+            }
+        }
+
         let rootIsTrusted: (String?) -> Bool
         if let expectedTunnelRootName {
             rootIsTrusted = { $0 == expectedTunnelRootName }
@@ -543,7 +795,36 @@ public struct ChainDeviceAttribution: Equatable {
         // `structuralOwner[parentID]` immediately rather than needing a
         // second pass.
         for candidate in rawCandidates {
-            guard rootIsTrusted(candidate.rootName) else { continue }
+            // Live-rig fix: for `.tb5TunnelHubMap` candidates specifically, a
+            // nil `rootName` is TRUSTED rather than refused. Every other
+            // source keeps the unconditional `rootIsTrusted` check, nil
+            // included (this is NOT the same situation as the nil-root
+            // handling in `resolvePCIeTunnelCandidate` above, despite the
+            // surface similarity of "nil root, don't refuse blindly": that
+            // guard makes Stage B fall back to Stage A rather than treating
+            // nil as trusted, because a normal tunnelled device's nil root
+            // means the watcher's own walk to an apciecN root FAILED for a
+            // device that should have one. Here it means something
+            // different: the anonymous Intel tunnel hubs this pass places
+            // structurally never carry tunnel-controller ancestry of their
+            // own to walk in the first place (they are the shared
+            // controller's OWN internal hub, not something tunnelled behind
+            // it), so `tunnelRootName` is nil by construction, not by
+            // failure. `resolveTB5TunnelHubMap`'s scope gate has already
+            // proven these candidates belong to THIS port before this loop
+            // ever runs (built from `usbTunnelSwitchUIDs`, itself
+            // caller-scoped per port, and drawn from this port's own
+            // `forest`), so requiring a root-name stamp these devices
+            // structurally cannot carry would refuse the pass on the exact
+            // devices it exists to place. A non-nil root that disagrees with
+            // `expectedTunnelRootName` is still refused exactly as before:
+            // this only widens what counts as "nothing to compare", it does
+            // not accept a wrong answer.
+            if candidate.source == .tb5TunnelHubMap {
+                if let rootName = candidate.rootName, !rootIsTrusted(rootName) { continue }
+            } else {
+                guard rootIsTrusted(candidate.rootName) else { continue }
+            }
             guard let node = nodeByID[candidate.id] else { continue }
             let namedConflict = exact[candidate.id].map { $0 != candidate.switchID } ?? false
             let numericConflict = numericIdentity(of: node.device).map { $0.sw.id != candidate.switchID } ?? false

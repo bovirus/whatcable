@@ -1343,4 +1343,592 @@ struct ChainDeviceAttributionTests {
         #expect(result.regionOwner[1] == nil, "disagreeing roots refuse EVERY candidate, not just the minority one")
         #expect(result.regionOwner[2] == nil)
     }
+
+    // MARK: - TB5 Gen T shared-controller tunnel-hub mapping
+    //
+    // Fixtures below reproduce the exact reported bug (owner's M5 MacBook,
+    // Mac -> Studio Display -> Ugreen TBT5 dock, WD Game Drive rendered under
+    // the display) from real capture data:
+    // `whatcable-app-notes/tree-attribution/json-dock.json` (USB tree,
+    // locationIDs) and `dock-switch5-raw.txt` / `display-raw-ioreg.txt`
+    // (route strings, USB Port Map). See `USBDeviceTreeTests`'
+    // `childHubPortRealCapture` for the same locationIDs checked directly.
+
+    /// Mac -> Studio Display (depth 1, Route String 1) -> Ugreen TBT5 dock
+    /// (depth 2, Route String 769 = 0x301, so byte index 1 = 3, hub port
+    /// (3-1)/2 = 1). `displayUsbPortMap` lets tests exercise the USB Port Map
+    /// cross-check (spec 3.3): the display switch is the PARENT whose map is
+    /// consulted for the dock's edge.
+    private func tb5TwoBoxChain(displayUsbPortMap: Data? = nil) -> [IOThunderboltSwitchNode] {
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 100, dromVendorID: 1452, dromModelID: 30978,
+            usbPortMap: displayUsbPortMap
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 200, dromVendorID: 11145, dromModelID: 1810
+        )
+        return ThunderboltTopology.tree(from: root, in: [root, display, dock])
+    }
+
+    /// The two anonymous Intel tunnel hubs plus the WD Game Drive, at their
+    /// real captured locationIDs. `dockHubProduct` defaults to 0x5787 (the
+    /// captured PID); tests that need to break the silicon-table gate
+    /// override it.
+    private func tb5TunnelHubDevices(dockHubProduct: UInt16 = 0x5787) -> [USBDevice] {
+        [
+            device(id: 10, locationID: 0x0320_0000, vendorID: 0x8087, productID: 0x0B41, vendor: "Intel Corporation", product: nil, isHub: true),
+            device(id: 11, locationID: 0x0321_0000, vendorID: 0x8087, productID: dockHubProduct, vendor: "Intel Corporation", product: nil, isHub: true),
+            device(id: 12, locationID: 0x0321_1000, vendorID: 0x1058, productID: 9811, vendor: "WD", product: "Game Drive", isHub: false),
+        ]
+    }
+
+    private static let jhl9580PortMapHex = "018194028295038396048497050000"
+    private static func portMapData(_ hex: String) -> Data {
+        var bytes: [UInt8] = []
+        var chars = Array(hex)
+        while chars.count >= 2 {
+            bytes.append(UInt8(String(chars[0..<2]), radix: 16)!)
+            chars.removeFirst(2)
+        }
+        return Data(bytes)
+    }
+
+    @Test("TB5 reported bug: WD Game Drive attributes to the Ugreen dock, not the Studio Display")
+    func tb5GameDriveAttributesToDock() {
+        let chain = tb5TwoBoxChain()
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[10] == 200, "the display's own tunnel hub must attribute to the display")
+        #expect(result.regionOwner[11] == 300, "the dock's tunnel hub must attribute to the dock, not the display")
+        #expect(result.regionOwner[12] == 300, "the WD Game Drive, nested under the dock's hub, must inherit the dock, not the display")
+    }
+
+    @Test("TB5: fires with a real expectedTunnelRootName even though its own hubs carry no tunnelRootName")
+    func tb5FiresWithExpectedTunnelRootNameSet() {
+        // Live-rig regression: every OTHER TB5 test in this file calls
+        // resolve() with expectedTunnelRootName left at its nil default,
+        // which is exactly why this shipped past the whole suite twice. With
+        // it nil, rootIsTrusted() falls back to the internal-consistency
+        // check (do all candidates in THIS resolve() call agree on
+        // rootName), and since neither TB5 hub ever carries a rootName at
+        // all, that check trivially passes. The live call site passes a
+        // real value (this port's own "apciecN" root), which switches
+        // rootIsTrusted() to an exact-match comparison against that string,
+        // and nil (what these hubs always carry) never equals a string.
+        let chain = tb5TwoBoxChain()
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300],
+            expectedTunnelRootName: "apciec3"
+        )
+        #expect(result.regionOwner[10] == 200, "the display's own tunnel hub must still attribute to the display")
+        #expect(result.regionOwner[11] == 300, "the dock's tunnel hub must still attribute to the dock")
+        #expect(result.regionOwner[12] == 300, "the WD Game Drive must still inherit the dock")
+    }
+
+    @Test("TB5: a hub with the WRONG non-nil rootName is still refused even with expectedTunnelRootName set")
+    func tb5WrongRootNameStillRefusedWithExpectedTunnelRootNameSet() {
+        // Proves fix 1 only special-cases nil, not "any root": a tb5TunnelHubMap
+        // candidate whose rootName is non-nil but wrong must still be dropped.
+        // A device's tunnelRootName comes from the USB watcher's own walk, not
+        // from this pass, so a hub can only carry a non-nil root if some future
+        // change starts stamping one; this fixture forces that shape directly
+        // via the device's own tunnelRootName field to prove the guard holds
+        // regardless of how a wrong root gets there.
+        let chain = tb5TwoBoxChain()
+        var devices = tb5TunnelHubDevices()
+        devices[1] = USBDevice(
+            id: 11, locationID: 0x0321_0000, vendorID: 0x8087, productID: 0x5787,
+            vendorName: "Intel Corporation", productName: nil, serialNumber: nil,
+            usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
+            tunnelRootName: "apciec9", deviceClass: 0x09, rawProperties: [:]
+        )
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(
+            chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300],
+            expectedTunnelRootName: "apciec3"
+        )
+        #expect(result.regionOwner[10] == 200, "the display's hub, still rootless, is unaffected")
+        #expect(result.regionOwner[11] != 300,
+            "a wrong non-nil rootName must still be refused: fix 1 only trusts nil, never a disagreeing value")
+    }
+
+    @Test("TB5: the USB Port Map cross-check corroborates the formula without contradicting it")
+    func tb5GameDriveWithConsistentPortMap() {
+        let chain = tb5TwoBoxChain(displayUsbPortMap: Self.portMapData(Self.jhl9580PortMapHex))
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[11] == 300)
+        #expect(result.regionOwner[12] == 300)
+    }
+
+    @Test("TB5: a USB Port Map that contradicts the formula aborts the whole pass")
+    func tb5PortMapContradictionAborts() {
+        // A map that names USB4 ports 2-5 but never port 1, the formula's
+        // own prediction for the dock's edge: a contradiction, not a
+        // missing/truncated map, so the pass must abort rather than guess.
+        let contradictingMap = Self.portMapData("028295038396048497058198")
+        let chain = tb5TwoBoxChain(displayUsbPortMap: contradictingMap)
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[11] == nil, "a contradicting port map must abort the pass, not fall back to the formula alone")
+        #expect(result.regionOwner[12] == nil)
+    }
+
+    @Test("TB5: a USB Port Map with the right port numbers but a swapped adapter pairing aborts")
+    func tb5PortMapSwappedAdapterPairingAborts() {
+        // Same reference hex as `jhl9580PortMapHex`, but usb4Ports 1 and 2
+        // have their adapters genuinely SWAPPED (1 -> 21, 2 -> 20, instead
+        // of 1 -> 20, 2 -> 21), not merely one entry overwritten with a
+        // duplicate value: the port numbers in the map are still all correct
+        // (1-4) and every adapter number still appears exactly once, so a
+        // check that only noticed a missing or repeated adapter would pass
+        // this map by accident. The pairing is still wrong under the
+        // increasing-order rule (USB4 2.0 s5.2.5), which the display's own
+        // ordered adapter ports (20-23) below make checkable.
+        let swappedMap = Self.portMapData("018195028294038396048497050000")
+        let orderedAdapterPorts: [IOThunderboltPort] = [20, 21, 22, 23].map {
+            IOThunderboltPort(
+                portNumber: $0, socketID: nil, adapterType: .usb3Down,
+                currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+                rawTargetSpeed: nil, linkBandwidthRaw: nil
+            )
+        }
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: orderedAdapterPorts,
+            parentSwitchUID: 100, dromVendorID: 1452, dromModelID: 30978,
+            usbPortMap: swappedMap
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 200, dromVendorID: 11145, dromModelID: 1810
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[11] == nil,
+            "the map pairs usb4Port 1 with adapter 23, not the switch's own ordinal-0 adapter (20): a swapped pairing must abort, not just a missing port number")
+        #expect(result.regionOwner[12] == nil)
+    }
+
+    @Test("TB5: the live rig's port map (upstream adapter paired with usb4Port 1) still fires")
+    func tb5PortMapPairsUpstreamAdapterWithFirstPort() {
+        // Regression tripwire for a real failure on the owner's own rig,
+        // found by live verification after the swapped-pairing fix above
+        // shipped: the parent switch's real ports are ONE upstream USB3
+        // adapter (port 20) plus three downstream ones (21-23), not four
+        // downstream ones. An ordered-adapters list built from downstream
+        // adapters only put port 21 at ordinal 0, which the map's own
+        // usb4Port-1 entry (adapter 20) then failed to match, aborting the
+        // whole pass on the exact machine it exists for. The reference map
+        // pairs usb4Port 1 with the UPSTREAM adapter (20), confirming the
+        // ordering has to include it.
+        let liveAdapterPorts: [IOThunderboltPort] = [
+            IOThunderboltPort(
+                portNumber: 20, socketID: nil, adapterType: .usb3Up,
+                currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+                rawTargetSpeed: nil, linkBandwidthRaw: nil
+            )
+        ] + [21, 22, 23].map {
+            IOThunderboltPort(
+                portNumber: $0, socketID: nil, adapterType: .usb3Down,
+                currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+                rawTargetSpeed: nil, linkBandwidthRaw: nil
+            )
+        }
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: liveAdapterPorts,
+            parentSwitchUID: 100, dromVendorID: 1452, dromModelID: 30978,
+            usbPortMap: Self.portMapData(Self.jhl9580PortMapHex)
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 200, dromVendorID: 11145, dromModelID: 1810
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[11] == 300,
+            "the dock's hub must still attribute correctly when the parent's ordered adapters include its own upstream port")
+        #expect(result.regionOwner[12] == 300)
+    }
+
+    // Review fix: red-proofing both tests below by temporarily relaxing the
+    // named `candidates.count == chainNodes.count` gate to a no-op (still
+    // requiring `!candidates.isEmpty`) showed BOTH still fail red, meaning
+    // neither test isolates that gate specifically. "Fewer" is independently
+    // caught by the per-edge "no candidate found at the expected hub port"
+    // check inside the BFS walk (the dock's edge simply has nowhere to land
+    // once the display's lone hub is claimed as the root); "more" is
+    // independently caught by the walk's own final bijection check
+    // (`claimedHubs.count == candidates.count`, since the extra hub is never
+    // reached by any edge and so is never claimed). That is honest defense
+    // in depth, not a flaw: production code is not weakened to make these
+    // two tests isolate a single line, since a real topology could trip
+    // either gate depending on exactly where the extra/missing hub sits.
+    // These tests prove the PAIR of shapes (too few, too many) both abort
+    // the whole pass, which is the requirement (spec 3.2's one-to-one
+    // invariant); they do not prove which specific guard line catches each
+    // one.
+
+    @Test("TB5: candidate count mismatch (fewer hubs than boxes) aborts the pass")
+    func tb5FewerCandidatesThanBoxesAborts() {
+        let chain = tb5TwoBoxChain()
+        // Only the display's own hub is present; the dock's is missing
+        // (e.g. the dock fell back to plain USB, its own follow-up ticket).
+        let devices = [
+            device(id: 10, locationID: 0x0320_0000, vendorID: 0x8087, productID: 0x0B41, vendor: "Intel Corporation", product: nil, isHub: true),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[10] == nil, "count mismatch must abort the whole pass, including the box that DOES have a candidate")
+    }
+
+    @Test("TB5: candidate count mismatch (an extra unrecognised hub) aborts the pass")
+    func tb5MoreCandidatesThanBoxesAborts() {
+        let chain = tb5TwoBoxChain()
+        var devices = tb5TunnelHubDevices()
+        // A THIRD candidate nested under the display's hub at hub port 2, a
+        // port no switch in this 2-box chain ever asks for: the BFS walk
+        // never looks for it (only the dock's port-1 edge exists), so
+        // `rootCandidates` still comes out to exactly 1 and the per-edge
+        // match still succeeds cleanly, leaving the final bijection check
+        // (every candidate hub claimed) as the one that catches this shape.
+        devices.append(
+            device(id: 20, locationID: 0x0322_0000, vendorID: 0x8087, productID: 0x0B40, vendor: "Intel Corporation", product: nil, isHub: true)
+        )
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[10] == nil, "3 candidates for 2 boxes must abort the whole pass, even when the extra one sits where nothing asks for it")
+        #expect(result.regionOwner[11] == nil)
+    }
+
+    @Test("TB5: unrecognised silicon (unknown PID) never becomes a candidate, so the count gate fails closed")
+    func tb5UnknownSiliconNeverCandidate() {
+        let chain = tb5TwoBoxChain()
+        // The dock's hub carries an Intel VID but a PID outside the
+        // known-silicon table: not a candidate at all, so only 1 candidate
+        // remains for 2 boxes.
+        let devices = tb5TunnelHubDevices(dockHubProduct: 0xDEAD)
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[10] == nil)
+        #expect(result.regionOwner[11] == nil)
+    }
+
+    @Test("TB5: an even (or zero) route byte aborts the pass")
+    func tb5EvenRouteByteAborts() {
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 100
+        )
+        // Route String 1025 = 0x401: byte index 1 = 4, an EVEN adapter
+        // number. Deliberately NOT the "obviously wrong port" case (an even
+        // byte that lands nowhere): integer division makes (4-1)/2 == 1,
+        // the SAME hub port byte 3 (the real, odd, dock reading) predicts,
+        // so this specifically catches a parity check that was dropped
+        // rather than one masked by a downstream "no candidate found" abort.
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 1025, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 200
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[11] == nil, "an even route byte is not a valid Adapter Number under this formula")
+    }
+
+    @Test("TB5: no hub found at the expected port aborts the pass")
+    func tb5MissingHubAtExpectedPortAborts() {
+        let chain = tb5TwoBoxChain()
+        // The dock's hub is at the WRONG locationID for its expected port
+        // (0x03220000, hub port 2, not the expected port 1).
+        let devices = [
+            device(id: 10, locationID: 0x0320_0000, vendorID: 0x8087, productID: 0x0B41, vendor: "Intel Corporation", product: nil, isHub: true),
+            device(id: 11, locationID: 0x0322_0000, vendorID: 0x8087, productID: 0x5787, vendor: "Intel Corporation", product: nil, isHub: true),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        #expect(result.regionOwner[10] == nil, "no candidate at the expected hub port aborts the whole pass")
+        #expect(result.regionOwner[11] == nil)
+    }
+
+    @Test("TB5: two boxes resolving to the same hub aborts the pass")
+    func tb5TwoBoxesSameHubAborts() {
+        // Two chain switches whose route bytes both predict hub port 1 under
+        // the SAME parent: an impossible topology in practice, but the
+        // isomorphism gate must still refuse it rather than let the second
+        // walk silently overwrite the first's claim.
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 100
+        )
+        let dockA = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "Dock A",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 200
+        )
+        let dockB = IOThunderboltSwitch(
+            id: 301, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "Dock B",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 200
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dockA, dockB])
+        // Only ONE hub at hub port 1, for two switches that both expect it.
+        // A third hub exists so the count gate (3 candidates for 3 boxes)
+        // does not itself abort the pass before the port-collision check runs.
+        let devices = [
+            device(id: 10, locationID: 0x0320_0000, vendorID: 0x8087, productID: 0x0B41, vendor: "Intel Corporation", product: nil, isHub: true),
+            device(id: 11, locationID: 0x0321_0000, vendorID: 0x8087, productID: 0x5787, vendor: "Intel Corporation", product: nil, isHub: true),
+            device(id: 12, locationID: 0x0329_0000, vendorID: 0x8087, productID: 0x0B40, vendor: "Intel Corporation", product: nil, isHub: true),
+        ]
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300, 301])
+        #expect(result.regionOwner[11] == nil, "only one candidate can sit at hub port 1; the second box's edge finds none and the whole pass aborts")
+    }
+
+    @Test("TB5: the Gen T adapter alone (without a confirmed shared controller) still opens the scope gate")
+    func tb5GenTAdapterAloneOpensScopeGate() {
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let genTPort = IOThunderboltPort(
+            portNumber: 20, socketID: nil, adapterType: .usbGenTUp,
+            currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+            rawTargetSpeed: nil, linkBandwidthRaw: nil
+        )
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [genTPort], parentSwitchUID: 100
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [], parentSwitchUID: 200
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        // usbTunnelSwitchUIDs deliberately empty: only the Gen T adapter
+        // signals the shared-controller shape here.
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [])
+        #expect(result.regionOwner[11] == 300, "a Gen T adapter alone must open the scope gate, per spec 3.1's corroborating OR")
+    }
+
+    @Test("TB5: neither the shared-controller shape nor a Gen T adapter, so the scope gate stays closed")
+    func tb5ScopeGateClosedWithoutEitherSignal() {
+        let chain = tb5TwoBoxChain()
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        // usbTunnelSwitchUIDs empty and no Gen T adapter anywhere in the
+        // chain (tb5TwoBoxChain's switches carry no ports at all): the
+        // scope gate must refuse to run, leaving the hubs unattributed by
+        // this pass. They also carry no name/vendor evidence, so they stay
+        // fully unattributed.
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [])
+        #expect(result.regionOwner[11] == nil)
+        #expect(result.regionOwner[12] == nil)
+    }
+
+    @Test("TB5: a structural hub whose own NUMERIC identity disagrees is demoted to structurallyConflicted, not absorbed or forcedPortLevel")
+    func tb5NumericConflictDemotesToStructurallyConflicted() {
+        // Review fix: the old body changed device 11's vendorID/productID to
+        // Apple's numeric identity (1452/30978) to force a "conflict". That
+        // removed it from the Intel silicon table (spec 3.2: vendorID must
+        // be 0x8087), so the candidate-count gate (only 1 candidate for 2
+        // boxes) aborted the WHOLE TB5 pass before the conflict path could
+        // ever run: the nil assertion passed because the pass never fired,
+        // not because it correctly demoted a conflict.
+        //
+        // A later fix kept device 11's valid Intel TB5 identity but forced
+        // the conflict through its `productName` (an exact-NAME conflict),
+        // which made the pass run for real but tested the wrong precedence
+        // branch: this test's own name and description promise a NUMERIC
+        // conflict, and `namedConflict` and `numericConflict` are two
+        // separately-computed booleans in `resolve()`'s candidate loop, so a
+        // name-only fixture never touches `numericIdentity(of:)` at all.
+        //
+        // Fixed for real: device 11 keeps its valid Intel TB5 identity
+        // (vendorID 0x8087, productID 0x5787) AND a nil `productName`, so no
+        // `exact`/`namedConflict` evidence exists for it whatsoever. The
+        // conflict instead comes from `numericIdentity(of:)`: the DISPLAY
+        // switch's own DROM is set to that SAME vendorID/productID pair
+        // (0x8087/0x5787), so `numericIdentity(of: hub11)` resolves to the
+        // display (200) purely on the number pair, while the structural
+        // route-string/locationID walk independently proposes the dock
+        // (300). That is a genuine `numericConflict`, with `namedConflict`
+        // structurally impossible to have fired (there is no name to match).
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 100, dromVendorID: 0x8087, dromModelID: 0x5787
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [],
+            parentSwitchUID: 200, dromVendorID: 11145, dromModelID: 1810
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+        let devices = tb5TunnelHubDevices()
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+        // hub11 sits nested UNDER hub10 in the raw USB tree (locationID
+        // 0x03210000 climbs to 0x03200000, hub10's own locationID), which is
+        // exactly the shape the TB5 pass exists to override: without it, hub
+        // 11 would inherit the display purely from USB nesting. A
+        // `structurallyConflicted` demotion is not a `forcedPortLevel`
+        // boundary: it removes the TB5 claim but does not block plain
+        // inheritance, so once the claim is refused, hub 11 falls straight
+        // back to inheriting from hub10's own region (the display, 200).
+        // That is the SAME observable outcome as the exact-name-conflict
+        // case just above it in this file, reached for a different reason:
+        // there the display placement was the device's OWN evidence kept in
+        // preference to the conflicting structural one; here it is the
+        // fallback default with no placement of its own at all. Distinguishing
+        // the two is exactly why `regionRoots` is checked directly below,
+        // not just `regionOwner`.
+        #expect(result.regionOwner[11] == 200,
+            "with its TB5 claim refused, the hub falls back to inheriting hub10's region (the display), not the conflicting dock")
+        #expect(result.regionRoots[11] == nil,
+            "unlike the exact-name-conflict case, this device has no evidence of its own: 200 is inherited, not a region root")
+        #expect(result.regionOwner[11] != 300,
+            "the TB5-derived switch id must not win over a genuine numeric disagreement")
+        // Excluded from absorbed only (per `.tb5TunnelHubMap`'s precedence
+        // tier, spec 3.5): unlike `.pcieStageBMatch`, a conflict here never
+        // reaches `forcedPortLevel`.
+        #expect(!result.absorbed.contains(11),
+            "a device with disagreeing structural and numeric evidence is not collapsed into the chain row")
+        #expect(!result.portLevelBoundaries.contains(11),
+            "a tb5TunnelHubMap conflict demotes to structurallyConflicted, never forcedPortLevel (that tier is Stage B's PCI-path proof)")
+    }
+
+    @Test("TB5: a forcedPortLevel boundary nested inside a TB5-attributed hub blocks inheritance, and the TB5 attribution elsewhere is unaffected")
+    func tb5AttributionCoexistsWithForcedPortLevelBoundary() {
+        // A Stage B PCIe join (`resolvePCIeTunnelCandidate`, modelled on
+        // `PCIeTunnelStageBv2Tests`' Test 16b) that runs with COMPLETE,
+        // usable inputs but finds zero matches: a genuine `.portLevel`
+        // finding, which lands the device straight in `forcedPortLevelIDs`
+        // with no name/numeric conflict needed. Both chain switches
+        // (display, dock) carry a valid PCIe up-adapter so the completeness
+        // gate lets the join actually run rather than falling back to the
+        // Stage A shortcut.
+        let displayUpPath = "IOService:/AppleARMPE/arm-io/apciec2@30000000/pcic1-bridge@0"
+        let dockUpPath = "IOService:/AppleARMPE/arm-io/apciec2@30000000/pcic1-bridge@1"
+        let displayPcieUp = IOThunderboltPort(
+            portNumber: 5, socketID: nil, adapterType: .pcieUp,
+            currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+            rawTargetSpeed: nil, linkBandwidthRaw: nil,
+            pciPath: displayUpPath, pciEntryID: 1
+        )
+        let dockPcieUp = IOThunderboltPort(
+            portNumber: 5, socketID: nil, adapterType: .pcieUp,
+            currentSpeed: nil, currentWidth: nil, targetWidth: nil,
+            rawTargetSpeed: nil, linkBandwidthRaw: nil,
+            pciPath: dockUpPath, pciEntryID: 2
+        )
+        let root = chainSwitch(id: 100, parent: nil, vendor: "Apple", model: "Mac", depth: 0)
+        let display = IOThunderboltSwitch(
+            id: 200, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Apple", modelName: "Studio Display ", routerID: 1, depth: 1,
+            routeString: 1, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [displayPcieUp],
+            parentSwitchUID: 100, dromVendorID: 1452, dromModelID: 30978
+        )
+        let dock = IOThunderboltSwitch(
+            id: 300, className: "IOThunderboltSwitchIntelJHL9580", vendorID: 32903,
+            vendorName: "Ugreen Group Limited", modelName: "TBT5 Docking Station 10-in-1",
+            routerID: 1, depth: 2, routeString: 769, upstreamPortNumber: 1, maxPortNumber: 23,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE), ports: [dockPcieUp],
+            parentSwitchUID: 200, dromVendorID: 11145, dromModelID: 1810
+        )
+        let chain = ThunderboltTopology.tree(from: root, in: [root, display, dock])
+
+        var devices = tb5TunnelHubDevices()
+        // Nested UNDER the dock's own TB5 hub (id 11, locationID
+        // 0x0321_0000), the same position the WD Game Drive occupies, so
+        // this proves the boundary specifically, not just "an unrelated
+        // top-level device stays unattributed" (which inheritance would
+        // never have reached anyway).
+        devices.append(contentsOf: [
+            // Complete, usable Stage B inputs, but its ancestor entry IDs
+            // (9999) match neither switch's `pciEntryID` (1, 2): zero
+            // matches, so this is `.portLevel`, not `.fallbackToStageA`.
+            USBDevice(
+                id: 40, locationID: 0x0321_2000, vendorID: 0x0BDA, productID: 0x1,
+                vendorName: nil, productName: nil, serialNumber: nil,
+                usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
+                isThunderboltTunnelled: true,
+                tunnelBridgeDepth: nil,
+                tunnelRootName: "apciec2",
+                tunnelCarrier: .pcieTunnel,
+                tunnelControllerRegistryPath: dockUpPath + "/pcic1-bridge@9/xhci@0",
+                tunnelAncestorEntryIDs: [9999],
+                deviceClass: 0x09,
+                rawProperties: [:]
+            ),
+            // A child of the forced device: proves the boundary is sticky
+            // down the subtree, not just refused for the forced node itself.
+            device(id: 41, locationID: 0x0321_2100, vendorID: 0x0BDA, vendor: "Realtek", product: nil, isHub: false),
+        ])
+        let forest = USBDeviceNode.buildTree(from: devices)
+        let result = ChainDeviceAttribution.resolve(chain: chain, forest: forest, usbTunnelSwitchUIDs: [200, 300])
+
+        // The TB5 attribution elsewhere in the SAME forest is unaffected.
+        #expect(result.regionOwner[10] == 200, "the display's own tunnel hub still attributes to the display")
+        #expect(result.regionOwner[11] == 300, "the dock's own tunnel hub still attributes to the dock")
+        #expect(result.regionOwner[12] == 300, "the WD Game Drive, the dock hub's OTHER child, still inherits the dock")
+
+        // The forced boundary itself, and its subtree, are not swallowed by
+        // the dock's TB5 ownership even though they sit physically nested
+        // inside it.
+        #expect(result.portLevelBoundaries.contains(40), "fixture: device 40 must be the forced boundary")
+        #expect(result.regionOwner[40] == nil, "a forcedPortLevel device never inherits ownership, even from a TB5-attributed parent hub")
+        #expect(result.regionOwner[41] == nil, "the boundary is sticky: a device below a forced node stays unattributed too")
+    }
 }

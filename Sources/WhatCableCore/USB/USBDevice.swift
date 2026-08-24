@@ -361,6 +361,33 @@ public struct USBDevice: Identifiable, Hashable {
         return nil
     }
 
+    /// The hub port `child` sits on under `parent`, or `nil` when `child` is
+    /// not directly (one hop) under `parent`. Same nibble-walk as
+    /// `parentLocationID(_:)`: the nibble that walk clears to climb from
+    /// `child` to its parent IS the hub port the child is plugged into, so
+    /// this reuses the identical walk and additionally checks the climb
+    /// actually lands on `parent`.
+    ///
+    /// Verified against a real capture
+    /// (`whatcable-app-notes/tree-attribution/json-dock.json`): a UGreen TBT5
+    /// dock's tunnel hub sits at locationID `0x03210000`, directly under a
+    /// Studio Display's tunnel hub at `0x03200000`.
+    /// `childHubPort(parent: 0x03200000, child: 0x03210000)` returns `1`,
+    /// matching the route-string formula's independently-derived hub port
+    /// for that same dock (`planning/dar-356-tb5-tunnel-hub-attribution.md`
+    /// section 2 point 3).
+    public static func childHubPort(parent: UInt32, child: UInt32) -> Int? {
+        let hubPath = child & 0x00FF_FFFF
+        guard hubPath != 0 else { return nil }
+        for shift in stride(from: 0, to: 24, by: 4) {
+            let nibble = (hubPath >> shift) & 0xF
+            guard nibble != 0 else { continue }
+            let cleared = child & ~(UInt32(0xF) << shift)
+            return cleared == parent ? Int(nibble) : nil
+        }
+        return nil
+    }
+
     /// Highest-speed SuperSpeed device matched to this port by name
     /// (`controllerPortName`, sourced from IOKit's `UsbIOPort` mapping).
     /// Use only as a last-resort fallback when both `rootSuperSpeed(in:)`

@@ -294,6 +294,15 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
     /// carries the LaCie 1big and Studio Display, both reporting
     /// `tunnelRootName == "apciec2"`.
     public let acioRootName: String?
+    /// Raw `USB Port Map` property: triplets of
+    /// `(USB4 port, ?, 0x80 | USB3 adapter number)` that pair a switch's
+    /// downstream USB4 ports with its own USB3 adapter numbers. Kept as raw
+    /// `Data` here and parsed in `USBPortMapEntry.parse(_:)` in Core, so a
+    /// probe-text replay can hand it straight in without any IOKit type.
+    /// `nil` when the switch does not publish the property (older captures)
+    /// or the read failed. See `USBPortMapEntry` for the triplet format and
+    /// `ChainDeviceAttribution`'s TB5 tunnel-hub pass for how it is used.
+    public let usbPortMap: Data?
 
     public init(
         id: Int64,
@@ -319,7 +328,8 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
         minRequiredTMUMode: Int? = nil,
         dromVendorID: Int? = nil,
         dromModelID: Int? = nil,
-        acioRootName: String? = nil
+        acioRootName: String? = nil,
+        usbPortMap: Data? = nil
     ) {
         self.id = id
         self.className = className
@@ -345,6 +355,7 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
         self.dromVendorID = dromVendorID
         self.dromModelID = dromModelID
         self.acioRootName = acioRootName
+        self.usbPortMap = usbPortMap
     }
 
     /// Build a `IOThunderboltSwitch` from a raw IOKit property dictionary
@@ -432,7 +443,8 @@ public struct IOThunderboltSwitch: Identifiable, Hashable {
             // machine's USB endpoint `idVendor`/`idProduct`.
             dromVendorID: validDROMNumber("Device Vendor ID"),
             dromModelID: validDROMNumber("Device Model ID"),
-            acioRootName: acioRootName
+            acioRootName: acioRootName,
+            usbPortMap: read("USB Port Map") as? Data
         )
     }
 

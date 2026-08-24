@@ -16,6 +16,7 @@
 "Connected devices" = "Pievienotās ierīces";
 "Connected: %@" = "Pievienots: %@";
 "Disconnected: %@" = "Atvienots: %@";
+"Reconnected: %@" = "Atkārtoti pievienots: %@";
 "Connection" = "Savienojums";
 "Display" = "Displejs";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Galda Mac: lādētāja identitāte (FedDetails) nav pieejama.";

@@ -16,6 +16,7 @@
 "Connected devices" = "Միացված սարքեր";
 "Connected: %@" = "Միացված է՝ %@";
 "Disconnected: %@" = "Անջատված է՝ %@";
+"Reconnected: %@" = "Վերամիացված է՝ %@";
 "Connection" = "Կապ";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Աշխատասեղանային Mac. լիցքավորիչի ինքնությունը (FedDetails) հասանելի չէ:";
 "Display" = "Էկրան";

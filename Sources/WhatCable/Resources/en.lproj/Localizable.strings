@@ -17,6 +17,7 @@
 "Connected: %@" = "Connected: %@";
 "Connection" = "Connection";
 "Disconnected: %@" = "Disconnected: %@";
+"Reconnected: %@" = "Reconnected: %@";
 "Display" = "Display";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: charger identity (FedDetails) is not available.";
 "Done" = "Done";

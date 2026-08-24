@@ -16,6 +16,7 @@
 "Connected devices" = "Verbonden apparaten";
 "Connected: %@" = "Verbonden: %@";
 "Disconnected: %@" = "Verbroken: %@";
+"Reconnected: %@" = "Opnieuw verbonden: %@";
 "Connection" = "Verbinding";
 "Display" = "Scherm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: opladeridentiteit (FedDetails) is niet beschikbaar.";

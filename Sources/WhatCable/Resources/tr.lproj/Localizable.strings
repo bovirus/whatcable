@@ -16,6 +16,7 @@
 "Connected devices" = "Bağlı aygıtlar";
 "Connected: %@" = "Bağlı: %@";
 "Disconnected: %@" = "Bağlantı kesildi: %@";
+"Reconnected: %@" = "Yeniden bağlandı: %@";
 "Connection" = "Bağlantı";
 "Display" = "Ekran";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Masaüstü Mac: şarj aleti kimliği (FedDetails) kullanılamıyor.";

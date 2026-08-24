@@ -17,6 +17,7 @@
 "Connected devices" = "已连接设备";
 "Connected: %@" = "已连接：%@";
 "Disconnected: %@" = "已断开：%@";
+"Reconnected: %@" = "已重新连接：%@";
 "Connection" = "连接";
 "Display" = "显示";
 "Desktop Mac: charger identity (FedDetails) is not available." = "台式 Mac: 充电器身份信息 (FedDetails) 不可用。";

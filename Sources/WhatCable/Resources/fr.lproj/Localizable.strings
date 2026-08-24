@@ -16,6 +16,7 @@
 "Connected devices" = "Appareils connectés";
 "Connected: %@" = "Connecté : %@";
 "Disconnected: %@" = "Déconnecté : %@";
+"Reconnected: %@" = "Reconnecté : %@";
 "Connection" = "Connexion";
 "Display" = "Affichage";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac de bureau : identité du chargeur (FedDetails) non disponible.";

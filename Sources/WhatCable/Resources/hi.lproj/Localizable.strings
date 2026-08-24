@@ -16,6 +16,7 @@
 "Connected devices" = "कनेक्टेड डिवाइस";
 "Connected: %@" = "कनेक्टेड: %@";
 "Disconnected: %@" = "डिस्कनेक्टेड: %@";
+"Reconnected: %@" = "फिर से कनेक्टेड: %@";
 "Connection" = "कनेक्शन";
 "Display" = "डिस्प्ले";
 "Desktop Mac: charger identity (FedDetails) is not available." = "डेस्कटॉप Mac: चार्जर पहचान (FedDetails) उपलब्ध नहीं है।";

@@ -16,6 +16,7 @@
 "Connected devices" = "Verbundene Geräte";
 "Connected: %@" = "Verbunden: %@";
 "Disconnected: %@" = "Getrennt: %@";
+"Reconnected: %@" = "Erneut verbunden: %@";
 "Connection" = "Verbindung";
 "Display" = "Anzeige";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop-Mac: Ladegerät-Identität (FedDetails) ist nicht verfügbar.";

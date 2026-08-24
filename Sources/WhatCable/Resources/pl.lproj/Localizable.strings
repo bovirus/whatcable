@@ -16,6 +16,7 @@
 "Connected devices" = "Podłączone urządzenia";
 "Connected: %@" = "Podłączone: %@";
 "Disconnected: %@" = "Odłączone: %@";
+"Reconnected: %@" = "Ponownie podłączone: %@";
 "Connection" = "Połączenie";
 "Display" = "Monitor";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac stacjonarny: dane identyfikacyjne ładowarki (FedDetails) są niedostępne.";

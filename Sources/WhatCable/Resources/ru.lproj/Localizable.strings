@@ -16,6 +16,7 @@
 "Connected devices" = "Подключённые устройства";
 "Connected: %@" = "Подключено: %@";
 "Disconnected: %@" = "Отключено: %@";
+"Reconnected: %@" = "Переподключено: %@";
 "Connection" = "Подключение";
 "Display" = "Отображение";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Настольный Mac: идентификация ЗУ (FedDetails) недоступна.";

@@ -16,6 +16,7 @@
 "Connected devices" = "Tilkoblede enheter";
 "Connected: %@" = "Tilkoblet: %@";
 "Disconnected: %@" = "Frakoblet: %@";
+"Reconnected: %@" = "Tilkoblet på nytt: %@";
 "Connection" = "Tilkobling";
 "Display" = "Skjerm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Stasjonær Mac: laderidentitet (FedDetails) er ikke tilgjengelig.";

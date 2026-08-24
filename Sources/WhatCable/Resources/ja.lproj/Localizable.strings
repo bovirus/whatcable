@@ -16,6 +16,7 @@
 "Connected devices" = "接続デバイス";
 "Connected: %@" = "接続中: %@";
 "Disconnected: %@" = "切断: %@";
+"Reconnected: %@" = "再接続: %@";
 "Connection" = "接続";
 "Display" = "ディスプレイ";
 "Desktop Mac: charger identity (FedDetails) is not available." = "デスクトップMac: 充電器のID（FedDetails）は利用できません。";

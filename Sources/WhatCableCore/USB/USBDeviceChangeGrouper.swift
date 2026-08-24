@@ -48,9 +48,17 @@ public enum USBDeviceChangeGrouper {
     /// (e.g. to read its speed/vendor for a single-member notification body)
     /// by identity instead of matching on `rootName`, which is not unique:
     /// two hubs of the same model report the same product name.
+    ///
+    /// `rootLocationID` is the root's physical port path. It persists across
+    /// a re-enumeration (the same physical port produces the same locationID
+    /// even when the device gets a new entryID), so it's the key a caller
+    /// uses to spot a same-port drop-and-return: a removed group and an
+    /// added group with the same `rootLocationID` (and the same `rootName`)
+    /// are very likely the same physical device flapping, not a swap.
     public struct ChangeGroup: Equatable, Sendable {
         public let rootID: UInt64
         public let rootName: String
+        public let rootLocationID: UInt32
         public let memberNames: [String]
     }
 
@@ -137,7 +145,12 @@ public enum USBDeviceChangeGrouper {
             .sorted { $0.locationID < $1.locationID }
             .map { root in
                 let members = (membersByRootID[root.id] ?? []).sorted { $0.locationID < $1.locationID }
-                return ChangeGroup(rootID: root.id, rootName: root.name, memberNames: members.map(\.name))
+                return ChangeGroup(
+                    rootID: root.id,
+                    rootName: root.name,
+                    rootLocationID: root.locationID,
+                    memberNames: members.map(\.name)
+                )
             }
     }
 }

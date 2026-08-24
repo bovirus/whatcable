@@ -140,18 +140,86 @@ final class NotificationManager {
             current: currentSnapshots
         )
 
-        // A device can disconnect and re-enumerate under a new entryID
-        // within one settle window (e.g. a hub power-cycling), so the same
-        // settled diff can hold both a removal and an addition for what was
-        // physically one event. Both post under the shared "device-event"
-        // identifier (issue #567), so the second post replaces the first in
-        // Notification Centre: only the LATEST post is ever shown, not both.
-        // Posting the removal first, then the addition, means a device that
-        // reconnects within the window leaves "Connected" standing (its true
-        // current state); a device that only disconnects leaves
-        // "Disconnected" standing because there's no later add to replace it.
-        postRemovedGroupNotifications(removedGroups)
-        postAddedGroupNotifications(addedGroups, current: current)
+        // Recover the full USBDevice for the speed/vendor body of a
+        // single-member group by identity (rootID), not by name: two hubs of
+        // the same model report the same product name, so name matching
+        // could pick the wrong one.
+        let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let contents = Self.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups) { rootID in
+            currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
+        }
+        for content in contents {
+            postNotification(category: .device, title: content.title, body: content.body)
+        }
+    }
+
+    /// Decides the full batch of notification content for one settled device
+    /// diff: the reconnect gate first, then (when it doesn't fire) the usual
+    /// removed-then-added composition. Pure and separate from `diffDevices`
+    /// so the GATE ITSELF, not just its two halves, is unit-testable without
+    /// `UNUserNotificationCenter`.
+    ///
+    /// A device can disconnect and re-enumerate under a new entryID within
+    /// one settle window (e.g. a hub power-cycling), so the same settled
+    /// diff can hold both a removal and an addition for what was physically
+    /// one event. Both post under the shared "device-event" identifier
+    /// (issue #567), so the second post replaces the first in Notification
+    /// Centre: only the LATEST post is ever shown, not both. Removed-before-
+    /// added ordering means a device that reconnects within the window
+    /// leaves "Connected" standing (its true current state); a device that
+    /// only disconnects leaves "Disconnected" standing because there's no
+    /// later add to replace it.
+    ///
+    /// A narrow subset of that "reconnects within the window" case gets its
+    /// own wording: exactly one removed group and one added group, matching
+    /// by physical port. That flap deserves to say "Reconnected" rather than
+    /// silently reading as a fresh "Connected", since to the user it looked
+    /// like a fault, not a first-time plug-in. Every other shape (multiple
+    /// groups, no match, adds only, removes only) keeps the removed-then-
+    /// added composition below untouched.
+    nonisolated static func deviceNotificationContents(
+        removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        singleDeviceBody: (UInt64) -> String?
+    ) -> [NotificationContent] {
+        if let removed = removedGroups.first, removedGroups.count == 1,
+           let added = addedGroups.first, addedGroups.count == 1,
+           isReconnectPair(removed: removed, added: added) {
+            return [reconnectedNotificationContent(for: added, singleDeviceBody: singleDeviceBody)]
+        }
+        return removedNotificationContents(groups: removedGroups)
+            + addedNotificationContents(groups: addedGroups, singleDeviceBody: singleDeviceBody)
+    }
+
+    /// True when a removed group and an added group are almost certainly the
+    /// same physical device re-enumerating rather than a genuine disconnect
+    /// paired with an unrelated connect: same physical port path
+    /// (`rootLocationID`, which survives a re-enumeration even though the
+    /// entryID doesn't) AND the same product name. A different name at the
+    /// same port (a device swapped on that port within the settle window) is
+    /// deliberately NOT a reconnect: it falls through to today's separate
+    /// "Disconnected" / "Connected" pair instead.
+    nonisolated static func isReconnectPair(
+        removed: USBDeviceChangeGrouper.ChangeGroup,
+        added: USBDeviceChangeGrouper.ChangeGroup
+    ) -> Bool {
+        removed.rootLocationID == added.rootLocationID && removed.rootName == added.rootName
+    }
+
+    /// Content for the single "Reconnected: <name>" notification posted for
+    /// a matched drop-and-return pair. Same body treatment as
+    /// `addedNotificationContents`'s single-group case (member names, or the
+    /// speed/vendor line for a memberless group), because the added group's
+    /// content is what's true of the device right now.
+    nonisolated static func reconnectedNotificationContent(
+        for added: USBDeviceChangeGrouper.ChangeGroup,
+        singleDeviceBody: (UInt64) -> String?
+    ) -> NotificationContent {
+        let title = String(localized: "Reconnected: \(added.rootName)", bundle: _appLocalizedBundle)
+        let body = added.memberNames.isEmpty
+            ? (singleDeviceBody(added.rootID) ?? "")
+            : added.memberNames.joined(separator: "\n")
+        return NotificationContent(title: title, body: body)
     }
 
     /// A single notification's title and body, decided independently of
@@ -168,7 +236,7 @@ final class NotificationManager {
     /// `UNUserNotificationCenter.add` per group produced 2-3 simultaneous
     /// banners with only the last one visible, so most of the devices never
     /// showed up as "connected" even though they were posted. Mirrors
-    /// `postRemovedGroupNotifications`'s merge so >1 group becomes ONE
+    /// `removedNotificationContents`'s merge so >1 group becomes ONE
     /// notification, same as a disconnect. See issue #556.
     nonisolated static func addedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
@@ -190,33 +258,25 @@ final class NotificationManager {
         return []
     }
 
-    private func postAddedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup], current: [USBDevice]) {
-        // Recover the full USBDevice for the speed/vendor body of a
-        // single-member group by identity (rootID), not by name: two hubs of
-        // the same model report the same product name, so name matching
-        // could pick the wrong one.
-        let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-
-        let contents = Self.addedNotificationContents(groups: groups) { rootID in
-            currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
-        }
-        for content in contents {
-            postNotification(category: .device, title: content.title, body: content.body)
-        }
-    }
-
-    private func postRemovedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup]) {
+    /// Decides what to post for one settled batch of removed groups. Mirrors
+    /// `addedNotificationContents`'s merge (>1 group becomes ONE "USB
+    /// devices disconnected" notification), extracted so
+    /// `deviceNotificationContents` can compose it with the reconnect gate.
+    /// See issue #556.
+    nonisolated static func removedNotificationContents(
+        groups: [USBDeviceChangeGrouper.ChangeGroup]
+    ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
             let title = String(localized: "Disconnected: \(group.rootName)", bundle: _appLocalizedBundle)
-            postNotification(category: .device, title: title, body: group.memberNames.joined(separator: "\n"))
+            return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            postNotification(
-                category: .device,
+            return [NotificationContent(
                 title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
                 body: allNames.joined(separator: "\n")
-            )
+            )]
         }
+        return []
     }
 
     private func snapshot(for device: USBDevice) -> USBDeviceChangeGrouper.Snapshot {

@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import os.log
+import UserNotifications
 import WhatCableCore
 import WhatCableDarwinBackend
 import WhatCableAppKit
@@ -77,7 +78,7 @@ struct WhatCableApp: App {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     static let refreshSignal = RefreshSignal.shared
 
     // Menu bar mode
@@ -129,6 +130,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var statusItemMoveObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Assigned first thing, per Apple's docs, so a click that arrives
+        // while the app is relaunching (the app was quit, a notification
+        // sat in Notification Centre, the user clicks it) still routes
+        // (issue #567).
+        UNUserNotificationCenter.current().delegate = self
+
         log.notice("launch: version=\(AppInfo.version, privacy: .public) macOS=\(ProcessInfo.processInfo.operatingSystemVersionString, privacy: .public)")
         registerWidgetExtension()
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -1106,6 +1113,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             Self.refreshSignal.showSettings = false
             Self.refreshSignal.showTestKitConsent = false
         }
+    }
+
+    // MARK: - Notification clicks (issue #567)
+
+    /// Show the banner (and keep it in Notification Centre's list) even
+    /// when macOS considers WhatCable frontmost, e.g. the popover is
+    /// already open when a new device notification arrives.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list])
+    }
+
+    /// Thin shell around `NotificationRouting.action(for:)`: the actual
+    /// identifier -> action decision is a pure function, tested on its own.
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        // Only a real click opens the popover. There are no action buttons
+        // today, but macOS also routes a plain dismiss through this same
+        // delegate method with its own actionIdentifier, and that must not
+        // be treated as a click.
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else {
+            completionHandler()
+            return
+        }
+        let action = NotificationRouting.action(for: response.notification.request.identifier)
+        Task { @MainActor in
+            self.routeNotificationClick(action)
+        }
+        completionHandler()
+    }
+
+    /// Brings the popover forward for a notification click, always clearing
+    /// any Settings/Pro-screen overlay first so the main content is what's
+    /// actually on screen (clicking "Charger connected" while Settings is
+    /// open should land on the main content, not leave Settings showing).
+    private func routeNotificationClick(_ action: NotificationClickAction) {
+        Self.refreshSignal.showSettings = false
+        Self.refreshSignal.activeProScreen = nil
+        presentMainSurface()
     }
 }
 

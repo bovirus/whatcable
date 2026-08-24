@@ -19,6 +19,24 @@ final class NotificationManager {
     private var knownChargerLabels: [String: String] = [:]
     private var didPrimeBaseline = false
 
+    /// One notification category per event type (issue #567). Posting with
+    /// the same identifier replaces the previous notification in place
+    /// (Apple's sanctioned "one standing notification per topic" pattern),
+    /// so a second device event doesn't leave two separate banners sitting
+    /// in Notification Centre. Charger and device events use distinct
+    /// identifiers so one never replaces the other.
+    enum NotificationCategory: String, Equatable {
+        case device = "device-event"
+        case charger = "charger-event"
+    }
+
+    /// Pure identifier lookup, kept separate from `postNotification` so the
+    /// "same category -> same identifier, different category -> different
+    /// identifier" rule is unit-testable without `UNUserNotificationCenter`.
+    nonisolated static func notificationIdentifier(for category: NotificationCategory) -> String {
+        category.rawValue
+    }
+
     private var chargerSettleTask: Task<Void, Never>?
     /// A charger's power-source services can briefly disappear and reappear
     /// during PD renegotiation / re-enumeration, so the published list flaps
@@ -125,9 +143,13 @@ final class NotificationManager {
         // A device can disconnect and re-enumerate under a new entryID
         // within one settle window (e.g. a hub power-cycling), so the same
         // settled diff can hold both a removal and an addition for what was
-        // physically one event. Post the removal first: it happened first,
-        // chronologically, and a "Connected" banner landing after
-        // "Disconnected" reads as what actually occurred, not the reverse.
+        // physically one event. Both post under the shared "device-event"
+        // identifier (issue #567), so the second post replaces the first in
+        // Notification Centre: only the LATEST post is ever shown, not both.
+        // Posting the removal first, then the addition, means a device that
+        // reconnects within the window leaves "Connected" standing (its true
+        // current state); a device that only disconnects leaves
+        // "Disconnected" standing because there's no later add to replace it.
         postRemovedGroupNotifications(removedGroups)
         postAddedGroupNotifications(addedGroups, current: current)
     }
@@ -179,17 +201,18 @@ final class NotificationManager {
             currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
         }
         for content in contents {
-            postNotification(title: content.title, body: content.body)
+            postNotification(category: .device, title: content.title, body: content.body)
         }
     }
 
     private func postRemovedGroupNotifications(_ groups: [USBDeviceChangeGrouper.ChangeGroup]) {
         if groups.count == 1, let group = groups.first {
             let title = String(localized: "Disconnected: \(group.rootName)", bundle: _appLocalizedBundle)
-            postNotification(title: title, body: group.memberNames.joined(separator: "\n"))
+            postNotification(category: .device, title: title, body: group.memberNames.joined(separator: "\n"))
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
             postNotification(
+                category: .device,
                 title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
                 body: allNames.joined(separator: "\n")
             )
@@ -217,6 +240,47 @@ final class NotificationManager {
         }
     }
 
+    /// Decides what to post for one settled charger reconcile. With the
+    /// shared "charger-event" identifier (issue #567), posting one
+    /// notification per changed port meant each later post replaced the
+    /// one before it under Notification Centre's own rules, so 2+ charger
+    /// changes in a single settle window silently lost all but the last.
+    /// Mirrors the device path's merge: every added charger becomes ONE
+    /// "Charger connected" post (labels joined by newline), every removed
+    /// charger becomes ONE "Charger disconnected" post, same as before for
+    /// the single-charger case. Removed comes first, added second, mirroring
+    /// `diffDevices`'s ordering so the same "latest post wins" reasoning
+    /// applies if a charger both drops and reconnects within the window.
+    nonisolated static func chargerNotificationContents(
+        addedLabels: [String],
+        removedLabels: [String]
+    ) -> [NotificationContent] {
+        var contents: [NotificationContent] = []
+        if !removedLabels.isEmpty {
+            contents.append(NotificationContent(
+                title: String(localized: "Charger disconnected", bundle: _appLocalizedBundle),
+                body: removedLabels.joined(separator: "\n")
+            ))
+        }
+        if !addedLabels.isEmpty {
+            contents.append(NotificationContent(
+                title: String(localized: "Charger connected", bundle: _appLocalizedBundle),
+                body: addedLabels.joined(separator: "\n")
+            ))
+        }
+        return contents
+    }
+
+    /// Turns a set of changed charger port keys into their labels, sorted by
+    /// the stable port key rather than left in Set iteration order. Set and
+    /// Dictionary don't guarantee a stable order between runs, so without
+    /// this the merged notification's line order would flap for no reason a
+    /// user could see. Pure and separate from `reconcileChargers` so the
+    /// ordering is unit-testable without `WatcherHub`.
+    nonisolated static func sortedChargerLabels(for portKeys: some Sequence<String>, labels: [String: String]) -> [String] {
+        portKeys.sorted().compactMap { labels[$0] }
+    }
+
     /// Reconcile the current charger ports against the last-notified set, after
     /// the published list has settled. Notify once per charger (port), not once
     /// per power-source entry: a single charger advertises several entries on
@@ -227,17 +291,24 @@ final class NotificationManager {
         // fallback) so add/remove detection keys on stable port identity.
         let currentLabels = chargerLabels(for: current)
         let addedPortKeys = Set(currentLabels.keys).subtracting(knownChargerLabels.keys)
-        let removedLabels = knownChargerLabels.filter { !currentLabels.keys.contains($0.key) }.map(\.value)
+        let removedPortKeys = knownChargerLabels.keys.filter { !currentLabels.keys.contains($0) }
+        let previousLabels = knownChargerLabels
         knownChargerLabels = currentLabels
 
         guard AppSettings.shared.notifyOnChanges else { return }
 
-        for portKey in addedPortKeys {
-            let body = currentLabels[portKey] ?? String(localized: "PD source", bundle: _appLocalizedBundle)
-            postNotification(title: String(localized: "Charger connected", bundle: _appLocalizedBundle), body: body)
+        // Every added port key already has a label in currentLabels (it was
+        // built from the same set); this fallback only guards a mismatch
+        // between the two that should never happen.
+        var addedLabelsByPortKey = currentLabels
+        for portKey in addedPortKeys where addedLabelsByPortKey[portKey] == nil {
+            addedLabelsByPortKey[portKey] = String(localized: "PD source", bundle: _appLocalizedBundle)
         }
-        for label in removedLabels {
-            postNotification(title: String(localized: "Charger disconnected", bundle: _appLocalizedBundle), body: label)
+        let addedLabels = Self.sortedChargerLabels(for: addedPortKeys, labels: addedLabelsByPortKey)
+        let removedLabels = Self.sortedChargerLabels(for: removedPortKeys, labels: previousLabels)
+        let contents = Self.chargerNotificationContents(addedLabels: addedLabels, removedLabels: removedLabels)
+        for content in contents {
+            postNotification(category: .charger, title: content.title, body: content.body)
         }
     }
 
@@ -255,14 +326,17 @@ final class NotificationManager {
         })
     }
 
-    private func postNotification(title: String, body: String) {
+    private func postNotification(category: NotificationCategory, title: String, body: String) {
         let content = UNMutableNotificationContent()
         content.title = title
         if !body.isEmpty { content.body = body }
         content.sound = nil
 
+        // Same identifier per category replaces the previous notification
+        // in place rather than stacking a new one (issue #567): a second
+        // device event leaves ONE entry in Notification Centre, not two.
         let request = UNNotificationRequest(
-            identifier: UUID().uuidString,
+            identifier: Self.notificationIdentifier(for: category),
             content: content,
             trigger: nil
         )

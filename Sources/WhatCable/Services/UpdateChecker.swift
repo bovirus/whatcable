@@ -303,7 +303,12 @@ final class UpdateChecker: ObservableObject {
     var notificationSink: (AvailableUpdate) -> Void = { update in
         let content = UNMutableNotificationContent()
         content.title = "WhatCable \(update.version) available"
-        content.body = "You're on \(AppInfo.version). Click to view release notes."
+        // Deliberately unlocalised, matching the rest of this file. Clicking
+        // lands on the update banner in the popover, not release notes
+        // directly (issue #567): the banner has its own "View release"
+        // button for that, so the copy here promises the update itself, not
+        // the notes.
+        content.body = "You're on \(AppInfo.version). Click to view the update."
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "update-\(update.version)", content: content, trigger: nil)
         )

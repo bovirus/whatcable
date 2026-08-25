@@ -143,6 +143,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var pendingNotificationActivationTimeout: DispatchWorkItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Single-instance guard, resolved before anything else in this
+        // method starts. A different copy of WhatCable on disk (e.g.
+        // Homebrew and a manual /Applications copy) shares the same bundle
+        // ID, so macOS happily launches a second process rather than
+        // reopening the running one. Two live copies both watch the ports,
+        // post duplicate notifications, and steal each other's focus
+        // (observed live, issue #455). No subsystem below may start before
+        // this resolves, which is why the whole rest of what used to be
+        // this method is now `continueNormalLaunch()`: the only two places
+        // allowed to call it are the plain "no other copy" branch here and
+        // the failed-handover branch of the completion handler below.
+        let other = Self.anotherInstance()
+        let decision = LaunchInstanceDecision.decide(
+            otherExists: other != nil,
+            myLaunch: NSRunningApplication.current.launchDate,
+            otherLaunch: other?.launchDate,
+            myPID: ProcessInfo.processInfo.processIdentifier,
+            otherPID: other?.processIdentifier ?? 0
+        )
+        guard decision == .deferToRunningInstance, let other else {
+            log.notice("launch: no established other instance, continuing launch")
+            continueNormalLaunch()
+            return
+        }
+
+        // NSRunningApplication.activate() does NOT deliver the reopen Apple
+        // Event: it just raises the other process's windows, it does not
+        // ask it to reopen, so the other copy's
+        // `applicationShouldHandleReopen` never fires and its popover
+        // stays shut. Opening the already-running app via LaunchServices
+        // is what actually sends `kAEReopenApplication`, exactly as if the
+        // user had double-clicked it in Finder while it was already
+        // running. `bundleURL` can be nil in principle (a process that's
+        // already exiting, or an unusual launch context); if so there is
+        // nothing to hand off to, so this copy continues rather than
+        // deferring to a target it can't reach.
+        guard let bundleURL = other.bundleURL else {
+            log.notice("launch: other instance has no bundle URL, continuing launch instead of deferring")
+            continueNormalLaunch()
+            return
+        }
+
+        log.notice("launch: another instance is already running, attempting handover")
+        NSWorkspace.shared.openApplication(at: bundleURL, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+            Task { @MainActor in
+                guard let self else { return }
+                if let error {
+                    // The other copy may have died between the lookup above
+                    // and this call, or the open genuinely failed. Better
+                    // one late-starting copy than zero, so this process
+                    // takes over rather than terminating into nothing.
+                    log.notice("launch: handover failed (\(error.localizedDescription, privacy: .public)), continuing launch instead")
+                    self.continueNormalLaunch()
+                } else {
+                    log.notice("launch: handover succeeded, terminating")
+                    NSApp.terminate(nil)
+                }
+            }
+        }
+    }
+
+    /// The rest of what used to be all of `applicationDidFinishLaunching`,
+    /// pulled out so the single-instance guard above can call it from
+    /// either the synchronous "no other copy" path or the asynchronous
+    /// failed-handover path in `openApplication`'s completion handler.
+    /// Nothing here may run before the guard has resolved.
+    private func continueNormalLaunch() {
         // Assigned first thing, per Apple's docs, so a click that arrives
         // while the app is relaunching (the app was quit, a notification
         // sat in Notification Centre, the user clicks it) still routes
@@ -326,6 +393,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             Self.notificationClickLog.info("presentMainSurface: mode=window")
             setUpWindowMode()
         }
+    }
+
+    /// The other running copy of WhatCable, if any, keyed on the shared
+    /// bundle ID and excluding this process by PID. Static so the
+    /// single-instance guard in `applicationDidFinishLaunching` can call it
+    /// before `self` exists as a fully set-up delegate.
+    private static func anotherInstance() -> NSRunningApplication? {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .first { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+    }
+
+    /// Reopen hook: macOS calls this when the Dock icon is clicked, or the
+    /// app is launched again from Finder/Spotlight, while WhatCable is
+    /// already running as THIS process (issue #455). Bring the existing
+    /// popover (or window) forward instead of doing nothing. Returning
+    /// false tells AppKit we handled it ourselves, so it doesn't also try
+    /// to open a new untitled window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        log.notice("launch: reopen handled, presenting main surface")
+        presentMainSurface()
+        return false
     }
 
     func applicationWillTerminate(_ notification: Notification) {

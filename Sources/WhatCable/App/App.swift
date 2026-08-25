@@ -129,6 +129,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// shipped this fix first.
     private var statusItemMoveObserver: NSObjectProtocol?
 
+    /// Notification-click activation race (see `NotificationClickPresentation`):
+    /// held so a second notification click while one is already pending can
+    /// tear down the previous observer/timeout before starting a new one,
+    /// rather than stacking two observers on the same notification.
+    private var pendingNotificationActivationObserver: NSObjectProtocol?
+    private var pendingNotificationActivationTimeout: DispatchWorkItem?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Assigned first thing, per Apple's docs, so a click that arrives
         // while the app is relaunching (the app was quit, a notification
@@ -1154,10 +1161,107 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// any Settings/Pro-screen overlay first so the main content is what's
     /// actually on screen (clicking "Charger connected" while Settings is
     /// open should land on the main content, not leave Settings showing).
+    ///
+    /// Whether that happens right away or after a real activation handover
+    /// is `NotificationClickPresentation`'s call: see its doc comment for
+    /// why a notification click needs this and a status-item click doesn't.
     private func routeNotificationClick(_ action: NotificationClickAction) {
         Self.refreshSignal.showSettings = false
         Self.refreshSignal.activeProScreen = nil
+
+        switch NotificationClickPresentation.decide(isAppActive: NSApp.isActive) {
+        case .presentNow:
+            presentMainSurface()
+        case .activateThenPresentOnActivation:
+            presentMainSurfaceAfterActivation()
+        }
+    }
+
+    /// Activates the app, then defers `presentMainSurface()` until
+    /// `didBecomeActiveNotification` actually fires, instead of presenting
+    /// in the same tick as `activateApp()`. The popover is `.transient` and
+    /// closes itself the instant it thinks focus has moved away; presenting
+    /// while the activation handover from the notification-banner click is
+    /// still in flight means the tail of that handover reads as a
+    /// click-away, and the popover flashes open and immediately closes
+    /// again. Waiting for confirmation that activation actually landed
+    /// means there's nothing left in flight to misread as a click-away.
+    ///
+    /// A short safety timeout presents anyway and tears the observer down
+    /// if `didBecomeActiveNotification` never arrives, so a missed
+    /// notification can never strand the click doing nothing.
+    ///
+    /// A second notification click while one of these is already pending
+    /// tears down the previous observer/timeout first (see
+    /// `clearPendingNotificationActivation`), so rapid double-clicking never
+    /// stacks two observers waiting on the same notification, which would
+    /// otherwise present twice or leave one of them dangling.
+    private func presentMainSurfaceAfterActivation() {
+        clearPendingNotificationActivation()
+
+        // Both closures below call back into this actor-isolated type from a
+        // context the compiler can't itself prove is MainActor: the
+        // `addObserver` closure because `queue: .main` is a runtime
+        // guarantee, not a type-level one, and the `DispatchWorkItem`
+        // likewise because it's dispatched onto `DispatchQueue.main`.
+        // `MainActor.assumeIsolated` documents that guarantee and, crucially,
+        // keeps the call synchronous rather than hopping through `Task`.
+        // A `Task { @MainActor in ... }` hop introduces a suspension point:
+        // the closure returns immediately and the actual work runs on a
+        // later turn of the run loop, which reopens exactly the race this
+        // fix exists to close. A stale task queued by an old timeout, or by
+        // an old observer fire, could then run its
+        // `finishPendingNotificationActivation()` AFTER a second click has
+        // already registered a new observer, clearing its pending state out
+        // from under it. With `assumeIsolated`, the observer firing, the
+        // timeout firing, and a second click's own
+        // `clearPendingNotificationActivation()` all run synchronously on
+        // the main thread, so they serialise: whichever runs first
+        // completes in full (clearing state and presenting, or clearing
+        // state to make way for a new pending activation) before the next
+        // one starts. There is no window for a stale completion to land
+        // after a newer one has taken over.
+        let observer = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.finishPendingNotificationActivation()
+            }
+        }
+        pendingNotificationActivationObserver = observer
+
+        let timeout = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.finishPendingNotificationActivation()
+            }
+        }
+        pendingNotificationActivationTimeout = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: timeout)
+
+        activateApp()
+    }
+
+    /// Common landing point for both the observer firing and the safety
+    /// timeout firing: tear down whichever of the two didn't win, then
+    /// present. Whichever path calls this first cancels the other, so only
+    /// one `presentMainSurface()` call ever happens per pending activation.
+    private func finishPendingNotificationActivation() {
+        clearPendingNotificationActivation()
         presentMainSurface()
+    }
+
+    /// Removes any pending observer and cancels any pending timeout,
+    /// leaving neither able to fire again. Safe to call when nothing is
+    /// pending.
+    private func clearPendingNotificationActivation() {
+        if let observer = pendingNotificationActivationObserver {
+            NotificationCenter.default.removeObserver(observer)
+            pendingNotificationActivationObserver = nil
+        }
+        pendingNotificationActivationTimeout?.cancel()
+        pendingNotificationActivationTimeout = nil
     }
 }
 

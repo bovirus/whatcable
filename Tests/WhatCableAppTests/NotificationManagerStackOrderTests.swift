@@ -65,4 +65,29 @@ final class NotificationManagerStackOrderTests: XCTestCase {
             "a diff superseded by a newer deferral must not land using the old, now-stale devices"
         )
     }
+
+    // MARK: - deferredDiffLanding (presentation-gap fix)
+    //
+    // Live verification found that landing a parked device diff SYNCHRONOUSLY
+    // inside reconcileChargers's defer put both posts in the same
+    // millisecond, and macOS only presents the LAST of two simultaneous
+    // banners: "Charger disconnected" reached Notification Centre but never
+    // showed on screen. This rule decides whether a landing on the
+    // reconcile-completion path needs a deliberate presentation gap first.
+
+    func testWaitsForThePresentationGapWhenTheReconcilePostedChargerContent() {
+        XCTAssertEqual(
+            NotificationManager.deferredDiffLanding(reconcilePostedChargerContent: true),
+            .afterPresentationGap,
+            "a reconcile that actually posted charger content would otherwise post the device content in the same instant, so the device post must wait"
+        )
+    }
+
+    func testLandsImmediatelyWhenTheReconcilePostedNothing() {
+        XCTAssertEqual(
+            NotificationManager.deferredDiffLanding(reconcilePostedChargerContent: false),
+            .immediate,
+            "no charger post means nothing on screen to clash with, so this must be unchanged from before the presentation-gap fix"
+        )
+    }
 }

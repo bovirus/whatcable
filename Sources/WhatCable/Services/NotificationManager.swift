@@ -77,15 +77,78 @@ final class NotificationManager {
     /// 1.5s sleep. Production never touches this; it starts at, and stays
     /// at, the same 1.5s value as every other settle window in this file.
     var deferredDeviceDiffTimeoutWindow: Duration = .milliseconds(1500)
+    /// Presentation-gap fix (owner, live verification): when a parked device
+    /// diff landed synchronously inside `reconcileChargers`'s `defer`, the
+    /// charger post and the device post both reached
+    /// `UNUserNotificationCenter` in the same millisecond. macOS presents
+    /// only the LAST of two simultaneous banners, so "Charger disconnected"
+    /// never showed on screen (it only reached Notification Centre's list):
+    /// the fix that made ordering correct accidentally made the older of the
+    /// two invisible. The old code's accidental ~300ms gap between the two
+    /// posts is what used to let both banners present, so a deliberate delay
+    /// restores that presentation gap on purpose. Task, not a stored
+    /// deadline: cancelled the same way `deferredDeviceDiffTimeoutTask` is,
+    /// see `deferDeviceDiff` and `landDeferredDeviceDiffNow`.
+    private var deferredDeviceDiffPresentationGapTask: Task<Void, Never>?
+    /// True from the moment `landDeferredDeviceDiff` schedules a presentation
+    /// gap until that gap actually lands the diff (or is cancelled by a
+    /// fresh deferral). Guards a specific interleaving Codex review raised:
+    /// a SECOND `reconcileChargers` call that lands while the gap from a
+    /// FIRST is still pending, and posts no charger content of its own,
+    /// would otherwise take the `.immediate` branch below and land the diff
+    /// right there, defeating the gap the first call scheduled. Timing
+    /// analysis says this is unreachable live: `reconcileChargers` is
+    /// trailing-debounced to `chargerSettleWindow` (1.5s), and the gap is
+    /// only 500ms, so two reconciles for the same charger cannot land this
+    /// close together in production. This guard exists anyway so the
+    /// exactly-once invariant doesn't rest on that timing coincidence.
+    private var isPresentationGapPending = false
+    /// Identity for the CURRENT gap task, bumped every time
+    /// `landDeferredDeviceDiff`'s `.afterPresentationGap` case schedules one.
+    /// A second Codex finding on the guard above: scheduling a new gap task
+    /// used to just overwrite `deferredDeviceDiffPresentationGapTask` without
+    /// cancelling the outgoing one, so a stale task could wake later, run its
+    /// body (its `Task.isCancelled` check never tripped, because nothing
+    /// cancelled it), and unconditionally clear `isPresentationGapPending` --
+    /// even though a NEWER gap for the same diff was still legitimately
+    /// pending. That wrong clear is exactly what would let a subsequent
+    /// `.immediate` reconcile land the diff early. Two independent guards
+    /// close this, both required per review ("neither a cancelled nor a
+    /// superseded task can mutate shared state"):
+    ///  1. `landDeferredDeviceDiff` now explicitly cancels any existing gap
+    ///     task before scheduling a new one, so `Task.isCancelled` trips for
+    ///     the outgoing task.
+    ///  2. Every gap task also captures its own generation here and checks it
+    ///     against the live value before touching ANYTHING (not just before
+    ///     landing, before even clearing the flag). This is the one that
+    ///     actually matters: it makes "a stale task can't mutate shared
+    ///     state" true by construction, not by relying on `.cancel()` having
+    ///     been observed in time. In this codebase's single `@MainActor`
+    ///     scheduling, `.cancel()` alone would already be sufficient (it
+    ///     completes synchronously before any queued continuation resumes),
+    ///     so this is deliberate belt-and-braces on top of belt-and-braces:
+    ///     it holds even if this code is ever restructured off the actor.
+    private var deferredDeviceDiffPresentationGapGeneration = 0
+    /// How long `landDeferredDeviceDiff(token:afterChargerPost:)` waits
+    /// before landing a diff that reconciled alongside real charger content.
+    /// `var`, mirroring `deferredDeviceDiffTimeoutWindow`, so a test can
+    /// shrink it to a few tens of milliseconds. Production stays at 500ms:
+    /// long enough for macOS to have already started presenting the charger
+    /// banner before the device banner posts, short enough not to read as a
+    /// separate, unrelated notification.
+    var deferredDeviceDiffPresentationGapWindow: Duration = .milliseconds(500)
     /// Guards against the deferred diff landing twice. Incremented both when
     /// a new diff is deferred (invalidating any earlier one still in
-    /// flight) and by whichever of the two landing paths
-    /// (`reconcileChargers` finishing, or the timeout above firing) runs
-    /// first. Both paths hop through the `@MainActor`, so they can never
-    /// truly run at the same instant; the token exists so the SECOND to
-    /// arrive sees a value that no longer matches what it captured and
-    /// backs out instead of running the diff again. `shouldLandDeferredDiff`
-    /// is the pure comparison this reads.
+    /// flight) and by whichever landing path actually runs the diff
+    /// (`landDeferredDeviceDiffNow`, reached either straight from
+    /// `reconcileChargers` when it posted nothing, or after the timeout
+    /// above, or after the presentation gap above). All three paths hop
+    /// through the `@MainActor`, so two can never truly run at the same
+    /// instant; the token exists so whichever arrives SECOND sees a value
+    /// that no longer matches what it captured and backs out instead of
+    /// running the diff again. `shouldLandDeferredDiff` is the pure
+    /// comparison this reads. See `landDeferredDeviceDiff(token:afterChargerPost:)`'s
+    /// doc comment for the full three-path interleaving walk-through.
     private var deferredDeviceDiffToken = 0
     /// A charger's power-source services can briefly disappear and reappear
     /// during PD renegotiation / re-enumeration, so the published list flaps
@@ -213,7 +276,11 @@ final class NotificationManager {
     /// it (see `reconcileChargers`'s `defer`) or `deferredDeviceDiffTimeoutTask`
     /// times it out. Superseding an earlier still-waiting diff (rather than
     /// composing with it) mirrors `deviceSettleTask`/`chargerSettleTask`:
-    /// only the latest settled state matters.
+    /// only the latest settled state matters. Cancelling BOTH the timeout
+    /// task and the presentation-gap task here (not just the timeout) is
+    /// what keeps a superseded episode's stale gap wait from doing anything
+    /// once it eventually fires: see the interleaving walk-through on
+    /// `landDeferredDeviceDiff(token:afterChargerPost:)`.
     ///
     /// Not `private`: a wiring test calls this directly to park a diff
     /// without going through `scheduleDeviceDiff`'s own 1.5s `Task.sleep` and
@@ -236,33 +303,150 @@ final class NotificationManager {
         deferredDeviceDiffDevices = devices
 
         deferredDeviceDiffTimeoutTask?.cancel()
+        deferredDeviceDiffPresentationGapTask?.cancel()
+        deferredDeviceDiffPresentationGapGeneration += 1
+        isPresentationGapPending = false
         deferredDeviceDiffTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.deferredDeviceDiffTimeoutWindow ?? .milliseconds(1500))
             guard !Task.isCancelled, let self else { return }
-            self.landDeferredDeviceDiff(token: token)
+            self.landDeferredDeviceDiffNow(token: token)
         }
     }
 
-    /// The single place a deferred device diff actually runs. Called from
-    /// two independent paths (`reconcileChargers`'s `defer`, and the timeout
-    /// in `deferDeviceDiff`); `shouldLandDeferredDiff` is the guard that
-    /// keeps only the first of the two from doing anything. A no-op when
-    /// nothing is deferred (`deferredDeviceDiffDevices` is nil), so
-    /// `reconcileChargers` can call this unconditionally on every exit
-    /// without checking whether a diff was actually waiting.
-    func landDeferredDeviceDiff(token: Int) {
+    /// Whether landing a parked device diff, on the reconcile-completion
+    /// path specifically, should wait out a deliberate presentation gap
+    /// first or run immediately. Pure rule extracted so the decision is
+    /// unit-testable without `Task`. Only `landDeferredDeviceDiff(token:
+    /// afterChargerPost:)` reads it; the timeout path in `deferDeviceDiff`
+    /// never asks, because a diff that timed out waiting for a reconcile has,
+    /// by definition, no charger post to clash with.
+    enum DeferredDiffLanding: Equatable {
+        case immediate
+        case afterPresentationGap
+    }
+
+    /// `reconcileChargers` actually posted charger content this time ->
+    /// its post and the device post would otherwise land in the same
+    /// millisecond and macOS would show only the later one. Nothing posted
+    /// -> nothing on screen to clash with, so land immediately, unchanged
+    /// from before this fix.
+    nonisolated static func deferredDiffLanding(reconcilePostedChargerContent: Bool) -> DeferredDiffLanding {
+        reconcilePostedChargerContent ? .afterPresentationGap : .immediate
+    }
+
+    /// Entry point for the reconcile-completion landing path (called from
+    /// `reconcileChargers`'s `defer`). Decides gap vs immediate via
+    /// `deferredDiffLanding`, then either lands right away or schedules the
+    /// gap. A no-op when nothing is deferred, so `reconcileChargers` can call
+    /// this unconditionally on every exit without checking whether a diff was
+    /// actually waiting.
+    ///
+    /// Interleavings this has to survive, all of them exercised by walking
+    /// through what each landing path does to `deferredDeviceDiffToken` /
+    /// `deferredDeviceDiffDevices`:
+    ///
+    /// 1. **Gap completes normally.** `landDeferredDeviceDiffNow` runs after
+    ///    the sleep, token still matches (nothing superseded it), lands, and
+    ///    cancels the (now finished) timeout task. One landing.
+    /// 2. **The timeout fires DURING the gap** (only possible if a test
+    ///    shrinks the timeout window below the gap window; in production the
+    ///    gap, 500ms, is always shorter than the timeout, 1.5s). The timeout
+    ///    task calls `landDeferredDeviceDiffNow` directly with its own
+    ///    captured token, which still matches (nothing has landed yet): it
+    ///    lands, increments the token, and cancels the still-pending gap
+    ///    task. When the gap task's sleep later completes, its `Task.isCancelled`
+    ///    check is true and it never reaches `landDeferredDeviceDiffNow` at
+    ///    all; even if it somehow did, `shouldLandDeferredDiff` would see the
+    ///    now-stale token and back out. One landing either way.
+    /// 3. **A new device diff is deferred during the gap** (a fresh device
+    ///    settle episode starts before the gap finishes). `deferDeviceDiff`
+    ///    increments the token and cancels both the old timeout task AND
+    ///    this old gap task. The old gap task never lands the superseded
+    ///    diff; the NEW diff gets its own timeout/gap treatment from here on.
+    ///    Nothing is orphaned: the new diff is exactly as pending as if it
+    ///    had arrived with no gap in flight at all.
+    /// 4. **A second `reconcileChargers` call lands while a gap from the
+    ///    first is still pending** (two charger settles close together,
+    ///    unusual but not impossible). Since nothing was deferred a second
+    ///    time in between, `deferredDeviceDiffDevices` still holds the SAME
+    ///    devices and the token is unchanged, so this call schedules a
+    ///    SECOND gap task. Two more Codex findings live here (see property 5
+    ///    below and `deferredDeviceDiffPresentationGapGeneration`'s doc
+    ///    comment): the first gap task IS now explicitly cancelled before the
+    ///    second is scheduled, and each gap task carries its own generation,
+    ///    checked before it does ANYTHING (not just before landing). So the
+    ///    first task never reaches its body at all (`Task.isCancelled`), and
+    ///    even if it somehow did, the generation check would still stop it.
+    ///    Only the second (newest) gap task can ever land this diff. Still
+    ///    exactly one landing, and now the NEWER gap deterministically wins,
+    ///    not "whichever fires first".
+    /// 5. **A second `reconcileChargers` call posts NOTHING while a gap from
+    ///    a FIRST (which posted real content) is still pending** (Codex
+    ///    review). This call's own `afterChargerPost` is false, so on its
+    ///    own `deferredDiffLanding` would say `.immediate` -- but running
+    ///    that immediately would land the diff right next to THIS call's
+    ///    return, defeating the gap the first call is still waiting out (the
+    ///    two charger posts and the device post would again cluster).
+    ///    `isPresentationGapPending` is the guard: while a gap is in flight,
+    ///    `.immediate` yields to it instead of landing early. Belt-and-braces
+    ///    only: `reconcileChargers`'s 1.5s trailing debounce means a second
+    ///    reconcile this close to the first (the gap is 500ms) cannot happen
+    ///    live, but the invariant shouldn't rest on that timing coincidence.
+    func landDeferredDeviceDiff(token: Int, afterChargerPost: Bool) {
+        guard deferredDeviceDiffDevices != nil else { return }
+        switch Self.deferredDiffLanding(reconcilePostedChargerContent: afterChargerPost) {
+        case .immediate:
+            guard !isPresentationGapPending else { return }
+            landDeferredDeviceDiffNow(token: token)
+        case .afterPresentationGap:
+            // Cancel any outgoing gap task before scheduling a new one (not
+            // just overwriting the property), and give this one its own
+            // generation so it can tell later whether it's still the live
+            // gap. Both guards are checked together below, after the sleep:
+            // see `deferredDeviceDiffPresentationGapGeneration`'s doc comment
+            // for why this task must confirm it's still current before
+            // touching `isPresentationGapPending` OR landing, not just before
+            // landing.
+            deferredDeviceDiffPresentationGapTask?.cancel()
+            deferredDeviceDiffPresentationGapGeneration += 1
+            let gapGeneration = deferredDeviceDiffPresentationGapGeneration
+            isPresentationGapPending = true
+            deferredDeviceDiffPresentationGapTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: self?.deferredDeviceDiffPresentationGapWindow ?? .milliseconds(500))
+                guard !Task.isCancelled, let self,
+                      gapGeneration == self.deferredDeviceDiffPresentationGapGeneration
+                else { return }
+                self.isPresentationGapPending = false
+                self.landDeferredDeviceDiffNow(token: token)
+            }
+        }
+    }
+
+    /// The single place a deferred device diff actually runs, reached from
+    /// three places: directly from `landDeferredDeviceDiff(token:afterChargerPost:)`'s
+    /// `.immediate` case, after the presentation gap it schedules, or after
+    /// `deferDeviceDiff`'s own timeout. `shouldLandDeferredDiff` is the guard
+    /// that keeps only the first of those to actually arrive from doing
+    /// anything; see the interleaving walk-through above.
+    private func landDeferredDeviceDiffNow(token: Int) {
         guard let devices = deferredDeviceDiffDevices,
               Self.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
         else { return }
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
         deferredDeviceDiffTimeoutTask?.cancel()
+        deferredDeviceDiffPresentationGapTask?.cancel()
+        deferredDeviceDiffPresentationGapGeneration += 1
+        // Defensive, not load-bearing on the timeout/immediate paths (which
+        // never set this true): once ANY path actually lands the diff, no
+        // gap should be treated as still pending for it.
+        isPresentationGapPending = false
         diffDevices(devices)
     }
 
     /// Pure guard behind the "lands exactly once" property: a landing
     /// attempt may proceed only while its captured `token` still matches the
-    /// live one. `landDeferredDeviceDiff` invalidates the live token (by
+    /// live one. `landDeferredDeviceDiffNow` invalidates the live token (by
     /// incrementing it) as the very first thing it does after this check
     /// passes, before running the diff, so a second attempt with the same
     /// captured token always sees a stale value and backs out.
@@ -504,10 +688,17 @@ final class NotificationManager {
     func reconcileChargers() {
         // Lands any device diff waiting on this reconcile (stack-order fix),
         // whichever exit path is taken below, and AFTER every charger post
-        // above has already gone out, so the device post that follows always
-        // lands on top. A no-op when nothing is deferred: see
-        // `landDeferredDeviceDiff`.
-        defer { landDeferredDeviceDiff(token: deferredDeviceDiffToken) }
+        // below has already gone out, so the device post that follows always
+        // lands on top. `chargerPostedContent` starts false and is flipped
+        // just before the posting loop runs; the closure reads whatever
+        // value it holds at the moment this function actually returns, not
+        // the value at the point `defer` was written, which is how it sees
+        // "did THIS call post anything" even though the decision is made
+        // deep inside this function. A no-op when nothing is deferred, and
+        // immediate (no presentation gap) when nothing was posted: see
+        // `landDeferredDeviceDiff(token:afterChargerPost:)`.
+        var chargerPostedContent = false
+        defer { landDeferredDeviceDiff(token: deferredDeviceDiffToken, afterChargerPost: chargerPostedContent) }
 
         let current = WatcherHub.shared.powerWatcher.sources
         // Track chargers by canonicalJoinKey (HPM UUID when present, portKey
@@ -532,6 +723,7 @@ final class NotificationManager {
         let addedLabels = Self.sortedChargerLabels(for: addedPortKeys, labels: addedLabelsByPortKey)
         let removedLabels = Self.sortedChargerLabels(for: removedPortKeys, labels: previousLabels)
         let contents = Self.chargerNotificationContents(addedLabels: addedLabels, removedLabels: removedLabels)
+        chargerPostedContent = !contents.isEmpty
         for content in contents {
             postNotification(category: .charger, title: content.title, body: content.body)
         }

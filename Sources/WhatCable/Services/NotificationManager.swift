@@ -15,9 +15,16 @@ final class NotificationManager {
 
     private var cancellables = Set<AnyCancellable>()
 
-    private var knownDevices: [UInt64: USBDeviceChangeGrouper.Snapshot] = [:]
-    private var knownChargerLabels: [String: String] = [:]
-    private var didPrimeBaseline = false
+    // The three below are `private` in production terms (nothing outside
+    // this file should touch them) but not marked `private` in Swift's sense:
+    // a wiring test primes them directly to drive `diffDevices`/
+    // `reconcileChargers` themselves, the actual call sites, without the real
+    // `WatcherHub`/`UNUserNotificationCenter` machinery behind them. `@testable
+    // import` only reaches `internal` (Swift's default access level), not
+    // `private`, so that's the level these sit at.
+    var knownDevices: [UInt64: USBDeviceChangeGrouper.Snapshot] = [:]
+    var knownChargerLabels: [String: String] = [:]
+    var didPrimeBaseline = false
 
     /// One notification category per event type (issue #567). Posting with
     /// the same identifier replaces the previous notification in place
@@ -38,6 +45,48 @@ final class NotificationManager {
     }
 
     private var chargerSettleTask: Task<Void, Never>?
+    /// True from the moment a charger settle task is scheduled until the
+    /// moment it actually runs `reconcileChargers` (or is superseded). A
+    /// non-nil `chargerSettleTask` isn't enough on its own to mean "still
+    /// pending": the task reference is never cleared after it fires, so a
+    /// long-finished task would look identical to one still waiting out its
+    /// window. This is the value `scheduleDeviceDiff` feeds into
+    /// `deviceDiffDisposition`, and it gates a DEFERRAL of the device post,
+    /// never an early run of the charger reconcile itself (see
+    /// `deferDeviceDiff`'s doc comment for why an early flush was rejected on
+    /// review). `private(set)`, not `private`: a wiring test drives
+    /// `NotificationManager.shared` end to end and needs to read it.
+    private(set) var isChargerSettlePending = false
+
+    /// State for a device diff that is waiting on a same-episode charger
+    /// reconcile to post first (see `deviceDiffDisposition`). Only one diff
+    /// can be deferred at a time: a device settle firing again while one is
+    /// already waiting means a fresh device episode is starting, so the
+    /// waiting one is superseded, same as `deviceSettleTask` itself.
+    private var deferredDeviceDiffDevices: [USBDevice]?
+    /// Bounds how long a deferred diff waits for `reconcileChargers` to land
+    /// it naturally. A continuously flapping charger would otherwise keep
+    /// re-arming `chargerSettleTask` forever and starve every device
+    /// notification behind it, so this fires the diff anyway after one
+    /// charger settle window with no natural landing.
+    private var deferredDeviceDiffTimeoutTask: Task<Void, Never>?
+    /// How long `deferDeviceDiff` waits before landing anyway. `var`, and
+    /// defaulted separately from `chargerSettleWindow` (deliberately not a
+    /// reference to it), purely so a test can shrink it to a few tens of
+    /// milliseconds and exercise the timeout landing path without a real
+    /// 1.5s sleep. Production never touches this; it starts at, and stays
+    /// at, the same 1.5s value as every other settle window in this file.
+    var deferredDeviceDiffTimeoutWindow: Duration = .milliseconds(1500)
+    /// Guards against the deferred diff landing twice. Incremented both when
+    /// a new diff is deferred (invalidating any earlier one still in
+    /// flight) and by whichever of the two landing paths
+    /// (`reconcileChargers` finishing, or the timeout above firing) runs
+    /// first. Both paths hop through the `@MainActor`, so they can never
+    /// truly run at the same instant; the token exists so the SECOND to
+    /// arrive sees a value that no longer matches what it captured and
+    /// backs out instead of running the diff again. `shouldLandDeferredDiff`
+    /// is the pure comparison this reads.
+    private var deferredDeviceDiffToken = 0
     /// A charger's power-source services can briefly disappear and reappear
     /// during PD renegotiation / re-enumeration, so the published list flaps
     /// (present -> absent -> present). Comparing each publish in isolation
@@ -119,8 +168,106 @@ final class NotificationManager {
         deviceSettleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.deviceSettleWindow ?? .milliseconds(1500))
             guard !Task.isCancelled, let self else { return }
-            self.diffDevices(WatcherHub.shared.deviceWatcher.devices)
+            let devices = WatcherHub.shared.deviceWatcher.devices
+            switch Self.deviceDiffDisposition(chargerSettlePending: self.isChargerSettlePending) {
+            case .runNow:
+                self.diffDevices(devices)
+            case .deferUntilChargerReconcile:
+                self.deferDeviceDiff(devices)
+            }
         }
+    }
+
+    /// Stack-order fix (owner report): unplugging a powered dock fires a
+    /// device settle and a charger settle from the same physical event, and
+    /// they used to post device-then-charger. macOS stacks the newest post
+    /// on top, so the charger banner landed on top of the richer device
+    /// banner, the one users actually read. When both settle windows belong
+    /// to the same episode, the charger content must post FIRST so the
+    /// device content posts LAST and stacks on top.
+    ///
+    /// An earlier version of this fix cancelled the pending charger settle
+    /// timer and ran `reconcileChargers` early, synchronously, from here.
+    /// Review (Codex) caught that `isChargerSettlePending` only means "a
+    /// charger update happened in the last `chargerSettleWindow`", not "the
+    /// charger set has stopped changing": running the reconcile on that
+    /// signal can fire mid-flap, posting exactly the spurious
+    /// disconnected/connected pair issue #227's debounce exists to
+    /// suppress. So the charger side is never touched early. Instead the
+    /// DEVICE post is deferred: `reconcileChargers` still runs on its own
+    /// undisturbed 1.5s window, and once it finishes it lands the waiting
+    /// device diff itself, so the charger post always precedes it.
+    enum DeviceDiffDisposition: Equatable {
+        case runNow
+        case deferUntilChargerReconcile
+    }
+
+    /// Pure ordering rule: given a charger settle task still pending in the
+    /// same episode as a settling device diff, the device diff must wait for
+    /// that charger reconcile to land it, not run immediately.
+    nonisolated static func deviceDiffDisposition(chargerSettlePending: Bool) -> DeviceDiffDisposition {
+        chargerSettlePending ? .deferUntilChargerReconcile : .runNow
+    }
+
+    /// Park a settled device diff until the pending charger reconcile lands
+    /// it (see `reconcileChargers`'s `defer`) or `deferredDeviceDiffTimeoutTask`
+    /// times it out. Superseding an earlier still-waiting diff (rather than
+    /// composing with it) mirrors `deviceSettleTask`/`chargerSettleTask`:
+    /// only the latest settled state matters.
+    ///
+    /// Not `private`: a wiring test calls this directly to park a diff
+    /// without going through `scheduleDeviceDiff`'s own 1.5s `Task.sleep` and
+    /// live `WatcherHub` read, so it can drive the actual landing plumbing
+    /// (this function plus `reconcileChargers`'s `defer`) rather than only
+    /// the pure rules that decide it.
+    ///
+    /// Accepted trade-off: a charger event that is UNRELATED to the parked
+    /// device diff (arrives, and its own settle task overlaps the window)
+    /// can delay that device notification by up to one settle window
+    /// (`deferredDeviceDiffTimeoutWindow`, 1.5s in production), because
+    /// `isChargerSettlePending` can't distinguish "the same physical episode"
+    /// from "an unrelated charger event that happens to overlap". That delay
+    /// is bounded by the timeout below and never drops the notification, so
+    /// it's accepted for the sake of getting the ordering right on the
+    /// common case (the same episode) this fix targets.
+    func deferDeviceDiff(_ devices: [USBDevice]) {
+        deferredDeviceDiffToken += 1
+        let token = deferredDeviceDiffToken
+        deferredDeviceDiffDevices = devices
+
+        deferredDeviceDiffTimeoutTask?.cancel()
+        deferredDeviceDiffTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: self?.deferredDeviceDiffTimeoutWindow ?? .milliseconds(1500))
+            guard !Task.isCancelled, let self else { return }
+            self.landDeferredDeviceDiff(token: token)
+        }
+    }
+
+    /// The single place a deferred device diff actually runs. Called from
+    /// two independent paths (`reconcileChargers`'s `defer`, and the timeout
+    /// in `deferDeviceDiff`); `shouldLandDeferredDiff` is the guard that
+    /// keeps only the first of the two from doing anything. A no-op when
+    /// nothing is deferred (`deferredDeviceDiffDevices` is nil), so
+    /// `reconcileChargers` can call this unconditionally on every exit
+    /// without checking whether a diff was actually waiting.
+    func landDeferredDeviceDiff(token: Int) {
+        guard let devices = deferredDeviceDiffDevices,
+              Self.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
+        else { return }
+        deferredDeviceDiffToken += 1
+        deferredDeviceDiffDevices = nil
+        deferredDeviceDiffTimeoutTask?.cancel()
+        diffDevices(devices)
+    }
+
+    /// Pure guard behind the "lands exactly once" property: a landing
+    /// attempt may proceed only while its captured `token` still matches the
+    /// live one. `landDeferredDeviceDiff` invalidates the live token (by
+    /// incrementing it) as the very first thing it does after this check
+    /// passes, before running the diff, so a second attempt with the same
+    /// captured token always sees a stale value and backs out.
+    nonisolated static func shouldLandDeferredDiff(token: Int, liveToken: Int) -> Bool {
+        token == liveToken
     }
 
     private func diffDevices(_ current: [USBDevice]) {
@@ -300,9 +447,11 @@ final class NotificationManager {
         // still changing, then reconcile once it settles. This absorbs the
         // flap so a single connect produces a single notification.
         chargerSettleTask?.cancel()
+        isChargerSettlePending = true
         chargerSettleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.chargerSettleWindow ?? .milliseconds(1500))
             guard !Task.isCancelled, let self else { return }
+            self.isChargerSettlePending = false
             self.reconcileChargers()
         }
     }
@@ -352,7 +501,14 @@ final class NotificationManager {
     /// the published list has settled. Notify once per charger (port), not once
     /// per power-source entry: a single charger advertises several entries on
     /// the same port (USB-PD, Brick ID, TypeC). See issue #227 follow-up.
-    private func reconcileChargers() {
+    func reconcileChargers() {
+        // Lands any device diff waiting on this reconcile (stack-order fix),
+        // whichever exit path is taken below, and AFTER every charger post
+        // above has already gone out, so the device post that follows always
+        // lands on top. A no-op when nothing is deferred: see
+        // `landDeferredDeviceDiff`.
+        defer { landDeferredDeviceDiff(token: deferredDeviceDiffToken) }
+
         let current = WatcherHub.shared.powerWatcher.sources
         // Track chargers by canonicalJoinKey (HPM UUID when present, portKey
         // fallback) so add/remove detection keys on stable port identity.
@@ -395,21 +551,31 @@ final class NotificationManager {
         })
     }
 
-    private func postNotification(category: NotificationCategory, title: String, body: String) {
-        let content = UNMutableNotificationContent()
-        content.title = title
-        if !body.isEmpty { content.body = body }
-        content.sound = nil
+    /// Where a notification actually gets posted. Injected (default is the
+    /// real `UNUserNotificationCenter` flow) so a test can drive
+    /// `postNotification` itself, the real call site, rather than only the
+    /// pure content-decision functions above it. Mirrors
+    /// `UpdateChecker.notificationSink`: without a seam like this, a wiring
+    /// test can only prove the pure rules agree with each other, never that
+    /// the plumbing between them (e.g. `reconcileChargers`'s `defer`
+    /// actually landing a parked device diff) is still wired up. That gap
+    /// was proven concretely: deleting the `defer` line left every existing
+    /// `NotificationManager` test green.
+    var notificationSink: (NotificationCategory, NotificationContent) -> Void = { category, content in
+        let mutableContent = UNMutableNotificationContent()
+        mutableContent.title = content.title
+        if !content.body.isEmpty { mutableContent.body = content.body }
+        mutableContent.sound = nil
 
-        let identifier = Self.notificationIdentifier(for: category)
-        let bodyLineCount = body.isEmpty ? 0 : body.split(separator: "\n").count
-        Self.log.info("postNotification: identifier=\(identifier, privacy: .public) title=\(title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
+        let identifier = NotificationManager.notificationIdentifier(for: category)
+        let bodyLineCount = content.body.isEmpty ? 0 : content.body.split(separator: "\n").count
+        NotificationManager.log.info("postNotification: identifier=\(identifier, privacy: .public) title=\(content.title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
 
         // Diagnostic only: surface whether the system would even show this,
         // so a "posted but never seen" report can be told apart from
         // "never posted". Doesn't gate or change the post below.
         UNUserNotificationCenter.current().getNotificationSettings { settings in
-            Self.log.info("postNotification: authorizationStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alertSetting=\(settings.alertSetting.rawValue, privacy: .public)")
+            NotificationManager.log.info("postNotification: authorizationStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alertSetting=\(settings.alertSetting.rawValue, privacy: .public)")
         }
 
         // Same identifier per category replaces the previous notification
@@ -417,14 +583,18 @@ final class NotificationManager {
         // device event leaves ONE entry in Notification Centre, not two.
         let request = UNNotificationRequest(
             identifier: identifier,
-            content: content,
+            content: mutableContent,
             trigger: nil
         )
         UNUserNotificationCenter.current().add(request) { error in
             if let error {
-                Self.log.error("Post failed: \(error.localizedDescription, privacy: .public)")
+                NotificationManager.log.error("Post failed: \(error.localizedDescription, privacy: .public)")
             }
         }
+    }
+
+    private func postNotification(category: NotificationCategory, title: String, body: String) {
+        notificationSink(category, NotificationContent(title: title, body: body))
     }
 }
 

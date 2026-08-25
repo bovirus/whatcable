@@ -137,6 +137,28 @@ final class NotificationManager {
     /// banner before the device banner posts, short enough not to read as a
     /// separate, unrelated notification.
     var deferredDeviceDiffPresentationGapWindow: Duration = .milliseconds(500)
+    /// Both-orders fix (owner, live verification): the gap fix above only
+    /// covers the DEVICE-fires-first order (device settle finds
+    /// `isChargerSettlePending` true, defers, and the charger reconcile lands
+    /// it later). Logs showed the opposite order happens too: the CHARGER
+    /// settle fires first and posts, and by the time the device settle fires
+    /// a moment later, `isChargerSettlePending` already reads false, so
+    /// `deviceDiffDisposition` says `.runNow` and the device post goes out
+    /// ~1ms after the charger post, same-millisecond problem again, charger
+    /// banner suppressed. Recorded here, in `postNotification`, whenever a
+    /// CHARGER post actually goes out, so the `.runNow` path (see
+    /// `runNowOrDelayForRecentChargerPost`) can tell "a charger post just
+    /// went out and hasn't had time to present yet" from "nothing charger-
+    /// related happened recently". `nil` until the first charger post of the
+    /// app's lifetime; `devicePostDelay` treats `nil` the same as "outside
+    /// the window" (nothing to delay for).
+    /// Not `private`: a wiring test resets this to `nil` before exercising
+    /// `runNowOrDelayForRecentChargerPost`, since `NotificationManager.shared`
+    /// is a process-wide singleton and an EARLIER test's `reconcileChargers()`
+    /// call can otherwise leave a recent-enough timestamp here to make a
+    /// later, unrelated test see a non-zero `devicePostDelay` it didn't ask
+    /// for.
+    var lastChargerPostTime: ContinuousClock.Instant?
     /// Guards against the deferred diff landing twice. Incremented both when
     /// a new diff is deferred (invalidating any earlier one still in
     /// flight) and by whichever landing path actually runs the diff
@@ -173,7 +195,12 @@ final class NotificationManager {
     /// published device list to stop changing, then diff once, so a hub
     /// teardown (or a hub-and-children connect) lands inside a single diff
     /// instead of being split across several. See issue #551.
-    private let deviceSettleWindow: Duration = .milliseconds(1500)
+    /// `var`, not `let` (like `deferredDeviceDiffTimeoutWindow` and
+    /// `deferredDeviceDiffPresentationGapWindow`), purely so a test can
+    /// shrink it and exercise `scheduleDeviceDiff` itself, the actual
+    /// production call site, rather than only the helpers it calls
+    /// (`runNowOrDelayForRecentChargerPost` etc.) driven directly.
+    var deviceSettleWindow: Duration = .milliseconds(1500)
 
     private init() {}
 
@@ -226,7 +253,15 @@ final class NotificationManager {
     /// then diff once it settles. This is what coalesces a hub's split-fire
     /// termination (child gone, then hub gone in a later publish) into one
     /// diff. See `deviceSettleWindow` and issue #551.
-    private func scheduleDeviceDiff() {
+    ///
+    /// Not `private`: a wiring test calls this directly (with
+    /// `deviceSettleWindow` shrunk) to drive the ACTUAL `.runNow` call site
+    /// end to end, rather than only `runNowOrDelayForRecentChargerPost`
+    /// itself. Codex review: a test that only drives the helper directly
+    /// would stay green even if this call site regressed back to a bare
+    /// `diffDevices(devices)` call, which is exactly the bug this exists to
+    /// catch.
+    func scheduleDeviceDiff() {
         deviceSettleTask?.cancel()
         deviceSettleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: self?.deviceSettleWindow ?? .milliseconds(1500))
@@ -234,7 +269,12 @@ final class NotificationManager {
             let devices = WatcherHub.shared.deviceWatcher.devices
             switch Self.deviceDiffDisposition(chargerSettlePending: self.isChargerSettlePending) {
             case .runNow:
-                self.diffDevices(devices)
+                // Both-orders fix: `isChargerSettlePending` being false here
+                // only means no charger settle is CURRENTLY pending; it says
+                // nothing about whether one just landed and posted a moment
+                // ago. `runNowOrDelayForRecentChargerPost` is what actually
+                // decides immediate vs delayed for this case.
+                self.runNowOrDelayForRecentChargerPost(devices)
             case .deferUntilChargerReconcile:
                 self.deferDeviceDiff(devices)
             }
@@ -399,27 +439,138 @@ final class NotificationManager {
             guard !isPresentationGapPending else { return }
             landDeferredDeviceDiffNow(token: token)
         case .afterPresentationGap:
-            // Cancel any outgoing gap task before scheduling a new one (not
-            // just overwriting the property), and give this one its own
-            // generation so it can tell later whether it's still the live
-            // gap. Both guards are checked together below, after the sleep:
-            // see `deferredDeviceDiffPresentationGapGeneration`'s doc comment
-            // for why this task must confirm it's still current before
-            // touching `isPresentationGapPending` OR landing, not just before
-            // landing.
-            deferredDeviceDiffPresentationGapTask?.cancel()
-            deferredDeviceDiffPresentationGapGeneration += 1
-            let gapGeneration = deferredDeviceDiffPresentationGapGeneration
-            isPresentationGapPending = true
-            deferredDeviceDiffPresentationGapTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: self?.deferredDeviceDiffPresentationGapWindow ?? .milliseconds(500))
-                guard !Task.isCancelled, let self,
-                      gapGeneration == self.deferredDeviceDiffPresentationGapGeneration
-                else { return }
-                self.isPresentationGapPending = false
-                self.landDeferredDeviceDiffNow(token: token)
-            }
+            scheduleGapLanding(token: token, delay: deferredDeviceDiffPresentationGapWindow)
         }
+    }
+
+    /// Schedules a presentation-gap-guarded landing for the CURRENTLY parked
+    /// diff (`deferredDeviceDiffDevices`, identified by `token`), waiting
+    /// `delay` before running it. Cancels any outgoing gap task before
+    /// scheduling a new one (not just overwriting the property), and gives
+    /// this one its own generation so it can tell later whether it's still
+    /// the live gap; both guards are checked together after the sleep, not
+    /// just the token, so a stale/superseded task can never touch
+    /// `isPresentationGapPending` or land (see
+    /// `deferredDeviceDiffPresentationGapGeneration`'s doc comment).
+    ///
+    /// Shared by two callers, which differ only in what `delay` they pass:
+    /// `landDeferredDeviceDiff`'s `.afterPresentationGap` case (the full
+    /// `deferredDeviceDiffPresentationGapWindow`, for a device diff that was
+    /// deferred waiting on a charger reconcile) and
+    /// `parkAndDelayDevicePost` (a REMAINDER, for a device diff that was
+    /// never deferred at all but happens to be settling shortly after an
+    /// unrelated charger post already went out).
+    private func scheduleGapLanding(token: Int, delay: Duration) {
+        deferredDeviceDiffPresentationGapTask?.cancel()
+        deferredDeviceDiffPresentationGapGeneration += 1
+        let gapGeneration = deferredDeviceDiffPresentationGapGeneration
+        isPresentationGapPending = true
+        deferredDeviceDiffPresentationGapTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self,
+                  gapGeneration == self.deferredDeviceDiffPresentationGapGeneration
+            else { return }
+            self.isPresentationGapPending = false
+            self.landDeferredDeviceDiffNow(token: token)
+        }
+    }
+
+    /// Both-orders fix: how long a device post must wait, given how long ago
+    /// the last CHARGER post actually went out. `nil` elapsed (no charger
+    /// post yet this app launch) or an elapsed at or past `presentationGap`
+    /// both mean nothing to delay for: zero. Otherwise the REMAINDER of the
+    /// window (`presentationGap - elapsed`), not the full window again, so a
+    /// device post that already waited some of the gap out (by settling a
+    /// little later) doesn't wait the full 500ms a second time. Pure and
+    /// separate from `runNowOrDelayForRecentChargerPost` so the arithmetic is
+    /// unit-testable without `Task` or a real clock.
+    nonisolated static func devicePostDelay(
+        elapsedSinceLastChargerPost: Duration?,
+        presentationGap: Duration
+    ) -> Duration {
+        guard let elapsed = elapsedSinceLastChargerPost, elapsed < presentationGap else {
+            return .zero
+        }
+        return presentationGap - elapsed
+    }
+
+    /// Wall-clock time since `lastChargerPostTime`, or `nil` if no charger
+    /// post has gone out yet this app launch. Kept separate from
+    /// `devicePostDelay` so the pure arithmetic above needs no clock at all.
+    private func elapsedSinceLastChargerPost() -> Duration? {
+        lastChargerPostTime?.duration(to: ContinuousClock.now)
+    }
+
+    /// Entry point for `scheduleDeviceDiff`'s `.runNow` disposition: a device
+    /// settle that found no charger settle CURRENTLY pending. That alone
+    /// doesn't mean nothing charger-related happened recently (Codex-style
+    /// finding from live logs: the charger settle can fire FIRST, post, and
+    /// finish reconciling entirely before the device settle's own window
+    /// elapses a moment later), so this consults `devicePostDelay` before
+    /// deciding. Zero delay: post now, exactly as before this fix. Non-zero:
+    /// park the diff and land it after the REMAINDER, reusing the identical
+    /// cancel/token/generation-guarded machinery `deferDeviceDiff` /
+    /// `scheduleGapLanding` already use, so this path's exactly-once and
+    /// supersession guarantees are the SAME code, not a parallel copy.
+    ///
+    /// Interleaving worth walking through because it's new here: a device
+    /// diff already parked by THIS function (waiting out a remainder) is
+    /// still parked when ANOTHER device settle fires (e.g. a second device
+    /// plugged in moments later). That new settle re-enters this same
+    /// function with fresh `devices`. Whichever branch it takes,
+    /// `supersedeAnyParkedDiff` (delay == 0) or `parkAndDelayDevicePost`
+    /// (delay > 0, via `scheduleGapLanding`'s own cancel-before-schedule)
+    /// invalidates the FIRST parked diff before doing anything else, so the
+    /// stale, now-superseded device list can never land later under a
+    /// devices-episode's-mismatched token, and "only the latest settled
+    /// device state matters" holds regardless of which path a device diff
+    /// arrives through. Without this, a `.runNow` diff arriving with
+    /// `delay == 0` while an OLDER diff was still parked from a PREVIOUS
+    /// settle would post the fresh data immediately while leaving the old
+    /// parked one to land later against an already-mutated `knownDevices`
+    /// baseline, producing a wrong diff for it.
+    func runNowOrDelayForRecentChargerPost(_ devices: [USBDevice]) {
+        let delay = Self.devicePostDelay(
+            elapsedSinceLastChargerPost: elapsedSinceLastChargerPost(),
+            presentationGap: deferredDeviceDiffPresentationGapWindow
+        )
+        if delay > .zero {
+            parkAndDelayDevicePost(devices, delay: delay)
+        } else {
+            supersedeAnyParkedDiff()
+            diffDevices(devices)
+        }
+    }
+
+    /// Parks `devices` as a fresh episode (its own token) and schedules a
+    /// gap-guarded landing after `delay`. `deferredDeviceDiffTimeoutTask` is
+    /// cancelled but never (re)started here: unlike `deferDeviceDiff`'s
+    /// charger-pending case, this delay is already a known, short, concrete
+    /// duration (a remainder of an event that already happened), not an open
+    /// wait for an uncertain future reconcile, so there's nothing for a
+    /// timeout backstop to bound.
+    private func parkAndDelayDevicePost(_ devices: [USBDevice], delay: Duration) {
+        deferredDeviceDiffToken += 1
+        let token = deferredDeviceDiffToken
+        deferredDeviceDiffDevices = devices
+        deferredDeviceDiffTimeoutTask?.cancel()
+        scheduleGapLanding(token: token, delay: delay)
+    }
+
+    /// Invalidates any diff currently parked, from either path (the
+    /// charger-pending timeout path or the presentation-gap path): cancels
+    /// both scheduled tasks, bumps both the token and the gap generation so
+    /// any of their still-in-flight continuations see a stale value and back
+    /// out, and clears the pending-gap flag. Called before running a device
+    /// diff immediately whenever an OLDER one might still be parked; see the
+    /// interleaving walk-through on `runNowOrDelayForRecentChargerPost`.
+    private func supersedeAnyParkedDiff() {
+        deferredDeviceDiffToken += 1
+        deferredDeviceDiffDevices = nil
+        deferredDeviceDiffTimeoutTask?.cancel()
+        deferredDeviceDiffPresentationGapTask?.cancel()
+        deferredDeviceDiffPresentationGapGeneration += 1
+        isPresentationGapPending = false
     }
 
     /// The single place a deferred device diff actually runs, reached from
@@ -786,6 +937,13 @@ final class NotificationManager {
     }
 
     private func postNotification(category: NotificationCategory, title: String, body: String) {
+        // Recorded here, not in reconcileChargers, so it reflects when a
+        // charger post ACTUALLY went out through the sink, matching the
+        // "posts go out through the sink" framing `devicePostDelay` reasons
+        // about. Both-orders fix: see `lastChargerPostTime`'s doc comment.
+        if category == .charger {
+            lastChargerPostTime = ContinuousClock.now
+        }
         notificationSink(category, NotificationContent(title: title, body: body))
     }
 }

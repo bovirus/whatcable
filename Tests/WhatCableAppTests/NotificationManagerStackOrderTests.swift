@@ -90,4 +90,72 @@ final class NotificationManagerStackOrderTests: XCTestCase {
             "no charger post means nothing on screen to clash with, so this must be unchanged from before the presentation-gap fix"
         )
     }
+
+    // MARK: - devicePostDelay (both-orders fix)
+    //
+    // Live logs showed the OTHER order: the charger settle fires first and
+    // posts, and the device settle's own window elapses moments later,
+    // finding isChargerSettlePending already false. The stack-order fix only
+    // covered device-fires-first; this rule covers charger-fires-first by
+    // consulting how long ago the last charger post actually went out.
+
+    func testReturnsTheRemainderWhenInsideTheWindow() {
+        XCTAssertEqual(
+            NotificationManager.devicePostDelay(
+                elapsedSinceLastChargerPost: .milliseconds(200),
+                presentationGap: .milliseconds(500)
+            ),
+            .milliseconds(300),
+            "a device post settling 200ms after a charger post, inside a 500ms gap, must wait out the REMAINDER (300ms), not the full gap again"
+        )
+    }
+
+    func testReturnsZeroWhenOutsideTheWindow() {
+        XCTAssertEqual(
+            NotificationManager.devicePostDelay(
+                elapsedSinceLastChargerPost: .milliseconds(600),
+                presentationGap: .milliseconds(500)
+            ),
+            .zero,
+            "a device post settling well after the gap has already elapsed has nothing to clash with"
+        )
+    }
+
+    func testReturnsZeroWhenNoChargerHasEverPosted() {
+        XCTAssertEqual(
+            NotificationManager.devicePostDelay(
+                elapsedSinceLastChargerPost: nil,
+                presentationGap: .milliseconds(500)
+            ),
+            .zero,
+            "nil (no charger post yet this launch) must not be treated as 'infinitely recent'"
+        )
+    }
+
+    func testReturnsZeroExactlyAtTheBoundary() {
+        XCTAssertEqual(
+            NotificationManager.devicePostDelay(
+                elapsedSinceLastChargerPost: .milliseconds(500),
+                presentationGap: .milliseconds(500)
+            ),
+            .zero,
+            "elapsed exactly equal to the gap means the gap has already fully elapsed, not 'still inside it'"
+        )
+    }
+
+    func testPlugInDirectionsNaturalSeparationIsNeverDelayed() {
+        // The plug-in direction's charger and device settles land roughly 2s
+        // apart in practice, far outside any plausible presentation-gap
+        // window; this pins that the rule genuinely returns zero for a
+        // realistic "unrelated, long-separated" case, not just the synthetic
+        // boundary values above.
+        XCTAssertEqual(
+            NotificationManager.devicePostDelay(
+                elapsedSinceLastChargerPost: .seconds(2),
+                presentationGap: .milliseconds(500)
+            ),
+            .zero,
+            "the plug-in direction's natural ~2s separation must remain undelayed"
+        )
+    }
 }

@@ -359,4 +359,250 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
             "a deferred diff with no reconcile must still land via the bounded timeout"
         )
     }
+
+    /// Both-orders fix: live logs showed the CHARGER settle firing first.
+    /// By the time the device settle's own window elapses, the charger has
+    /// already reconciled and posted, `isChargerSettlePending` reads false,
+    /// and `deviceDiffDisposition` says `.runNow`. Drives
+    /// `runNowOrDelayForRecentChargerPost` directly (mirroring how
+    /// `deferDeviceDiff` is driven elsewhere in this file), the same
+    /// function `scheduleDeviceDiff`'s `.runNow` case calls, so this
+    /// exercises the actual wiring, not just `devicePostDelay` in isolation.
+    @MainActor
+    func testARunNowDeviceDiffShortlyAfterAChargerPostWaitsOutTheRemainder() async {
+        let manager = NotificationManager.shared
+        let settings = AppSettings.shared
+
+        let originalSink = manager.notificationSink
+        let originalDidPrimeBaseline = manager.didPrimeBaseline
+        let originalKnownDevices = manager.knownDevices
+        let originalKnownChargerLabels = manager.knownChargerLabels
+        let originalGapWindow = manager.deferredDeviceDiffPresentationGapWindow
+        let originalNotifyOnChanges = settings.notifyOnChanges
+        let originalRequester = settings.requestNotificationAuthorization
+        settings.requestNotificationAuthorization = {}
+        defer {
+            manager.notificationSink = originalSink
+            manager.didPrimeBaseline = originalDidPrimeBaseline
+            manager.knownDevices = originalKnownDevices
+            manager.knownChargerLabels = originalKnownChargerLabels
+            manager.deferredDeviceDiffPresentationGapWindow = originalGapWindow
+            settings.notifyOnChanges = originalNotifyOnChanges
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnChanges = true
+        manager.deferredDeviceDiffPresentationGapWindow = .milliseconds(30)
+        manager.didPrimeBaseline = true
+        manager.knownDevices = [:]
+        // Baseline charger so reconcileChargers reads as a removal and
+        // actually posts (and so records lastChargerPostTime).
+        manager.knownChargerLabels = ["fake-port-1": "30W negotiated"]
+
+        var posted: [(NotificationManager.NotificationCategory, NotificationManager.NotificationContent)] = []
+        manager.notificationSink = { category, content in posted.append((category, content)) }
+
+        // Charger settle fires FIRST and finishes reconciling entirely,
+        // posting "Charger disconnected" and recording lastChargerPostTime.
+        // Nothing is parked afterwards: reconcileChargers's own defer lands
+        // nothing because deferDeviceDiff was never called on this path.
+        manager.reconcileChargers()
+
+        // The device settle fires a moment later, finds isChargerSettlePending
+        // already false (not simulated here directly; this IS the .runNow
+        // entry point scheduleDeviceDiff would have called).
+        manager.runNowOrDelayForRecentChargerPost([fakeDevice(id: 906)])
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.charger],
+            "the device post must not land in the same call as the charger post it just missed by a moment"
+        )
+
+        try? await Task.sleep(for: .milliseconds(100))
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.charger, .device],
+            "once the remainder of the presentation gap elapses, the device post must still land"
+        )
+    }
+
+    /// Same scenario as the test above, but driven through the ACTUAL
+    /// production call site (`scheduleDeviceDiff`, with `deviceSettleWindow`
+    /// shrunk) instead of calling `runNowOrDelayForRecentChargerPost`
+    /// directly. Codex review: the test above calls the helper directly, so
+    /// it stays green even if `scheduleDeviceDiff`'s `.runNow` case regressed
+    /// back to a bare `diffDevices(devices)` call, which is exactly the
+    /// charger-fires-first bug this fix exists to catch. Keeping BOTH tests:
+    /// the direct-helper one pins `runNowOrDelayForRecentChargerPost`'s own
+    /// logic in isolation, this one pins that the production call site
+    /// actually reaches it.
+    @MainActor
+    func testSchedulingADeviceDiffShortlyAfterAChargerPostWaitsOutTheRemainder() async {
+        let manager = NotificationManager.shared
+        let settings = AppSettings.shared
+
+        let originalSink = manager.notificationSink
+        let originalDidPrimeBaseline = manager.didPrimeBaseline
+        let originalKnownDevices = manager.knownDevices
+        let originalKnownChargerLabels = manager.knownChargerLabels
+        let originalDeviceSettleWindow = manager.deviceSettleWindow
+        let originalGapWindow = manager.deferredDeviceDiffPresentationGapWindow
+        let originalNotifyOnChanges = settings.notifyOnChanges
+        let originalRequester = settings.requestNotificationAuthorization
+        settings.requestNotificationAuthorization = {}
+        defer {
+            manager.notificationSink = originalSink
+            manager.didPrimeBaseline = originalDidPrimeBaseline
+            manager.knownDevices = originalKnownDevices
+            manager.knownChargerLabels = originalKnownChargerLabels
+            manager.deviceSettleWindow = originalDeviceSettleWindow
+            manager.deferredDeviceDiffPresentationGapWindow = originalGapWindow
+            settings.notifyOnChanges = originalNotifyOnChanges
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnChanges = true
+        manager.didPrimeBaseline = true
+        // The live WatcherHub.shared.deviceWatcher.devices this test process
+        // sees is empty (no watchers ever started), so a non-empty baseline
+        // here means the settled diff reads as a removal and actually posts,
+        // same reasoning as the charger baseline below.
+        manager.knownDevices = [
+            907: USBDeviceChangeGrouper.Snapshot(id: 907, locationID: 0x01_00_00_00, name: "Test Hub")
+        ]
+        manager.knownChargerLabels = ["fake-port-1": "30W negotiated"]
+        manager.deviceSettleWindow = .milliseconds(20)
+        // 200ms, not a shorter value: the gap is measured from the CHARGER
+        // post (reconcileChargers, below), not from when scheduleDeviceDiff
+        // is called a line later, so the assert-absent point at 60ms needs
+        // healthy margin before the ~200ms landing, not just margin after
+        // the 20ms settle. A tighter gap (e.g. 80ms) left only ~20ms of
+        // margin there, enough for a slow scheduler wake to fail correct
+        // code (flake-risk, not a real bug).
+        manager.deferredDeviceDiffPresentationGapWindow = .milliseconds(200)
+
+        var posted: [(NotificationManager.NotificationCategory, NotificationManager.NotificationContent)] = []
+        manager.notificationSink = { category, content in posted.append((category, content)) }
+
+        // Charger settle fires first and finishes reconciling entirely,
+        // posting "Charger disconnected" and recording lastChargerPostTime.
+        manager.reconcileChargers()
+
+        // Device settle fires moments later, through the real production
+        // call site: scheduleDeviceDiff's own 20ms Task.sleep, then a live
+        // (empty) WatcherHub.shared.deviceWatcher.devices read, then
+        // deviceDiffDisposition (isChargerSettlePending was never set by
+        // this test's direct reconcileChargers() call, so this reads
+        // .runNow), then runNowOrDelayForRecentChargerPost.
+        manager.scheduleDeviceDiff()
+
+        // Past the 20ms settle window (so the .runNow decision has been
+        // made). The gap is measured from the CHARGER post above (t=0, near
+        // enough, since scheduleDeviceDiff() runs the very next line), not
+        // from this call, so landing is expected ~200ms from there: 60ms
+        // leaves ~140ms of margin before that, comfortably clear of a slow
+        // scheduler wake.
+        try? await Task.sleep(for: .milliseconds(60))
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.charger],
+            "the device post must not land before the remainder of the presentation gap elapses"
+        )
+
+        // Comfortably past the ~200ms total (measured from the charger post).
+        try? await Task.sleep(for: .milliseconds(200))
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.charger, .device],
+            "once the remainder elapses, scheduleDeviceDiff's own .runNow path must still land the device post"
+        )
+    }
+
+    /// Adversarial review: `supersedeAnyParkedDiff` made a no-op leaves all
+    /// other tests in this file green, because none of them exercise "an
+    /// OLDER parked diff is still waiting when a NEWER, immediate (`delay ==
+    /// 0`) device diff runs". Reproduces the actual consequence: an older
+    /// diff parked via `deferDeviceDiff` (e.g. because a charger settle was
+    /// pending at the time) is still sitting there when a LATER device
+    /// settle's `.runNow` disposition, with no recent charger post to delay
+    /// for, posts immediately. If the older diff isn't invalidated first, its
+    /// own timeout later lands it against the ALREADY-MUTATED `knownDevices`
+    /// baseline the immediate post just wrote, producing a second, spurious
+    /// device notification.
+    ///
+    /// `fakeDevice(id:)` always uses the same `locationID`/`productName`, so
+    /// two different-id fake devices are a same-port "reconnect" to
+    /// `USBDeviceChangeGrouper`: this is what turns the stale landing's
+    /// diff (previous device removed, new device added) into exactly ONE
+    /// extra "Reconnected: Test Hub" post rather than a two-content batch,
+    /// so a bug here is visible as a clean `[.device, .device]` vs the
+    /// correct `[.device]`, matching what the reviewer's scratch test found.
+    @MainActor
+    func testAnOlderParkedDiffDoesNotLandAfterANewerImmediateDeviceDiffRuns() async {
+        let manager = NotificationManager.shared
+        let settings = AppSettings.shared
+
+        let originalSink = manager.notificationSink
+        let originalDidPrimeBaseline = manager.didPrimeBaseline
+        let originalKnownDevices = manager.knownDevices
+        let originalTimeoutWindow = manager.deferredDeviceDiffTimeoutWindow
+        let originalLastChargerPostTime = manager.lastChargerPostTime
+        let originalNotifyOnChanges = settings.notifyOnChanges
+        let originalRequester = settings.requestNotificationAuthorization
+        settings.requestNotificationAuthorization = {}
+        defer {
+            manager.notificationSink = originalSink
+            manager.didPrimeBaseline = originalDidPrimeBaseline
+            manager.knownDevices = originalKnownDevices
+            manager.deferredDeviceDiffTimeoutWindow = originalTimeoutWindow
+            manager.lastChargerPostTime = originalLastChargerPostTime
+            settings.notifyOnChanges = originalNotifyOnChanges
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnChanges = true
+        manager.didPrimeBaseline = true
+        manager.knownDevices = [:]
+        manager.deferredDeviceDiffTimeoutWindow = .milliseconds(40)
+        // NotificationManager.shared is a process-wide singleton: an EARLIER
+        // test's reconcileChargers() call can leave a timestamp here recent
+        // enough to make devicePostDelay non-zero for THIS test, taking the
+        // parked branch instead of the immediate one this test means to
+        // exercise. Reset explicitly rather than relying on test order.
+        manager.lastChargerPostTime = nil
+
+        var posted: [(NotificationManager.NotificationCategory, NotificationManager.NotificationContent)] = []
+        manager.notificationSink = { category, content in posted.append((category, content)) }
+
+        // Park an OLDER diff (as deferDeviceDiff would if a charger settle
+        // had been pending), starting its 40ms timeout backstop.
+        manager.deferDeviceDiff([fakeDevice(id: 950)])
+
+        // A NEWER device settle's .runNow disposition, with no recent
+        // charger post (lastChargerPostTime is nil, reset above), so
+        // devicePostDelay is zero: posts immediately. Correct code must
+        // invalidate the older parked diff (950) first, via
+        // supersedeAnyParkedDiff, so it can never land later.
+        manager.runNowOrDelayForRecentChargerPost([fakeDevice(id: 951)])
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.device],
+            "the immediate post must land exactly once, and the older parked diff must already be invalidated"
+        )
+
+        // Past where the older diff's 40ms timeout would have elapsed, with
+        // generous margin.
+        try? await Task.sleep(for: .milliseconds(150))
+
+        XCTAssertEqual(
+            posted.map(\.0),
+            [.device],
+            "the older parked diff's timeout must never land a second, spurious device post"
+        )
+    }
 }

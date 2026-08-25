@@ -140,6 +140,13 @@ final class NotificationManager {
             current: currentSnapshots
         )
 
+        // Diagnostic: reconstruct the same reconnect-gate check
+        // `deviceNotificationContents` runs below, so the log line reflects
+        // what actually decides "Reconnected" vs "Disconnected"+"Connected".
+        let reconnectGateFired = removedGroups.count == 1 && addedGroups.count == 1
+            && Self.isReconnectPair(removed: removedGroups[0], added: addedGroups[0])
+        Self.log.info("diffDevices: addedGroups=\(addedGroups.count, privacy: .public) removedGroups=\(removedGroups.count, privacy: .public) addedRoots=\(addedGroups.map(\.rootName).joined(separator: ", "), privacy: .public) removedRoots=\(removedGroups.map(\.rootName).joined(separator: ", "), privacy: .public) reconnectGateFired=\(reconnectGateFired, privacy: .public)")
+
         // Recover the full USBDevice for the speed/vendor body of a
         // single-member group by identity (rootID), not by name: two hubs of
         // the same model report the same product name, so name matching
@@ -355,6 +362,8 @@ final class NotificationManager {
         let previousLabels = knownChargerLabels
         knownChargerLabels = currentLabels
 
+        Self.log.info("reconcileChargers: added=\(addedPortKeys.count, privacy: .public) removed=\(removedPortKeys.count, privacy: .public)")
+
         guard AppSettings.shared.notifyOnChanges else { return }
 
         // Every added port key already has a label in currentLabels (it was
@@ -392,11 +401,22 @@ final class NotificationManager {
         if !body.isEmpty { content.body = body }
         content.sound = nil
 
+        let identifier = Self.notificationIdentifier(for: category)
+        let bodyLineCount = body.isEmpty ? 0 : body.split(separator: "\n").count
+        Self.log.info("postNotification: identifier=\(identifier, privacy: .public) title=\(title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
+
+        // Diagnostic only: surface whether the system would even show this,
+        // so a "posted but never seen" report can be told apart from
+        // "never posted". Doesn't gate or change the post below.
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            Self.log.info("postNotification: authorizationStatus=\(settings.authorizationStatus.rawValue, privacy: .public) alertSetting=\(settings.alertSetting.rawValue, privacy: .public)")
+        }
+
         // Same identifier per category replaces the previous notification
         // in place rather than stacking a new one (issue #567): a second
         // device event leaves ONE entry in Notification Centre, not two.
         let request = UNNotificationRequest(
-            identifier: Self.notificationIdentifier(for: category),
+            identifier: identifier,
             content: content,
             trigger: nil
         )

@@ -81,6 +81,12 @@ struct WhatCableApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSWindowDelegate, UNUserNotificationCenterDelegate {
     static let refreshSignal = RefreshSignal.shared
 
+    /// Diagnostic-only logging for the notification-click investigation.
+    /// `.info` level, `.public` privacy on identifiers/titles/booleans
+    /// (device names, not personal data), so `log stream --level info` can
+    /// reconstruct the full click-to-popover sequence without reasoning.
+    private nonisolated static let notificationClickLog = Logger(subsystem: "uk.whatcable.whatcable", category: "notification-clicks")
+
     // Menu bar mode
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
@@ -309,12 +315,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private func presentMainSurface() {
         activateApp()
         if AppSettings.shared.useMenuBarMode {
+            Self.notificationClickLog.info("presentMainSurface: mode=menuBar popoverExists=\(self.popover != nil, privacy: .public) popoverIsShown=\(self.popover?.isShown ?? false, privacy: .public)")
             if let button = statusItem?.button, let popover, !popover.isShown {
                 togglePopover(from: button)
             }
         } else if let window {
+            Self.notificationClickLog.info("presentMainSurface: mode=window")
             window.makeKeyAndOrderFront(nil)
         } else {
+            Self.notificationClickLog.info("presentMainSurface: mode=window")
             setUpWindowMode()
         }
     }
@@ -1094,6 +1103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     }
 
     nonisolated func popoverDidClose(_ notification: Notification) {
+        Self.notificationClickLog.info("popoverDidClose")
         Task { @MainActor in
             // Belt-and-braces alongside togglePopover's own cancel: any close,
             // however it happened, drops a queued reanchor so it can't fire
@@ -1132,6 +1142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        Self.notificationClickLog.info("willPresent: identifier=\(notification.request.identifier, privacy: .public)")
         completionHandler([.banner, .list])
     }
 
@@ -1146,11 +1157,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         // today, but macOS also routes a plain dismiss through this same
         // delegate method with its own actionIdentifier, and that must not
         // be treated as a click.
-        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else {
+        let identifier = response.notification.request.identifier
+        let actionIdentifier = response.actionIdentifier
+        Task { @MainActor in
+            Self.notificationClickLog.info("didReceive: identifier=\(identifier, privacy: .public) actionIdentifier=\(actionIdentifier, privacy: .public) isActive=\(NSApp.isActive, privacy: .public)")
+        }
+        guard actionIdentifier == UNNotificationDefaultActionIdentifier else {
             completionHandler()
             return
         }
-        let action = NotificationRouting.action(for: response.notification.request.identifier)
+        let action = NotificationRouting.action(for: identifier)
         Task { @MainActor in
             self.routeNotificationClick(action)
         }
@@ -1169,7 +1185,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         Self.refreshSignal.showSettings = false
         Self.refreshSignal.activeProScreen = nil
 
-        switch NotificationClickPresentation.decide(isAppActive: NSApp.isActive) {
+        let presentation = NotificationClickPresentation.decide(isAppActive: NSApp.isActive)
+        Self.notificationClickLog.info("routeNotificationClick: presentation=\(String(describing: presentation), privacy: .public)")
+        switch presentation {
         case .presentNow:
             presentMainSurface()
         case .activateThenPresentOnActivation:
@@ -1227,13 +1245,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                Self.notificationClickLog.info("activation observer fired")
                 self?.finishPendingNotificationActivation()
             }
         }
         pendingNotificationActivationObserver = observer
+        Self.notificationClickLog.info("presentMainSurfaceAfterActivation: observer registered")
 
         let timeout = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
+                Self.notificationClickLog.info("activation timeout fired")
                 self?.finishPendingNotificationActivation()
             }
         }
@@ -1248,6 +1269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// present. Whichever path calls this first cancels the other, so only
     /// one `presentMainSurface()` call ever happens per pending activation.
     private func finishPendingNotificationActivation() {
+        Self.notificationClickLog.info("finishPendingNotificationActivation")
         clearPendingNotificationActivation()
         presentMainSurface()
     }

@@ -145,17 +145,22 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testPlugInDirectionsNaturalSeparationIsNeverDelayed() {
         // The plug-in direction's charger and device settles land roughly 2s
-        // apart in practice, far outside any plausible presentation-gap
-        // window; this pins that the rule genuinely returns zero for a
-        // realistic "unrelated, long-separated" case, not just the synthetic
-        // boundary values above.
+        // apart in practice. That used to be a comfortable 4x margin over
+        // the 500ms gap; now that the gap itself is 2s (measured
+        // insufficient at 500ms, see `deferredDeviceDiffPresentationGapWindow`'s
+        // doc comment), the margin is gone -- a plug-in whose natural
+        // separation happens to land AT or under 2s could now get delayed
+        // for real, not just in a synthetic test. 2.5s here is a deliberately
+        // generous separation (comfortably above the 2s production gap) so
+        // this still demonstrates "genuinely separated, not delayed", not the
+        // boundary case `testReturnsZeroExactlyAtTheBoundary` already covers.
         XCTAssertEqual(
             NotificationManager.devicePostDelay(
-                elapsedSinceLastChargerPost: .seconds(2),
-                presentationGap: .milliseconds(500)
+                elapsedSinceLastChargerPost: .milliseconds(2500),
+                presentationGap: .milliseconds(2000)
             ),
             .zero,
-            "the plug-in direction's natural ~2s separation must remain undelayed"
+            "a plug-in separation comfortably above the 2s gap must remain undelayed"
         )
     }
 }

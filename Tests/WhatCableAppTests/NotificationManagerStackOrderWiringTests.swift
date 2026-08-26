@@ -316,7 +316,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
 
     /// The bounded fallback: if `reconcileChargers` never runs (charger side
     /// stayed quiet), the parked diff must still land, capped at
-    /// `deferredDeviceDiffTimeoutWindow` rather than waiting forever.
+    /// `deferredDeviceDiffDeadlineWindow` rather than waiting forever.
     /// Shrunk to well under a second so this stays a fast, non-flaky test;
     /// only the WINDOW is faked, not the mechanism.
     @MainActor
@@ -327,7 +327,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
         let originalSink = manager.notificationSink
         let originalDidPrimeBaseline = manager.didPrimeBaseline
         let originalKnownDevices = manager.knownDevices
-        let originalTimeoutWindow = manager.deferredDeviceDiffTimeoutWindow
+        let originalDeadlineWindow = manager.deferredDeviceDiffDeadlineWindow
         let originalNotifyOnChanges = settings.notifyOnChanges
         let originalRequester = settings.requestNotificationAuthorization
         settings.requestNotificationAuthorization = {}
@@ -335,13 +335,13 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
             manager.notificationSink = originalSink
             manager.didPrimeBaseline = originalDidPrimeBaseline
             manager.knownDevices = originalKnownDevices
-            manager.deferredDeviceDiffTimeoutWindow = originalTimeoutWindow
+            manager.deferredDeviceDiffDeadlineWindow = originalDeadlineWindow
             settings.notifyOnChanges = originalNotifyOnChanges
             settings.requestNotificationAuthorization = originalRequester
         }
 
         settings.notifyOnChanges = true
-        manager.deferredDeviceDiffTimeoutWindow = .milliseconds(50)
+        manager.deferredDeviceDiffDeadlineWindow = .milliseconds(50)
         manager.didPrimeBaseline = true
         manager.knownDevices = [:]
 
@@ -350,13 +350,13 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
 
         manager.deferDeviceDiff([fakeDevice(id: 902)])
         // Deliberately never call reconcileChargers: only the bounded
-        // timeout can land this diff.
+        // deadline can land this diff.
         try? await Task.sleep(for: .milliseconds(300))
 
         XCTAssertEqual(
             posted.map(\.0),
             [.device],
-            "a deferred diff with no reconcile must still land via the bounded timeout"
+            "a deferred diff with no reconcile must still land via the bounded deadline"
         )
     }
 
@@ -549,7 +549,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
         let originalSink = manager.notificationSink
         let originalDidPrimeBaseline = manager.didPrimeBaseline
         let originalKnownDevices = manager.knownDevices
-        let originalTimeoutWindow = manager.deferredDeviceDiffTimeoutWindow
+        let originalDeadlineWindow = manager.deferredDeviceDiffDeadlineWindow
         let originalLastChargerPostTime = manager.lastChargerPostTime
         let originalNotifyOnChanges = settings.notifyOnChanges
         let originalRequester = settings.requestNotificationAuthorization
@@ -558,7 +558,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
             manager.notificationSink = originalSink
             manager.didPrimeBaseline = originalDidPrimeBaseline
             manager.knownDevices = originalKnownDevices
-            manager.deferredDeviceDiffTimeoutWindow = originalTimeoutWindow
+            manager.deferredDeviceDiffDeadlineWindow = originalDeadlineWindow
             manager.lastChargerPostTime = originalLastChargerPostTime
             settings.notifyOnChanges = originalNotifyOnChanges
             settings.requestNotificationAuthorization = originalRequester
@@ -567,7 +567,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
         settings.notifyOnChanges = true
         manager.didPrimeBaseline = true
         manager.knownDevices = [:]
-        manager.deferredDeviceDiffTimeoutWindow = .milliseconds(40)
+        manager.deferredDeviceDiffDeadlineWindow = .milliseconds(40)
         // NotificationManager.shared is a process-wide singleton: an EARLIER
         // test's reconcileChargers() call can leave a timestamp here recent
         // enough to make devicePostDelay non-zero for THIS test, taking the
@@ -579,7 +579,7 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
         manager.notificationSink = { category, content in posted.append((category, content)) }
 
         // Park an OLDER diff (as deferDeviceDiff would if a charger settle
-        // had been pending), starting its 40ms timeout backstop.
+        // had been pending), starting its 40ms deadline backstop.
         manager.deferDeviceDiff([fakeDevice(id: 950)])
 
         // A NEWER device settle's .runNow disposition, with no recent
@@ -595,14 +595,155 @@ final class NotificationManagerStackOrderWiringTests: XCTestCase {
             "the immediate post must land exactly once, and the older parked diff must already be invalidated"
         )
 
-        // Past where the older diff's 40ms timeout would have elapsed, with
+        // Past where the older diff's 40ms deadline would have elapsed, with
         // generous margin.
         try? await Task.sleep(for: .milliseconds(150))
 
         XCTAssertEqual(
             posted.map(\.0),
             [.device],
-            "the older parked diff's timeout must never land a second, spurious device post"
+            "the older parked diff's deadline must never land a second, spurious device post"
+        )
+    }
+
+    /// SUPERSEDED (owner decision): an earlier design cancelled the parked
+    /// diff's timeout the moment a presentation gap took over landing, on
+    /// the theory that the gap is then the sole scheduled lander. Both
+    /// reviewers converged on the same finding: that left the gap phase with
+    /// NO upper bound. Every charger post while a diff sat parked
+    /// re-scheduled a fresh `deferredDeviceDiffPresentationGapWindow`-long
+    /// gap, and sustained PD flapping (real; see `chargerSettleWindow`'s own
+    /// doc comment) could delay the device banner indefinitely. The test
+    /// that used to live here (`testTheParkedDiffsTimeoutIsCancelledOnceTheGapTakesOverLanding`)
+    /// pinned exactly that now-replaced behaviour and would fail under the
+    /// corrected design (an uncancelled deadline landing the diff on its own
+    /// schedule is now CORRECT, not a bug), so it's replaced below by a test
+    /// for the actual fix: the absolute, non-resetting deadline. See
+    /// `deferredDeviceDiffDeadlineWindow`'s doc comment for the full design.
+
+    /// Starvation fix, the actual replacement test: drives eight reconciles
+    /// in a row, each posting real charger content and re-extending the
+    /// presentation gap before the previous one would have elapsed on its
+    /// own, so the gap NEVER naturally completes across the whole run. The
+    /// diff must still land, by the absolute deadline (fixed at park time),
+    /// despite that continuous re-extension.
+    ///
+    /// Codex flake-margin review (twice): the first version of this test
+    /// placed its decisive assertions only ~100ms from both the deadline and
+    /// the final gap's own natural elapse, and `Task.sleep` is a documented
+    /// MINIMUM, not an exact deadline, so ordinary scheduler latency could
+    /// fail correct code (or let a reset bug slip through) depending on
+    /// which side the jitter landed on. Rebuilt with windows separated by
+    /// 500ms+ instead of 100ms: gap 400ms, reconciles every 250ms (comfortably
+    /// inside the gap, so every one lands before the previous would have
+    /// expired), deadline 1500ms. Reconciles continue past the deadline too
+    /// (up to t=1750), so the gap is STILL being actively re-extended right
+    /// up to the point the deadline fires -- there is no moment where a
+    /// merely-quiescent gap could coincidentally land the diff instead of the
+    /// deadline actually doing its job.
+    @MainActor
+    func testTheAbsoluteDeadlineLandsTheDiffDespiteSustainedGapReExtension() async {
+        let manager = NotificationManager.shared
+        let settings = AppSettings.shared
+
+        let originalSink = manager.notificationSink
+        let originalDidPrimeBaseline = manager.didPrimeBaseline
+        let originalKnownDevices = manager.knownDevices
+        let originalKnownChargerLabels = manager.knownChargerLabels
+        let originalDeadlineWindow = manager.deferredDeviceDiffDeadlineWindow
+        let originalGapWindow = manager.deferredDeviceDiffPresentationGapWindow
+        let originalNotifyOnChanges = settings.notifyOnChanges
+        let originalRequester = settings.requestNotificationAuthorization
+        settings.requestNotificationAuthorization = {}
+        defer {
+            manager.notificationSink = originalSink
+            manager.didPrimeBaseline = originalDidPrimeBaseline
+            manager.knownDevices = originalKnownDevices
+            manager.knownChargerLabels = originalKnownChargerLabels
+            manager.deferredDeviceDiffDeadlineWindow = originalDeadlineWindow
+            manager.deferredDeviceDiffPresentationGapWindow = originalGapWindow
+            settings.notifyOnChanges = originalNotifyOnChanges
+            settings.requestNotificationAuthorization = originalRequester
+        }
+
+        settings.notifyOnChanges = true
+        manager.didPrimeBaseline = true
+        manager.knownDevices = [:]
+        // Gap window: each reconcile below is spaced 250ms apart, well
+        // inside this 400ms window (150ms margin per re-extension), so every
+        // one re-extends the gap before the previous one could complete
+        // naturally.
+        manager.deferredDeviceDiffPresentationGapWindow = .milliseconds(400)
+        // Deadline: fixed at park time (t=0), independent of the gap
+        // re-scheduling below. Deliberately BETWEEN the 4th and 8th
+        // reconciles (t=750 and t=1750), so at the moment it fires the gap is
+        // still being actively re-extended, not idle -- the deadline is
+        // provably what lands the diff, never a gap that just happened to go
+        // quiet.
+        manager.deferredDeviceDiffDeadlineWindow = .milliseconds(1500)
+
+        var posted: [(NotificationManager.NotificationCategory, NotificationManager.NotificationContent)] = []
+        manager.notificationSink = { category, content in posted.append((category, content)) }
+
+        // Park a diff as deferDeviceDiff would if the device settle found a
+        // charger settle pending, starting the 1500ms deadline at t=0.
+        manager.deferDeviceDiff([fakeDevice(id: 908)])
+
+        // Eight reconciles, each with a DIFFERENT baseline charger port so
+        // each one reads as a genuine removal and posts real content
+        // (re-extending the gap), 250ms apart: t=0, 250, 500, 750, 1000,
+        // 1250, 1500, 1750. The loop pauses after the 4th (t=750) to take the
+        // "still waiting" measurement at t=1000, 500ms clear of the deadline
+        // in either direction from the nearest reconcile.
+        let chargerPortKeys = (1...8).map { "fake-port-\($0)" }
+        for (index, portKey) in chargerPortKeys.enumerated() {
+            manager.knownChargerLabels = [portKey: "30W negotiated"]
+            manager.reconcileChargers()
+            let isLast = index == chargerPortKeys.count - 1
+            // Exactly ONE 250ms sleep per iteration (except after the last
+            // reconcile). An earlier draft of this test also slept an EXTRA
+            // 250ms right after the index==3 assertion below, on top of this
+            // one -- that 500ms combined pause exceeded the 400ms gap window,
+            // so gap4 (from t=750) elapsed on its own at t=1150 before
+            // reconcile #5 could arrive and re-extend it, and the diff landed
+            // via that ordinary gap completion instead of the deadline this
+            // test exists to prove. Single sleep, verified against the
+            // failure it produces below.
+            if !isLast {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            if index == 3 {
+                // t=750 (4th reconcile) + this iteration's 250ms sleep = t=1000:
+                // comfortably past several re-extensions, comfortably (500ms)
+                // short of the 1500ms deadline.
+                XCTAssertEqual(
+                    posted.map(\.0),
+                    Array(repeating: .charger, count: 4),
+                    "still waiting at t=1000: four charger posts, no device post yet, 500ms clear of the 1500ms deadline"
+                )
+            }
+        }
+        // Loop ends right after the 8th reconcile, at cumulative t=1750.
+
+        // t=1750 + 250ms = t=2000: 500ms past the deadline (1500), and the
+        // 8th (final, now-uninterrupted) gap would only reach its OWN
+        // natural elapse at t=1750+400=2150, still 150ms in the future here.
+        // Landing by this point can only be the deadline's doing.
+        try? await Task.sleep(for: .milliseconds(250))
+
+        // Counts, not an exact ordered sequence: reconciles #6/#7 land at
+        // essentially the same wall-clock instant as the 1500ms deadline
+        // (t=1500), so which side of the deadline's landing they happen to
+        // be scheduled on is a legitimate MainActor-ordering race the
+        // token/generation guards resolve safely, not something this
+        // assertion should pin an exact position to.
+        XCTAssertEqual(
+            posted.filter { $0.0 == .charger }.count, 8,
+            "all eight charger posts must have gone out"
+        )
+        XCTAssertEqual(
+            posted.filter { $0.0 == .device }.count, 1,
+            "the absolute deadline must land the diff exactly once, despite the gap having been continuously re-extended, well before the final gap's own natural elapse"
         )
     }
 }

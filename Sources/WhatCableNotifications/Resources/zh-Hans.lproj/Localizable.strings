@@ -1,7 +1,10 @@
+"%@ negotiated" = "已协商 %@";
 "Charger connected" = "充电器已连接";
 "Charger disconnected" = "充电器已断开";
 "Connected: %@" = "已连接：%@";
 "Disconnected: %@" = "已断开：%@";
+"PD source" = "PD 供电源";
 "Reconnected: %@" = "已重新连接：%@";
+"USB device" = "USB 设备";
 "USB devices connected" = "USB 设备已连接";
 "USB devices disconnected" = "USB 设备已断开";

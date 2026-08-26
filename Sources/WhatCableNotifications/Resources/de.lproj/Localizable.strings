@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ ausgehandelt";
 "Charger connected" = "Ladegerät verbunden";
 "Charger disconnected" = "Ladegerät getrennt";
 "Connected: %@" = "Verbunden: %@";
 "Disconnected: %@" = "Getrennt: %@";
+"PD source" = "PD-Quelle";
 "Reconnected: %@" = "Erneut verbunden: %@";
+"USB device" = "USB-Gerät";
 "USB devices connected" = "USB-Geräte verbunden";
 "USB devices disconnected" = "USB-Geräte getrennt";

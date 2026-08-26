@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ müzakere edildi";
 "Charger connected" = "Şarj aleti bağlandı";
 "Charger disconnected" = "Şarj aleti çıkarıldı";
 "Connected: %@" = "Bağlı: %@";
 "Disconnected: %@" = "Bağlantı kesildi: %@";
+"PD source" = "PD kaynağı";
 "Reconnected: %@" = "Yeniden bağlandı: %@";
+"USB device" = "USB aygıtı";
 "USB devices connected" = "USB aygıtları bağlandı";
 "USB devices disconnected" = "USB aygıtları çıkarıldı";

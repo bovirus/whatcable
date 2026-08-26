@@ -1,7 +1,10 @@
+"%@ negotiated" = "համաձայնեցված է %@";
 "Charger connected" = "Լիցքավորիչը միացված է";
 "Charger disconnected" = "Լիցքավորիչը անջատված է";
 "Connected: %@" = "Միացված է՝ %@";
 "Disconnected: %@" = "Անջատված է՝ %@";
+"PD source" = "PD հոսանքի աղբյուր";
 "Reconnected: %@" = "Վերամիացված է՝ %@";
+"USB device" = "USB սարք";
 "USB devices connected" = "USB սարքերը միացվեցին";
 "USB devices disconnected" = "USB սարքերն անջատվեցին";

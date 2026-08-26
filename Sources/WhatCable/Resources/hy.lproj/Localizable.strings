@@ -1,4 +1,3 @@
-"%@ negotiated" = "համաձայնեցված է %@";
 "%@ profiles" = "%@ ռեժիմ";
 "%lld USB-C ports and 1 MagSafe port detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "Հայտնաբերվել է %lld USB-C պորտ և 1 MagSafe պորտ, սակայն այս պահին ոչինչ միացված չէ։ Դրանք տեսնելու համար «Կարգավորումներում» անջատեք «Թաքցնել դատարկ պորտերը» ֆունկցիան:";
 "%lld USB-C ports detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "Հայտնաբերվել է %lld USB-C պորտ, սակայն այս պահին ոչինչ միացված չէ։ Դրանք տեսնելու համար «Կարգավորումներում» անջատեք «Թաքցնել դատարկ պորտերը» ֆունկցիան:";
@@ -52,7 +51,6 @@
 "Open in GitHub" = "Բացել GitHub-ում";
 "Opens a pre-filled GitHub issue in your browser. Nothing is sent until you submit there." = "Ձեր բրաուզերում կբացվի նախապես լրացված GitHub issue: Ոչինչ չի ուղարկվի, մինչև դուք չհաստատեք այնտեղ:";
 "Optical" = "Օպտիկական";
-"PD source" = "PD հոսանքի աղբյուր";
 "Plug events" = "Միացման իրադարձություններ";
 "Preview of what will be included:" = "Ներառվող տվյալների նախադիտում.";
 "Provisioned" = "Կարգավորված";
@@ -72,7 +70,6 @@
 "Thunderbolt fabric" = "Thunderbolt կառուցվածք";
 "Transports" = "Տվյալների փոխանցում";
 "USB active" = "USB-ն ակտիվ է";
-"USB device" = "USB սարք";
 "Unknown" = "Անհայտ";
 "Verifying signature…" = "Ստուգվում է թվային ստորագրությունը…";
 "View release" = "Տեսնել թողարկումը";

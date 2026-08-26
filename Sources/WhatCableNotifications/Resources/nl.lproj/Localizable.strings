@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ onderhandeld";
 "Charger connected" = "Oplader verbonden";
 "Charger disconnected" = "Oplader verbroken";
 "Connected: %@" = "Verbonden: %@";
 "Disconnected: %@" = "Verbroken: %@";
+"PD source" = "PD-bron";
 "Reconnected: %@" = "Opnieuw verbonden: %@";
+"USB device" = "USB-apparaat";
 "USB devices connected" = "USB-apparaten verbonden";
 "USB devices disconnected" = "USB-apparaten verbroken";

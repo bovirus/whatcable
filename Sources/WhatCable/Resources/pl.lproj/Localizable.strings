@@ -1,4 +1,3 @@
-"%@ negotiated" = "%@ wynegocjowane";
 "%@ profiles" = "%@ profili zasilania";
 "%lld USB-C ports and 1 MagSafe port detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "Wykryto %lld portów USB-C i 1 port MagSafe, ale nic nie jest aktualnie podłączone. Wyłącz opcję \"Ukryj puste porty\" w Ustawieniach, aby je zobaczyć.";
 "%lld USB-C ports detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "Wykryto %lld portów USB-C, ale nic nie jest aktualnie podłączone. Wyłącz opcję \"Ukryj puste porty\" w Ustawieniach, aby je zobaczyć.";
@@ -52,7 +51,6 @@
 "Open in GitHub" = "Otwórz w GitHub";
 "Opens a pre-filled GitHub issue in your browser. Nothing is sent until you submit there." = "Otwiera wstępnie wypełniony problem GitHub w przeglądarce. Nic nie jest wysyłane, dopóki nie wyślesz go tam.";
 "Optical" = "Optyczny";
-"PD source" = "Źródło PD";
 "Plug events" = "Zdarzenia podłączania";
 "Preview of what will be included:" = "Podgląd tego, co zostanie dołączone:";
 "Provisioned" = "Skonfigurowane";
@@ -72,7 +70,6 @@
 "Thunderbolt fabric" = "Topologia Thunderbolt";
 "Transports" = "Transporty";
 "USB active" = "USB aktywne";
-"USB device" = "Urządzenie USB";
 "Unknown" = "Nieznane";
 "Verifying signature…" = "Weryfikacja podpisu…";
 "View release" = "Zobacz wydanie";

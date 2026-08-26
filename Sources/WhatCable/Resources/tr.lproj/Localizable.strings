@@ -1,4 +1,3 @@
-"%@ negotiated" = "%@ müzakere edildi";
 "%@ profiles" = "%@ profil";
 "%lld USB-C ports and 1 MagSafe port detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "%lld USB-C bağlantı noktası ve 1 MagSafe bağlantı noktası algılandı, ancak şu anda hiçbir şey takılı değil. Görmek için Ayarlar'dan \"Boş bağlantı noktalarını gizle\" seçeneğini kapatın.";
 "%lld USB-C ports detected, but nothing is currently plugged in. Turn off \"Hide empty ports\" in Settings to see them." = "%lld USB-C bağlantı noktası algılandı, ancak şu anda hiçbir şey takılı değil. Görmek için Ayarlar'dan \"Boş bağlantı noktalarını gizle\" seçeneğini kapatın.";
@@ -52,7 +51,6 @@
 "Open in GitHub" = "GitHub'da aç";
 "Opens a pre-filled GitHub issue in your browser. Nothing is sent until you submit there." = "Tarayıcınızda önceden doldurulmuş bir GitHub sorunu açar. Orada göndermeden önce hiçbir şey iletilmez.";
 "Optical" = "Optik";
-"PD source" = "PD kaynağı";
 "Plug events" = "Bağlantı olayları";
 "Preview of what will be included:" = "Dahil edileceklerin önizlemesi:";
 "Provisioned" = "Sağlandı";
@@ -72,7 +70,6 @@
 "Thunderbolt fabric" = "Thunderbolt fabric";
 "Transports" = "Aktarımlar";
 "USB active" = "USB etkin";
-"USB device" = "USB aygıtı";
 "Unknown" = "Bilinmiyor";
 "Verifying signature…" = "İmza doğrulanıyor…";
 "View release" = "Sürümü görüntüle";

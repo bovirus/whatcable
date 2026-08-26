@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ saskaņots";
 "Charger connected" = "Lādētājs pievienots";
 "Charger disconnected" = "Lādētājs atvienots";
 "Connected: %@" = "Pievienots: %@";
 "Disconnected: %@" = "Atvienots: %@";
+"PD source" = "PD avots";
 "Reconnected: %@" = "Atkārtoti pievienots: %@";
+"USB device" = "USB ierīce";
 "USB devices connected" = "USB ierīces pievienotas";
 "USB devices disconnected" = "USB ierīces atvienotas";

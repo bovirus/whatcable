@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ узгоджено";
 "Charger connected" = "Зарядний пристрій підключено";
 "Charger disconnected" = "Зарядний пристрій відключено";
 "Connected: %@" = "Підключено: %@";
 "Disconnected: %@" = "Відключено: %@";
+"PD source" = "Джерело PD";
 "Reconnected: %@" = "Повторно підключено: %@";
+"USB device" = "USB-пристрій";
 "USB devices connected" = "USB-пристрої підключено";
 "USB devices disconnected" = "USB-пристрої відключено";

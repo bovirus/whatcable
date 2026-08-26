@@ -1,7 +1,10 @@
+"%@ negotiated" = "%@ negociado";
 "Charger connected" = "Carregador conectado";
 "Charger disconnected" = "Carregador desconectado";
 "Connected: %@" = "Conectado: %@";
 "Disconnected: %@" = "Desconectado: %@";
+"PD source" = "Fonte PD";
 "Reconnected: %@" = "Reconectado: %@";
+"USB device" = "Dispositivo USB";
 "USB devices connected" = "Dispositivos USB conectados";
 "USB devices disconnected" = "Dispositivos USB desconectados";

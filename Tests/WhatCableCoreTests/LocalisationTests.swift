@@ -42,10 +42,23 @@ struct LocalisationTests {
     /// Files are read from the source tree (not the test bundle) so a single
     /// test in this target can validate every target's `.lproj` set.
     @Test("Localisation key + format-specifier parity", arguments: [
-        "Sources/WhatCableCore/Resources",
-        "Sources/WhatCable/Resources",
+        // (resourceDir, sanity-floor on en.lproj's key count -- just enough
+        // to catch a totally broken parse, not a real per-module size
+        // assumption; each module's own key count is genuinely different.)
+        ("Sources/WhatCableCore/Resources", 20),
+        ("Sources/WhatCable/Resources", 20),
+        // WhatCableNotifications' 19 .lproj files (Codex review, finding 3):
+        // this parity check reads directly from the source tree rather than
+        // `Bundle.module`, so a resourceDir belonging to another target is
+        // just as checkable here as WhatCableCore's own. No sibling test
+        // target needed for that reason: the logic below is target-agnostic
+        // already, and duplicating it in WhatCableNotificationsTests would
+        // just be the same check running twice. Its en.lproj carries far
+        // fewer keys (13, all short notification titles/bodies) than the
+        // other two modules, hence its own, lower floor.
+        ("Sources/WhatCableNotifications/Resources", 10),
     ])
-    func localisationParity(resourceDir: String) throws {
+    func localisationParity(resourceDir: String, minimumEnglishKeyCount: Int) throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()   // WhatCableCoreTests
             .deletingLastPathComponent()   // Tests
@@ -53,7 +66,10 @@ struct LocalisationTests {
         let base = repoRoot.appendingPathComponent(resourceDir)
 
         let enStrings = try loadStrings(base.appendingPathComponent("en.lproj/Localizable.strings"))
-        #expect(enStrings.count > 20, "\(resourceDir)/en.lproj is unexpectedly small (\(enStrings.count) keys)")
+        #expect(
+            enStrings.count > minimumEnglishKeyCount,
+            "\(resourceDir)/en.lproj is unexpectedly small (\(enStrings.count) keys)"
+        )
         let enKeys = Set(enStrings.keys)
 
         let lprojs = try FileManager.default

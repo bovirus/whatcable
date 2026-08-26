@@ -33,6 +33,19 @@ final class DeviceDiffSequencerTests: XCTestCase {
         )
     }
 
+    /// Same shape as `fakeDevice(id:)`, but with a distinct `locationID` and
+    /// `productName` so two of these (one baseline, one settled) are NOT a
+    /// same-port reconnect pair to `NotificationDecision.isReconnectPair`,
+    /// producing a genuine removed-then-added mixed batch instead.
+    private func fakeDevice(id: UInt64, locationID: UInt32, name: String) -> USBDevice {
+        USBDevice(
+            id: id, locationID: locationID, vendorID: 0, productID: 0,
+            vendorName: nil, productName: name, serialNumber: nil,
+            usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+    }
+
     /// A sequencer wired to `clock`, an always-empty live device/charger
     /// read (every test drives `knownDevices`/`knownChargerLabels` directly
     /// instead, exactly as the original wiring tests did against the real,
@@ -45,6 +58,7 @@ final class DeviceDiffSequencerTests: XCTestCase {
         clock: ManualClock,
         posted: PostedLog,
         currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
+        currentLabelledCables: @escaping () -> [String: String]? = { nil },
         notifyOnChanges: @escaping () -> Bool = { true }
     ) -> DeviceDiffSequencer<ManualClock> {
         DeviceDiffSequencer(
@@ -52,6 +66,7 @@ final class DeviceDiffSequencerTests: XCTestCase {
             currentDevices: { [] },
             currentChargerSources: { [] },
             currentDownstreamTBSwitchIDs: currentDownstreamTBSwitchIDs,
+            currentLabelledCables: currentLabelledCables,
             notifyOnChanges: notifyOnChanges,
             post: { category, content in posted.entries.append((category, content)) }
         )
@@ -835,5 +850,487 @@ final class DeviceDiffSequencerTests: XCTestCase {
             "a TB switch disappearing during the park window must not undo the batch's Thunderbolt label"
         )
         await clock.advance(by: .seconds(10))
+    }
+
+    // MARK: - 14 & 15: cable-label wiring (issue #570 part B). Mirrors 10-13
+    // above exactly: the sequencer reads `currentLabelledCables()` at settle
+    // time, diffs it against the baseline, and threads the result into
+    // `deviceNotificationContents`; the parked path carries a SETTLE-TIME
+    // snapshot through, never a landing-time re-read.
+
+    /// A labelled cable appearing across a settle (baseline empty, live
+    /// closure returns one) must append its name to the resulting title.
+    /// This test's settle time and landing time coincide (no recent charger
+    /// post), so it does NOT exercise the parked path.
+    ///
+    /// Red-proof: hardcode `addedCableLabel: nil` at the
+    /// `deviceNotificationContents` call site in `diffDevices` (instead of
+    /// the derived value); this goes red (expects "Connected: SSD Enclosure
+    /// (Office cable)", gets the unlabelled title).
+    func testLabelledCableAppearingAcrossASettleAppendsItsNameToTheTitle() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { ["cable-1": "Office cable"] }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = [:]
+        sequencer.knownDevices = [:]
+
+        // The real call site (`runNowOrDelayForRecentChargerPost`, reached
+        // via `scheduleDeviceDiff`): settle time and landing time coincide
+        // here (`.runNow` disposition, no recent charger post), so this
+        // reads `currentLabelledCables()` and lands in the same call.
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 950)])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Connected: Test Hub (Office cable)",
+            "a labelled cable appearing at settle time must append its name to the added title"
+        )
+    }
+
+    /// Baseline discipline: `knownLabelledCables` must refresh on every
+    /// device-diff settle exactly where `knownTBSwitchIDs` / `knownDevices`
+    /// do, INCLUDING while `notifyOnChanges` is off, so a user who re-enables
+    /// notifications later doesn't see a stale baseline manufacture a false
+    /// label change on the very next diff.
+    ///
+    /// Red-proof: move the labelled-cable baseline refresh in `diffDevices`
+    /// to AFTER the `notifyOnChanges` guard (skipping it while the gate is
+    /// off); this goes red (`knownLabelledCables` expected
+    /// `["cable-1": "Office cable"]`, stays `[:]`).
+    func testLabelledCableBaselineUpdatesEvenWhileNotifyOnChangesIsOff() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { ["cable-1": "Office cable"] },
+            notifyOnChanges: { false }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.knownLabelledCables = [:]
+        sequencer.deviceSettleWindow = .milliseconds(10)
+
+        sequencer.scheduleDeviceDiff()
+        await flush(clock)
+        await clock.advance(by: .milliseconds(10))
+        await flush(clock)
+
+        XCTAssertEqual(
+            sequencer.knownLabelledCables, ["cable-1": "Office cable"],
+            "the labelled-cable baseline must refresh even while notifyOnChanges is off, exactly like knownTBSwitchIDs"
+        )
+        XCTAssertTrue(posted.entries.isEmpty, "notifications must stay suppressed while the gate is off")
+    }
+
+    /// A parked device diff must be labelled from the cable set that existed
+    /// when its batch actually settled, not from whatever the live closure
+    /// returns whenever the diff happens to land. An UNRELATED labelled
+    /// cable appearing during the park window must not relabel a batch it
+    /// had nothing to do with.
+    ///
+    /// Red-proof: revert `landDeferredDeviceDiffNow` to re-read
+    /// `currentLabelledCables()` at landing instead of using the captured
+    /// `deferredDeviceDiffLabelledCables`; this goes red (expects
+    /// "Connected: Test Hub", gets "Connected: Test Hub (Office cable)").
+    func testAnUnrelatedLabelledCableChangeDuringTheParkWindowDoesNotRelabelTheBatch() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let labelBox = MutableBox<[String: String]>([:])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { labelBox.value }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = [:]
+        sequencer.knownDevices = [:]
+        sequencer.knownChargerLabels = [:]
+
+        // Parks a device add. `deferDeviceDiff` samples `currentLabelledCables()`
+        // AT THIS CALL, capturing `[:]` (no labelled cable present when the
+        // batch settled).
+        sequencer.deferDeviceDiff([fakeDevice(id: 951)])
+
+        // An unrelated labelled cable appears DURING the park window, after
+        // the batch's own settle-time snapshot was already captured.
+        labelBox.value = ["cable-1": "Office cable"]
+
+        // A charger reconcile that posts nothing lands the parked diff
+        // immediately (no gap needed).
+        sequencer.reconcileChargers()
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Connected: Test Hub",
+            "a labelled cable appearing during the park window must not relabel an unrelated batch"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// The mirror image, covering the absolute-deadline landing path
+    /// instead of the immediate no-op-reconcile path: a batch that settles
+    /// WITH a labelled cable present must keep its label even if that
+    /// cable disconnects again before the parked diff lands.
+    ///
+    /// Red-proof: same revert as above (landing-time sampling instead of the
+    /// captured snapshot); this goes red (expects "Connected: Test Hub
+    /// (Office cable)", gets "Connected: Test Hub").
+    func testALabelledCableDisappearingDuringTheParkWindowDoesNotUndoTheBatchsLabel() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let labelBox = MutableBox<[String: String]>(["cable-1": "Office cable"])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { labelBox.value }
+        )
+        sequencer.deferredDeviceDiffDeadlineWindow = .milliseconds(50)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = [:]
+        sequencer.knownDevices = [:]
+
+        // Parks a batch that settled WITH the labelled cable present
+        // (captures `["cable-1": "Office cable"]` at this call).
+        sequencer.deferDeviceDiff([fakeDevice(id: 952)])
+        await flush(clock)
+
+        // The labelled cable disconnects during the park window.
+        labelBox.value = [:]
+
+        // Deliberately never call reconcileChargers: only the bounded
+        // deadline can land this diff, covering that landing path too.
+        await clock.advance(by: .milliseconds(50))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Connected: Test Hub (Office cable)",
+            "a labelled cable disappearing during the park window must not undo the batch's label"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// Free path / no Pro provider registered: the live closure returns
+    /// `[:]` (the shim's default and what a locked/free build always sees),
+    /// so titles are unchanged from today, byte-identical.
+    ///
+    /// Red-proof: make `diffDevices` label anyway when the labelled-cables
+    /// map is empty (e.g. treat an empty PREVIOUS map plus an empty CURRENT
+    /// map as a change); this goes red (expects "Connected: Test Hub", gets
+    /// a labelled title, which can't even happen without a name to show, so
+    /// the mutation would have to fabricate one -- the point is this test
+    /// pins that an empty map, before and after, never triggers a label).
+    func testFreePathWithNoProviderNeverLabelsATitle() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        // `currentLabelledCables` left at its default (now `{ nil }`), the
+        // true free-build / locked-Pro shape: the feature is UNAVAILABLE,
+        // not "available, zero cables" (`[:]`). Production's zero-provider
+        // fold (`NotificationManager.foldLabelledCables`) returns nil for
+        // exactly this reason: see `testFreePathWithProviderAvailableButEmptyNeverLabelsATitle`
+        // below for the distinct "available but empty" state.
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = nil
+        sequencer.knownDevices = [:]
+
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 953)])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Test Hub")
+        // Pin the no-provider shape itself, not just its effect on the title:
+        // without this, a regression of the `makeSequencer` default from
+        // `{ nil }` back to `{ [:] }` would still pass, since either-side-nil
+        // suppresses label changes the same way an empty dictionary does.
+        XCTAssertNil(sequencer.knownLabelledCables)
+    }
+
+    /// The distinct "available but empty" state (`[:]`, a provider IS
+    /// registered and unlocked, but nothing currently attributes): must
+    /// never label a title either, same as the true no-provider (`nil`)
+    /// state above. Both are asserted so a future change that starts
+    /// treating `[:]` as "has a label" (rather than "no labels currently")
+    /// would be caught here, not just the `nil` case.
+    func testFreePathWithProviderAvailableButEmptyNeverLabelsATitle() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted, currentLabelledCables: { [:] })
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = [:]
+        sequencer.knownDevices = [:]
+
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 954)])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Test Hub")
+    }
+
+    // MARK: - 16, 17 & 18: licence-transition tests (issue #570 review
+    // finding 1, Codex). The seam distinguishes UNAVAILABLE (`nil`, the
+    // feature was locked or nothing registered) from AVAILABLE-BUT-EMPTY
+    // (`[:]`, unlocked with nothing attached). Collapsing those let a
+    // licence transition mid-session read as the attached cable itself
+    // appearing or disappearing.
+
+    /// Locking mid-session (deactivating Pro) while a labelled cable is
+    /// still physically attached must not leak that cable's name onto the
+    /// next unrelated removed batch. The baseline was set while unlocked
+    /// (`knownLabelledCables` holds the cable), then the live closure starts
+    /// returning `nil` (locked) before the next settle.
+    ///
+    /// Red-proof (mutation: coalesce `labelledCables` to `[:]` when nil at
+    /// the `diffDevices` call in `landDeferredDeviceDiffNow` / `runNowOrDelayForRecentChargerPost`,
+    /// i.e. treat "unavailable" as "available, empty"): the previous/current
+    /// key-set symmetric difference becomes `{"cable-1"}` (previous had it,
+    /// coalesced current does not), so `cableLabelChange` reports a REMOVAL
+    /// and the title comes back "Disconnected: Test Hub (Office cable)"
+    /// instead of the correct unlabelled "Disconnected: Test Hub".
+    func testLockingMidSessionWithACableAttachedDoesNotLeakItsLabelOntoTheNextRemoval() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let labelBox = MutableBox<[String: String]?>(nil)
+        let sequencer = makeSequencer(clock: clock, posted: posted, currentLabelledCables: { labelBox.value })
+        sequencer.didPrimeBaseline = true
+        // Baseline as it would read while unlocked, cable attached.
+        sequencer.knownLabelledCables = ["cable-1": "Office cable"]
+        sequencer.knownDevices = [
+            980: USBDeviceChangeGrouper.Snapshot(id: 980, locationID: 0x01_00_00_00, name: "Test Hub")
+        ]
+
+        // Locked before this settle: the live closure now reads nil.
+        sequencer.runNowOrDelayForRecentChargerPost([])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Disconnected: Test Hub",
+            "locking mid-session must not read as the attached cable disconnecting"
+        )
+        XCTAssertNil(
+            sequencer.knownLabelledCables,
+            "the baseline must refresh to nil (unavailable), not linger on the pre-lock value"
+        )
+    }
+
+    /// The mirror image: unlocking mid-session (activating Pro) while a
+    /// labelled cable is already attached must not fabricate an "appeared"
+    /// on the next unrelated added batch. The baseline was `nil` (locked),
+    /// then the live closure starts returning the attached cable (unlocked).
+    ///
+    /// Red-proof: same coalesce-to-`[:]` mutation as above, applied to the
+    /// PREVIOUS side instead: `previousLabelledCables` becomes `[:]` where
+    /// it should stay nil, so the symmetric difference is `{"cable-1"}`
+    /// again, this time read as an ADDITION, and the title comes back
+    /// "Connected: Test Hub (Office cable)" instead of the correct
+    /// unlabelled "Connected: Test Hub".
+    func testUnlockingMidSessionWithACableAlreadyAttachedDoesNotFabricateAnAppearOnTheNextAddition() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let labelBox = MutableBox<[String: String]?>(["cable-1": "Office cable"])
+        let sequencer = makeSequencer(clock: clock, posted: posted, currentLabelledCables: { labelBox.value })
+        sequencer.didPrimeBaseline = true
+        // Baseline as it would read while locked: unavailable.
+        sequencer.knownLabelledCables = nil
+        sequencer.knownDevices = [:]
+
+        // Unlocked before this settle: the live closure now reads the
+        // already-attached cable.
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 981)])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Connected: Test Hub",
+            "unlocking mid-session must not read as the already-attached cable appearing"
+        )
+        XCTAssertEqual(
+            sequencer.knownLabelledCables,
+            ["cable-1": "Office cable"],
+            "the baseline must refresh to the now-available snapshot"
+        )
+    }
+
+    /// `nil -> nil` (feature stays unavailable across a whole settle) must
+    /// stay completely inert: no label, and the baseline stays nil.
+    func testNilToNilStaysInert() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted, currentLabelledCables: { nil })
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = nil
+        sequencer.knownDevices = [:]
+
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 982)])
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Test Hub")
+        XCTAssertNil(sequencer.knownLabelledCables)
+    }
+
+    // MARK: - 19, 20 & 21: sequencer-level test gaps (issue #570 review
+    // finding 4, Codex).
+
+    /// `runNowOrDelayForRecentChargerPost`'s OWN delayed-remainder park
+    /// (`parkAndDelayDevicePost`, reached when there's no charger settle
+    /// currently pending but a charger post went out moments ago) must
+    /// carry the SETTLE-TIME labelled-cables snapshot through its wait, not
+    /// re-read the live closure when it lands. This is a distinct code path
+    /// from `deferDeviceDiff` (covered by
+    /// `testAnUnrelatedLabelledCableChangeDuringTheParkWindowDoesNotRelabelTheBatch`
+    /// above): that test never exercises `parkAndDelayDevicePost` at all,
+    /// since it drives `deferDeviceDiff` directly.
+    ///
+    /// Red-proof: revert `landDeferredDeviceDiffNow` to re-read
+    /// `currentLabelledCables()` at landing instead of the captured
+    /// `deferredDeviceDiffLabelledCables`; this goes red (expects "Connected:
+    /// Test Hub", gets "Connected: Test Hub (Office cable)").
+    func testParkAndDelayDevicePostCarriesTheSettleTimeLabelSnapshotNotALaterMutation() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let labelBox = MutableBox<[String: String]?>([:])
+        let sequencer = makeSequencer(clock: clock, posted: posted, currentLabelledCables: { labelBox.value })
+        sequencer.deferredDeviceDiffPresentationGapWindow = .milliseconds(30)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.knownLabelledCables = [:]
+        // Baseline charger so reconcileChargers reads as a removal and
+        // actually posts (and so records lastChargerPostTime).
+        sequencer.knownChargerLabels = ["fake-port-1": "30W negotiated"]
+
+        // Charger settle fires FIRST and finishes reconciling entirely.
+        sequencer.reconcileChargers()
+
+        // Device settle fires a moment later through the .runNow entry
+        // point: no charger settle is currently pending, but a charger post
+        // just went out, so `devicePostDelay` is non-zero and this parks via
+        // `parkAndDelayDevicePost`, sampling `currentLabelledCables()` AT
+        // THIS CALL (capturing `[:]`, nothing attached yet).
+        sequencer.runNowOrDelayForRecentChargerPost([fakeDevice(id: 990)])
+        await flush(clock)
+
+        // A labelled cable appears DURING parkAndDelayDevicePost's own wait,
+        // after the settle-time snapshot was already captured.
+        labelBox.value = ["cable-1": "Office cable"]
+
+        await clock.advance(by: .milliseconds(30))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.map(\.0), [.charger, .device])
+        XCTAssertEqual(
+            posted.entries.last?.1.title,
+            "Connected: Test Hub",
+            "a labelled cable appearing during parkAndDelayDevicePost's own wait must not relabel a batch that settled before it appeared"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// Two DIFFERENT labelled cables changing within the same settle window
+    /// (one appears, a different one was attached before, so the key SETS
+    /// differ by two ids, not one) is ambiguous: `cableLabelChange` reports
+    /// nil, so no title in the batch may carry a label. Mirrors
+    /// `NotificationManagerCableLabelTests.testTwoChangedCablesIsAmbiguousAndNil`,
+    /// but wired through the sequencer rather than the pure rule directly.
+    ///
+    /// The batch itself has BOTH a removed and a non-reconnect added group
+    /// (not just an add), deliberately: `Set<String>.first` on the two
+    /// changed ids is unordered, so a mutation that loosens the `count == 1`
+    /// guard to `>= 1` could pick either id. Whichever one it picks reads as
+    /// a change on ONE direction or the other (added or removed), and this
+    /// batch has a title on both sides for it to leak onto, so the
+    /// assertion below catches the mutation regardless of which id the
+    /// broken code happens to pick.
+    ///
+    /// Red-proof: loosen `NotificationDecision.cableLabelChange`'s
+    /// `changedIDs.count == 1` guard to `>= 1` (picking the first changed id
+    /// arbitrarily); this goes red (one of the two titles below gains an
+    /// unwanted "(...)" suffix).
+    func testTwoLabelledCablesChangingInOneSettleCarriesNoLabel() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { ["cable-2": "Studio cable"] }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [
+            994: USBDeviceChangeGrouper.Snapshot(id: 994, locationID: 0x01_00_00_00, name: "Device A")
+        ]
+        sequencer.knownLabelledCables = ["cable-1": "Office cable"]
+
+        // Device A (baseline) disappears, Device B (different port and
+        // name, NOT a reconnect pair) arrives: both a removed and an added
+        // title in the same batch.
+        sequencer.runNowOrDelayForRecentChargerPost([
+            fakeDevice(id: 995, locationID: 0x02_00_00_00, name: "Device B")
+        ])
+
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(
+            posted.entries[0].1.title,
+            "Disconnected: Device A",
+            "two changed labelled cables in one settle window is ambiguous; the removed title may not carry a label"
+        )
+        XCTAssertEqual(
+            posted.entries[1].1.title,
+            "Connected: Device B",
+            "two changed labelled cables in one settle window is ambiguous; the added title may not carry a label"
+        )
+    }
+
+    /// A non-reconnect mixed batch (a removed group and an added group that
+    /// do NOT match on port + name, so the reconnect gate doesn't fire) must
+    /// label only the side matching the direction the labelled cable
+    /// actually changed. Mirrors
+    /// `NotificationManagerCableLabelTests.testDirectionAwareLabelOnlyAppliesToTheMatchingSide`,
+    /// wired through the sequencer.
+    ///
+    /// Red-proof (mutation: pass the SAME `cableLabelChange?.name` to both
+    /// `addedCableLabel` and `removedCableLabel` at the
+    /// `deviceNotificationContents` call site in `diffDevices`, instead of
+    /// the direction-aware `wasAdded` ternaries): the removed title comes
+    /// back "Disconnected: Device A (Office cable)" instead of the correct
+    /// unlabelled "Disconnected: Device A".
+    func testNonReconnectMixedBatchLabelsOnlyTheMatchingDirection() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentLabelledCables: { ["cable-1": "Office cable"] }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownLabelledCables = [:]
+        sequencer.knownDevices = [
+            992: USBDeviceChangeGrouper.Snapshot(id: 992, locationID: 0x01_00_00_00, name: "Device A")
+        ]
+
+        // Device A (baseline) disappears, Device B (different port and name,
+        // NOT a reconnect pair) arrives: a genuine removed-then-added mixed
+        // batch, not the reconnect gate.
+        sequencer.runNowOrDelayForRecentChargerPost([
+            fakeDevice(id: 993, locationID: 0x02_00_00_00, name: "Device B")
+        ])
+
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(
+            posted.entries[0].1.title,
+            "Disconnected: Device A",
+            "the removed side did not match the cable's appear direction, so it must stay unlabelled"
+        )
+        XCTAssertEqual(
+            posted.entries[1].1.title,
+            "Connected: Device B (Office cable)",
+            "the added side matches the cable's appear direction and must carry the label"
+        )
     }
 }

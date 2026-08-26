@@ -21,9 +21,18 @@ public var _coreLocalizedBundle: Bundle {
 
 public func setCoreLocale(_ identifier: String) {
     let resolved: Bundle
+    // Tries the identifier as given first, then its lowercased form: SPM
+    // lowercases script/region .lproj folder names when it copies resources
+    // into a built bundle (zh-Hans.lproj -> zh-hans.lproj, pt-BR.lproj ->
+    // pt-br.lproj), but callers pass the canonical BCP-47 identifier
+    // (zh-Hans, pt-BR), so an exact-string lookup for those three languages
+    // always missed and silently fell back to English. Neither the folders
+    // nor SPM's copying behaviour can change; this fallback closes the gap
+    // without touching either.
     if identifier.isEmpty {
         resolved = .module
-    } else if let url = Bundle.module.url(forResource: identifier, withExtension: "lproj"),
+    } else if let url = Bundle.module.url(forResource: identifier, withExtension: "lproj")
+                ?? Bundle.module.url(forResource: identifier.lowercased(), withExtension: "lproj"),
               let b = Bundle(url: url) {
         resolved = b
     } else {

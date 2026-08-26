@@ -108,6 +108,29 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// that, rather than a Core model this type has no other use for. The
     /// shim maps it from `WatcherHub.shared.tbWatcher.switches.filter {
     /// $0.depth > 0 }.map(\.id)`.
+    /// Saved-cable label snapshot: "cableID -> saved name" for cables
+    /// CURRENTLY attached and uniquely attributed (issue #570 part B).
+    /// Read fresh at settle time, same discipline as `currentDevices` /
+    /// `currentChargerSources` / `currentDownstreamTBSwitchIDs`. A bare
+    /// `[String: String]?`, not any Pro type: the seam carries the smallest
+    /// shape that says "this cable ID, currently attached, is called this",
+    /// so no Pro type ever crosses into this module. The shim folds
+    /// `PluginRegistry.shared.notificationCableLabelProviders` into one
+    /// dictionary; the public-mirror build registers no provider, so this
+    /// closure returns `nil` there and behaviour is unchanged.
+    ///
+    /// `nil` vs `[:]` is load-bearing (Codex review, finding 1): `nil` means
+    /// "the feature is unavailable right now" (Pro locked, or no provider
+    /// registered), `[:]` means "available, zero labelled cables currently
+    /// attached". Collapsing those into one empty-dictionary value made a
+    /// licence transition mid-session (locking with a labelled cable
+    /// attached, or unlocking with one already attached) read, to
+    /// `diffDevices`'s diff, as that cable disconnecting or appearing: the
+    /// map jumped between `["id": "name"]` and `[:]` either way, so the next
+    /// unrelated settled batch inherited a fabricated or leaked label. See
+    /// `knownLabelledCables` and `diffDevices` for how the optionality is
+    /// carried through.
+    private let currentLabelledCables: () -> [String: String]?
     private let currentDownstreamTBSwitchIDs: () -> Set<Int64>
     /// Gate read AFTER baseline bookkeeping in `diffDevices` /
     /// `reconcileChargers`, exactly where `AppSettings.shared.notifyOnChanges`
@@ -139,6 +162,25 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// later turns them on doesn't see a stale baseline manufacture a false
     /// "Thunderbolt involved" on the next diff.
     var knownTBSwitchIDs: Set<Int64> = []
+    /// Baseline for `NotificationDecision.cableLabelChange(previous:current:)`
+    /// (issue #570 part B). Updated in exactly the same two places
+    /// `knownTBSwitchIDs` is (primed in `primeBaseline`, refreshed in
+    /// `diffDevices` unconditionally, BEFORE the `notifyOnChanges` gate),
+    /// for the identical reason: a user who has notifications off during a
+    /// labelled-cable swap must not see a stale baseline manufacture a
+    /// false label change on the next diff after turning notifications back
+    /// on.
+    ///
+    /// `[String: String]?`, not `[String: String]` (Codex review, finding
+    /// 1): `nil` records "the feature read as unavailable at the last
+    /// refresh" (locked, or no provider), distinct from `[:]` ("available,
+    /// nothing attached"). `diffDevices` only ever asks
+    /// `NotificationDecision.cableLabelChange` when BOTH the previous
+    /// baseline and the current snapshot are non-nil; a transition on
+    /// either side (nil -> some or some -> nil) just refreshes the baseline
+    /// and derives no change, so a licence lock/unlock can never itself be
+    /// read as a cable connecting or disconnecting.
+    var knownLabelledCables: [String: String]?
     var didPrimeBaseline = false
 
     private var chargerSettleTask: Task<Void, Never>?
@@ -174,6 +216,29 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `parkAndDelayDevicePost`), cleared together at every consuming site
     /// (`landDeferredDeviceDiffNow`, `supersedeAnyParkedDiff`).
     private var deferredDeviceDiffTBSwitchIDs: Set<Int64>?
+    /// The saved-cable-label snapshot captured ALONGSIDE `deferredDeviceDiffDevices`
+    /// / `deferredDeviceDiffTBSwitchIDs`, at the same settle-time moment, not
+    /// re-read when the diff eventually lands (issue #570 part B; identical
+    /// snapshot discipline to `deferredDeviceDiffTBSwitchIDs`, and it exists
+    /// for the same reason: a labelled cable connecting or disconnecting
+    /// UNRELATED to this parked batch, during the wait, must not attach its
+    /// name to a batch it had nothing to do with). Set together with
+    /// `deferredDeviceDiffDevices` at every park site (`deferDeviceDiff`,
+    /// `parkAndDelayDevicePost`), cleared together at every consuming site
+    /// (`landDeferredDeviceDiffNow`, `supersedeAnyParkedDiff`).
+    ///
+    /// `[String: String]??`, a genuine double optional, not `[String: String]?`
+    /// (Codex review, finding 1): the OUTER optional is the park sentinel,
+    /// exactly like `deferredDeviceDiffDevices` itself (`nil` = nothing
+    /// parked, `.some` = parked, captured at settle time). The INNER
+    /// optional is the feature's own availability at that settle-time
+    /// moment (`nil` = unavailable, `.some([:])` = available, nothing
+    /// attached). A single optional couldn't carry both facts: "not parked"
+    /// and "parked, but the feature happened to read as unavailable at that
+    /// moment" would collapse onto the same `nil`, which is exactly the
+    /// ambiguity `landDeferredDeviceDiffNow` has to tell apart to know
+    /// whether a diff is even waiting.
+    private var deferredDeviceDiffLabelledCables: [String: String]??
     /// The ABSOLUTE, NON-RESETTING backstop for a parked diff. Started ONCE,
     /// at park time (`scheduleAbsoluteDeadline`, called from `deferDeviceDiff`
     /// and `parkAndDelayDevicePost`), and never touched again except by an
@@ -417,6 +482,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         currentDevices: @escaping () -> [USBDevice],
         currentChargerSources: @escaping () -> [PowerSource],
         currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
+        currentLabelledCables: @escaping () -> [String: String]? = { nil },
         notifyOnChanges: @escaping () -> Bool,
         post: @escaping (NotificationCategory, NotificationContent) -> Void,
         log: @escaping (String) -> Void = { _ in },
@@ -428,6 +494,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         self.currentDevices = currentDevices
         self.currentChargerSources = currentChargerSources
         self.currentDownstreamTBSwitchIDs = currentDownstreamTBSwitchIDs
+        self.currentLabelledCables = currentLabelledCables
         self.notifyOnChanges = notifyOnChanges
         self.post = post
         self.log = log
@@ -460,6 +527,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // charger would fire a spurious "connected" on the first poll).
         knownChargerLabels = chargerLabels(for: chargerSources)
         knownTBSwitchIDs = currentDownstreamTBSwitchIDs()
+        knownLabelledCables = currentLabelledCables()
         didPrimeBaseline = true
     }
 
@@ -531,6 +599,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // when the diff eventually lands. See `deferredDeviceDiffTBSwitchIDs`'s
         // doc comment for why landing-time sampling is wrong.
         deferredDeviceDiffTBSwitchIDs = currentDownstreamTBSwitchIDs()
+        // Sampled here too, at the same park-time moment: see
+        // `deferredDeviceDiffLabelledCables`'s doc comment.
+        deferredDeviceDiffLabelledCables = currentLabelledCables()
 
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -740,15 +811,18 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // re-reading the closure when `parkAndDelayDevicePost`'s gap task
         // eventually lands it.
         let tbSwitchIDs = currentDownstreamTBSwitchIDs()
+        // Sampled once here too, for the same reason as tbSwitchIDs above:
+        // see `deferredDeviceDiffLabelledCables`'s doc comment.
+        let labelledCables = currentLabelledCables()
         let delay = NotificationDecision.devicePostDelay(
             elapsedSinceLastChargerPost: elapsedSinceLastChargerPost(),
             presentationGap: deferredDeviceDiffPresentationGapWindow
         )
         if delay > .zero {
-            parkAndDelayDevicePost(devices, tbSwitchIDs: tbSwitchIDs, delay: delay)
+            parkAndDelayDevicePost(devices, tbSwitchIDs: tbSwitchIDs, labelledCables: labelledCables, delay: delay)
         } else {
             supersedeAnyParkedDiff()
-            diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
+            diffDevices(devices, tbSwitchIDs: tbSwitchIDs, labelledCables: labelledCables)
         }
     }
 
@@ -759,11 +833,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `landDeferredDeviceDiff` doesn't care HOW a diff got parked before
     /// re-scheduling its gap), then schedules the gap-guarded landing after
     /// `delay`.
-    private func parkAndDelayDevicePost(_ devices: [USBDevice], tbSwitchIDs: Set<Int64>, delay: Duration) {
+    private func parkAndDelayDevicePost(_ devices: [USBDevice], tbSwitchIDs: Set<Int64>, labelledCables: [String: String]?, delay: Duration) {
         deferredDeviceDiffToken += 1
         let token = deferredDeviceDiffToken
         deferredDeviceDiffDevices = devices
         deferredDeviceDiffTBSwitchIDs = tbSwitchIDs
+        deferredDeviceDiffLabelledCables = labelledCables
         scheduleAbsoluteDeadline(token: token)
         scheduleGapLanding(token: token, delay: delay)
     }
@@ -783,6 +858,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
         deferredDeviceDiffTBSwitchIDs = nil
+        deferredDeviceDiffLabelledCables = nil
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -807,13 +883,22 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // snapshot here means there was never a valid parked diff to land,
         // same as an absent `deferredDeviceDiffDevices`, so it backs out the
         // same way.
+        // `deferredDeviceDiffLabelledCables` unwraps only the OUTER optional
+        // here (the park sentinel): the result, `labelledCables`, is itself
+        // still a `[String: String]?` (the feature's own availability at
+        // settle time), which `diffDevices` below is what actually reads.
+        // Unwrapping both here would collapse "not parked" and "parked, but
+        // unavailable at that moment" onto the same `nil` again, exactly the
+        // ambiguity the double optional exists to keep apart.
         guard let devices = deferredDeviceDiffDevices,
               let tbSwitchIDs = deferredDeviceDiffTBSwitchIDs,
+              let labelledCables = deferredDeviceDiffLabelledCables,
               NotificationDecision.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
         else { return }
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
         deferredDeviceDiffTBSwitchIDs = nil
+        deferredDeviceDiffLabelledCables = nil
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -821,10 +906,10 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // never set this true): once ANY path actually lands the diff, no
         // gap should be treated as still pending for it.
         isPresentationGapPending = false
-        diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
+        diffDevices(devices, tbSwitchIDs: tbSwitchIDs, labelledCables: labelledCables)
     }
 
-    private func diffDevices(_ current: [USBDevice], tbSwitchIDs: Set<Int64>) {
+    private func diffDevices(_ current: [USBDevice], tbSwitchIDs: Set<Int64>, labelledCables: [String: String]?) {
         guard didPrimeBaseline else { return }
 
         let previousSnapshots = Array(knownDevices.values)
@@ -850,6 +935,32 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             current: tbSwitchIDs
         )
 
+        // Same baseline discipline as knownTBSwitchIDs above (issue #570
+        // part B): refreshed unconditionally, before the notifyOnChanges
+        // gate, using the caller's SETTLE-TIME snapshot
+        // (`deferredDeviceDiffLabelledCables`'s doc comment), never a
+        // landing-time re-read.
+        //
+        // `cableLabelChange` is only ever derived when BOTH the previous
+        // baseline and the current snapshot are non-nil (Codex review,
+        // finding 1): a `nil` on either side means the feature transitioned
+        // availability (licence locked or unlocked) between this settle and
+        // the last one, not that a labelled cable connected or disconnected.
+        // Treating that transition as a normal change is exactly the bug
+        // this guards: unlocking with a cable already attached, or locking
+        // with one still attached, would otherwise read as that cable
+        // appearing or disappearing and label (or wrongly leave labelled) an
+        // unrelated batch. Either way the baseline still refreshes
+        // unconditionally, so the NEXT diff compares against the truth.
+        let previousLabelledCables = knownLabelledCables
+        knownLabelledCables = labelledCables
+        let cableLabelChange: (name: String, wasAdded: Bool)?
+        if let previous = previousLabelledCables, let current = labelledCables {
+            cableLabelChange = NotificationDecision.cableLabelChange(previous: previous, current: current)
+        } else {
+            cableLabelChange = nil
+        }
+
         guard notifyOnChanges() else { return }
 
         let (addedGroups, removedGroups) = USBDeviceChangeGrouper.diff(
@@ -869,7 +980,13 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // the same model report the same product name, so name matching
         // could pick the wrong one.
         let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let contents = NotificationDecision.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved) { rootID in
+        let contents = NotificationDecision.deviceNotificationContents(
+            removedGroups: removedGroups,
+            addedGroups: addedGroups,
+            thunderboltInvolved: thunderboltInvolved,
+            addedCableLabel: cableLabelChange?.wasAdded == true ? cableLabelChange?.name : nil,
+            removedCableLabel: cableLabelChange?.wasAdded == false ? cableLabelChange?.name : nil
+        ) { rootID in
             currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
         }
         for content in contents {

@@ -10,3 +10,4 @@
 "USB devices disconnected" = "USB ierīces atvienotas";
 "Thunderbolt devices connected" = "Thunderbolt ierīces pievienotas";
 "Thunderbolt devices disconnected" = "Thunderbolt ierīces atvienotas";
+"%@ (%@)" = "%1$@ (%2$@)";

@@ -109,6 +109,48 @@ public enum NotificationDecision {
         return presentationGap - elapsed
     }
 
+    /// The saved-cable label to attach to a settled device notification
+    /// (issue #570 part B): when the settle window's attached-labelled-cable
+    /// set changed by EXACTLY ONE cable (added or removed), that cable's
+    /// name; otherwise nil (zero changes, or two-or-more changes, both read
+    /// as ambiguous, same shape as `thunderboltInvolved`'s symmetric-
+    /// difference rule above).
+    ///
+    /// Comparing the KEY SETS (cable IDs), not the dictionaries themselves,
+    /// is deliberate: a saved cable renamed while it stays connected changes
+    /// the VALUE for an unchanged KEY, which must NOT read as a label
+    /// change, since nothing about the connection itself changed.
+    ///
+    /// Edge case, deliberately accepted (spec #570 part B): one saved
+    /// record, two identical physical cables. Attribution matches by
+    /// e-marker fingerprint against the saved record, not by physical
+    /// cable, so unplugging the first and plugging in the second reports
+    /// the SAME cableID both times: the id is present in both `previous`
+    /// and `current` throughout the swap, so the key set never changes and
+    /// the second plug-in produces no label. Two genuinely different
+    /// labelled cables changing in the same window (two distinct ids)
+    /// also yields nil, the ambiguous case.
+    public static func cableLabelChange(
+        previous: [String: String],
+        current: [String: String]
+    ) -> (name: String, wasAdded: Bool)? {
+        let changedIDs = Set(previous.keys).symmetricDifference(current.keys)
+        guard changedIDs.count == 1, let id = changedIDs.first else { return nil }
+        if let name = current[id] { return (name, true) }
+        if let name = previous[id] { return (name, false) }
+        return nil
+    }
+
+    /// Appends the saved-cable label suffix via ONE shared localised
+    /// composition key, rather than duplicating every title key with the
+    /// label baked in. `nil` returns `title` unchanged, so every existing
+    /// call site (none of which pass a label) produces byte-identical
+    /// output to before this feature.
+    private static func applyCableLabel(_ title: String, _ cableLabel: String?) -> String {
+        guard let cableLabel else { return title }
+        return String(localized: "\(title) (\(cableLabel))", bundle: _notificationsLocalizedBundle)
+    }
+
     /// Decides the full batch of notification content for one settled device
     /// diff: the reconnect gate first, then (when it doesn't fire) the usual
     /// removed-then-added composition. Pure and separate from `diffDevices`
@@ -133,19 +175,31 @@ public enum NotificationDecision {
     /// like a fault, not a first-time plug-in. Every other shape (multiple
     /// groups, no match, adds only, removes only) keeps the removed-then-
     /// added composition below untouched.
+    /// - Parameters:
+    ///   - addedCableLabel / removedCableLabel: the saved-cable name
+    ///     (`cableLabelChange`'s result) to append, direction-aware: only
+    ///     the side that matches which way the labelled cable changed ever
+    ///     gets a non-nil label, so at most one of the two is ever set.
+    ///     Threaded into the reconnect content too (the ADDED side, since a
+    ///     reconnect's wording describes the device's current, just-added
+    ///     state) rather than being suppressed there like `thunderboltInvolved`
+    ///     is: a labelled cable reconnecting is the strongest case for
+    ///     showing the label, not one to hide.
     public static func deviceNotificationContents(
         removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
         addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
         thunderboltInvolved: Bool = false,
+        addedCableLabel: String? = nil,
+        removedCableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if let removed = removedGroups.first, removedGroups.count == 1,
            let added = addedGroups.first, addedGroups.count == 1,
            isReconnectPair(removed: removed, added: added) {
-            return [reconnectedNotificationContent(for: added, singleDeviceBody: singleDeviceBody)]
+            return [reconnectedNotificationContent(for: added, cableLabel: addedCableLabel, singleDeviceBody: singleDeviceBody)]
         }
-        return removedNotificationContents(groups: removedGroups, thunderboltInvolved: thunderboltInvolved)
-            + addedNotificationContents(groups: addedGroups, thunderboltInvolved: thunderboltInvolved, singleDeviceBody: singleDeviceBody)
+        return removedNotificationContents(groups: removedGroups, thunderboltInvolved: thunderboltInvolved, cableLabel: removedCableLabel)
+            + addedNotificationContents(groups: addedGroups, thunderboltInvolved: thunderboltInvolved, cableLabel: addedCableLabel, singleDeviceBody: singleDeviceBody)
     }
 
     /// True when a removed group and an added group are almost certainly the
@@ -170,9 +224,13 @@ public enum NotificationDecision {
     /// content is what's true of the device right now.
     public static func reconnectedNotificationContent(
         for added: USBDeviceChangeGrouper.ChangeGroup,
+        cableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> NotificationContent {
-        let title = String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle)
+        let title = applyCableLabel(
+            String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle),
+            cableLabel
+        )
         let body = added.memberNames.isEmpty
             ? (singleDeviceBody(added.rootID) ?? "")
             : added.memberNames.joined(separator: "\n")
@@ -200,20 +258,24 @@ public enum NotificationDecision {
     public static func addedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
         thunderboltInvolved: Bool = false,
+        cableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
+            let title = applyCableLabel(
+                String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
+                cableLabel
+            )
             let body = group.memberNames.isEmpty
                 ? (singleDeviceBody(group.rootID) ?? "")
                 : group.memberNames.joined(separator: "\n")
             return [NotificationContent(title: title, body: body)]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            let title = thunderboltInvolved
+            let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices connected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices connected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }
@@ -230,17 +292,21 @@ public enum NotificationDecision {
     ///   merged (>1 group) title.
     public static func removedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
-        thunderboltInvolved: Bool = false
+        thunderboltInvolved: Bool = false,
+        cableLabel: String? = nil
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
+            let title = applyCableLabel(
+                String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
+                cableLabel
+            )
             return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            let title = thunderboltInvolved
+            let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices disconnected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices disconnected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }

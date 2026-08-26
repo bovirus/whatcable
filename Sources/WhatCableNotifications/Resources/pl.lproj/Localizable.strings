@@ -8,3 +8,5 @@
 "USB device" = "Urządzenie USB";
 "USB devices connected" = "Urządzenia USB podłączone";
 "USB devices disconnected" = "Urządzenia USB odłączone";
+"Thunderbolt devices connected" = "Urządzenia Thunderbolt podłączone";
+"Thunderbolt devices disconnected" = "Urządzenia Thunderbolt odłączone";

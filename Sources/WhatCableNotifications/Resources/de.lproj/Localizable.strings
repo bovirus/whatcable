@@ -8,3 +8,5 @@
 "USB device" = "USB-Gerät";
 "USB devices connected" = "USB-Geräte verbunden";
 "USB devices disconnected" = "USB-Geräte getrennt";
+"Thunderbolt devices connected" = "Thunderbolt-Geräte verbunden";
+"Thunderbolt devices disconnected" = "Thunderbolt-Geräte getrennt";

@@ -51,6 +51,9 @@ final class NotificationManager {
             clock: ContinuousClock(),
             currentDevices: { WatcherHub.shared.deviceWatcher.devices },
             currentChargerSources: { WatcherHub.shared.powerWatcher.sources },
+            currentDownstreamTBSwitchIDs: {
+                Set(WatcherHub.shared.tbWatcher.switches.filter { $0.depth > 0 }.map(\.id))
+            },
             notifyOnChanges: { AppSettings.shared.notifyOnChanges },
             // Not a `[weak self]` capture: `self` isn't fully initialized
             // yet at this point in `init` (this closure is itself part of

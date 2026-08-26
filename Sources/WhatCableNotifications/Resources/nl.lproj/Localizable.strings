@@ -8,3 +8,5 @@
 "USB device" = "USB-apparaat";
 "USB devices connected" = "USB-apparaten verbonden";
 "USB devices disconnected" = "USB-apparaten verbroken";
+"Thunderbolt devices connected" = "Thunderbolt-apparaten verbonden";
+"Thunderbolt devices disconnected" = "Thunderbolt-apparaten verbroken";

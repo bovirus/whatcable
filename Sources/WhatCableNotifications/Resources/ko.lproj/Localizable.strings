@@ -8,3 +8,5 @@
 "USB device" = "USB 기기";
 "USB devices connected" = "USB 기기 연결됨";
 "USB devices disconnected" = "USB 기기 분리됨";
+"Thunderbolt devices connected" = "Thunderbolt 기기 연결됨";
+"Thunderbolt devices disconnected" = "Thunderbolt 기기 분리됨";

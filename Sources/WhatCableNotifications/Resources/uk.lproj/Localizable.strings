@@ -8,3 +8,5 @@
 "USB device" = "USB-пристрій";
 "USB devices connected" = "USB-пристрої підключено";
 "USB devices disconnected" = "USB-пристрої відключено";
+"Thunderbolt devices connected" = "Thunderbolt-пристрої підключено";
+"Thunderbolt devices disconnected" = "Thunderbolt-пристрої відключено";

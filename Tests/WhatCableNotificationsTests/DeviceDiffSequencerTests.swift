@@ -43,13 +43,16 @@ final class DeviceDiffSequencerTests: XCTestCase {
     /// by this file.
     private func makeSequencer(
         clock: ManualClock,
-        posted: PostedLog
+        posted: PostedLog,
+        currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
+        notifyOnChanges: @escaping () -> Bool = { true }
     ) -> DeviceDiffSequencer<ManualClock> {
         DeviceDiffSequencer(
             clock: clock,
             currentDevices: { [] },
             currentChargerSources: { [] },
-            notifyOnChanges: { true },
+            currentDownstreamTBSwitchIDs: currentDownstreamTBSwitchIDs,
+            notifyOnChanges: notifyOnChanges,
             post: { category, content in posted.entries.append((category, content)) }
         )
     }
@@ -59,6 +62,15 @@ final class DeviceDiffSequencerTests: XCTestCase {
     /// concurrency boundaries.
     private final class PostedLog {
         var entries: [(NotificationCategory, NotificationContent)] = []
+    }
+
+    /// Reference type letting a test mutate what an injected closure
+    /// returns AFTER the sequencer has already captured it once (e.g.
+    /// `currentDownstreamTBSwitchIDs`), to simulate state changing during a
+    /// parked diff's wait.
+    private final class MutableBox<Value> {
+        var value: Value
+        init(_ value: Value) { self.value = value }
     }
 
     /// A freshly-created `Task { @MainActor ... }` is enqueued, not run
@@ -622,6 +634,206 @@ final class DeviceDiffSequencerTests: XCTestCase {
         // tasks whose deadline this test never otherwise reaches) before the
         // clock and sequencer go out of scope, so no CheckedContinuation is
         // ever left un-resumed.
+        await clock.advance(by: .seconds(10))
+    }
+
+    // MARK: - 10 & 11: Thunderbolt-involvement wiring (issue #570 part 1).
+    // `NotificationManagerThunderboltInvolvedTests` covers the pure rule and
+    // the content-decision swap in isolation; these two prove the sequencer
+    // actually wires the injected TB-switch-ID closure to
+    // `deviceNotificationContents`, and that the TB baseline updates on the
+    // real production discipline (in lockstep with `knownDevices`, even
+    // while notifications are gated off).
+
+    /// The real call site (`runNowOrDelayForRecentChargerPost`, reached via
+    /// `scheduleDeviceDiff`) reads `currentDownstreamTBSwitchIDs()` at
+    /// settle time, diffs it against the baseline, and threads the result
+    /// into `deviceNotificationContents` as `thunderboltInvolved`. A TB
+    /// switch not present at baseline appearing by settle time must flip
+    /// the merged title. This test's settle time and landing time coincide
+    /// (the `.runNow` disposition with no recent charger post), so it does
+    /// NOT exercise the parked path; see
+    /// `testAnUnrelatedTBSwitchChangeDuringTheParkWindowDoesNotRelabelTheBatch`
+    /// and its sibling below for that.
+    ///
+    /// Red-proof: hardcode `thunderboltInvolved: false` at the
+    /// `deviceNotificationContents` call site in `diffDevices` (instead of
+    /// the derived value); this goes red (expects "Thunderbolt devices
+    /// disconnected", gets "USB devices disconnected"), proving the flag
+    /// genuinely reaches the content decision through the sequencer, not
+    /// just in the pure-function tests.
+    func testTBSwitchAppearingAcrossASettleFlipsTheMergedTitleToThunderbolt() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentDownstreamTBSwitchIDs: { [99] }
+        )
+        sequencer.didPrimeBaseline = true
+        // Baseline: no downstream TB switch yet, so the live closure
+        // returning [99] at settle time is a genuine appearance.
+        sequencer.knownTBSwitchIDs = []
+        // Two distinct top-level roots so the diff merges into ONE "...
+        // devices ..." content rather than a single "Disconnected: <name>".
+        sequencer.knownDevices = [
+            901: USBDeviceChangeGrouper.Snapshot(id: 901, locationID: 0x01_00_00_00, name: "Hub A"),
+            902: USBDeviceChangeGrouper.Snapshot(id: 902, locationID: 0x02_00_00_00, name: "Hub B")
+        ]
+        sequencer.deviceSettleWindow = .milliseconds(10)
+
+        // scheduleDeviceDiff's own settle sleep, then a (always-empty) live
+        // device read: both baseline roots read as removed.
+        sequencer.scheduleDeviceDiff()
+        await flush(clock)
+        await clock.advance(by: .milliseconds(10))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Thunderbolt devices disconnected",
+            "a TB switch absent at baseline but present at settle time must flip the merged title"
+        )
+    }
+
+    /// Baseline discipline: the TB baseline (`knownTBSwitchIDs`) must
+    /// refresh on every device-diff settle exactly where `knownDevices`
+    /// does, INCLUDING while `notifyOnChanges` is off, so a user who
+    /// re-enables notifications later doesn't see a stale baseline
+    /// manufacture a false "Thunderbolt involved" on the very next diff.
+    ///
+    /// Red-proof: move the TB baseline refresh in `diffDevices` to AFTER
+    /// the `notifyOnChanges` guard (skipping it while the gate is off);
+    /// this goes red (`knownTBSwitchIDs` expected `[7]`, stays `[]`).
+    func testTBBaselineUpdatesEvenWhileNotifyOnChangesIsOff() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentDownstreamTBSwitchIDs: { [7] },
+            notifyOnChanges: { false }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.knownTBSwitchIDs = []
+        sequencer.deviceSettleWindow = .milliseconds(10)
+
+        sequencer.scheduleDeviceDiff()
+        await flush(clock)
+        await clock.advance(by: .milliseconds(10))
+        await flush(clock)
+
+        XCTAssertEqual(
+            sequencer.knownTBSwitchIDs, [7],
+            "the TB baseline must refresh even while notifyOnChanges is off, exactly like knownDevices"
+        )
+        XCTAssertTrue(posted.entries.isEmpty, "notifications must stay suppressed while the gate is off")
+    }
+
+    // MARK: - 12 & 13: the TB-involvement snapshot is taken at PARK time,
+    // not landing time (both review rounds' critical finding).
+
+    /// A parked device diff must be labelled from the TB switch set that
+    /// existed when its batch actually settled, not from whatever the live
+    /// closure returns whenever the diff happens to land (up to
+    /// `deferredDeviceDiffDeadlineWindow`, 3.5s in production, later). An
+    /// UNRELATED TB switch appearing during that wait must not relabel a
+    /// batch of plain USB devices.
+    ///
+    /// Red-proof: revert `landDeferredDeviceDiffNow` to re-read
+    /// `currentDownstreamTBSwitchIDs()` at landing instead of using the
+    /// captured `deferredDeviceDiffTBSwitchIDs`; this goes red (expects
+    /// "USB devices disconnected", gets "Thunderbolt devices disconnected").
+    func testAnUnrelatedTBSwitchChangeDuringTheParkWindowDoesNotRelabelTheBatch() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let tbBox = MutableBox<Set<Int64>>([])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentDownstreamTBSwitchIDs: { tbBox.value }
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownTBSwitchIDs = []
+        // Two distinct top-level roots so the diff merges into ONE "...
+        // devices ..." content rather than a single "Disconnected: <name>".
+        sequencer.knownDevices = [
+            910: USBDeviceChangeGrouper.Snapshot(id: 910, locationID: 0x01_00_00_00, name: "Hub A"),
+            911: USBDeviceChangeGrouper.Snapshot(id: 911, locationID: 0x02_00_00_00, name: "Hub B")
+        ]
+        sequencer.knownChargerLabels = [:]
+
+        // Parks a plain-USB diff (both baseline roots removed).
+        // `deferDeviceDiff` samples `currentDownstreamTBSwitchIDs()` AT THIS
+        // CALL, capturing `[]` (no TB switch present when the batch
+        // settled).
+        sequencer.deferDeviceDiff([])
+
+        // An unrelated TB switch appears DURING the park window, after the
+        // batch's own settle-time snapshot was already captured.
+        tbBox.value = [99]
+
+        // A charger reconcile that posts nothing lands the parked diff
+        // immediately (no gap needed): see
+        // `testANoOpReconcileLandsTheParkedDiffImmediately`.
+        sequencer.reconcileChargers()
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "USB devices disconnected",
+            "a TB switch change during the park window must not relabel an unrelated USB batch"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// The mirror image, covering the absolute-deadline landing path
+    /// instead of the immediate no-op-reconcile path: a batch that settles
+    /// WITH a Thunderbolt switch present must keep its "Thunderbolt
+    /// devices" label even if that switch disappears again before the
+    /// parked diff lands.
+    ///
+    /// Red-proof: same revert as above (landing-time sampling instead of
+    /// the captured snapshot); this goes red (expects "Thunderbolt devices
+    /// disconnected", gets "USB devices disconnected").
+    func testATBSwitchDisappearingDuringTheParkWindowDoesNotUndoTheBatchsThunderboltLabel() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let tbBox = MutableBox<Set<Int64>>([99])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentDownstreamTBSwitchIDs: { tbBox.value }
+        )
+        sequencer.deferredDeviceDiffDeadlineWindow = .milliseconds(50)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownTBSwitchIDs = []
+        sequencer.knownDevices = [
+            912: USBDeviceChangeGrouper.Snapshot(id: 912, locationID: 0x01_00_00_00, name: "Hub A"),
+            913: USBDeviceChangeGrouper.Snapshot(id: 913, locationID: 0x02_00_00_00, name: "Hub B")
+        ]
+
+        // Parks a batch that settled WITH a TB switch present (captures
+        // `[99]` at this call).
+        sequencer.deferDeviceDiff([])
+        await flush(clock)
+
+        // The TB switch disappears during the park window.
+        tbBox.value = []
+
+        // Deliberately never call reconcileChargers: only the bounded
+        // deadline can land this diff, covering that landing path too.
+        await clock.advance(by: .milliseconds(50))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Thunderbolt devices disconnected",
+            "a TB switch disappearing during the park window must not undo the batch's Thunderbolt label"
+        )
         await clock.advance(by: .seconds(10))
     }
 }

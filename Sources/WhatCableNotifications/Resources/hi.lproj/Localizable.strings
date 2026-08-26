@@ -8,3 +8,5 @@
 "USB device" = "USB डिवाइस";
 "USB devices connected" = "USB डिवाइस कनेक्ट हुए";
 "USB devices disconnected" = "USB डिवाइस डिस्कनेक्ट हुए";
+"Thunderbolt devices connected" = "Thunderbolt डिवाइस कनेक्ट हुए";
+"Thunderbolt devices disconnected" = "Thunderbolt डिवाइस डिस्कनेक्ट हुए";

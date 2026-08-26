@@ -45,6 +45,20 @@ public enum NotificationDecision {
         chargerSettlePending ? .deferUntilChargerReconcile : .runNow
     }
 
+    /// Whether a Thunderbolt device was involved in this settled batch: a
+    /// downstream Thunderbolt fabric switch (depth > 0, so not one of the
+    /// Mac's own host-root switches, which are always present) appeared or
+    /// disappeared alongside the USB diff. A non-empty symmetric difference
+    /// between the baseline and current sets of switch IDs covers both
+    /// directions (appear, disappear) and also the case where one appeared
+    /// AND a different one disappeared within the same settle window: any
+    /// change to the downstream set counts, not just a net change in count.
+    /// Pure and separate from `DeviceDiffSequencer` so the rule is
+    /// unit-testable without `WatcherHub` or a real Thunderbolt device.
+    public static func thunderboltInvolved(previous: Set<Int64>, current: Set<Int64>) -> Bool {
+        previous != current
+    }
+
     /// Whether landing a parked device diff, on the reconcile-completion
     /// path specifically, should wait out a deliberate presentation gap
     /// first or run immediately. Pure rule extracted so the decision is
@@ -122,6 +136,7 @@ public enum NotificationDecision {
     public static func deviceNotificationContents(
         removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
         addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        thunderboltInvolved: Bool = false,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if let removed = removedGroups.first, removedGroups.count == 1,
@@ -129,8 +144,8 @@ public enum NotificationDecision {
            isReconnectPair(removed: removed, added: added) {
             return [reconnectedNotificationContent(for: added, singleDeviceBody: singleDeviceBody)]
         }
-        return removedNotificationContents(groups: removedGroups)
-            + addedNotificationContents(groups: addedGroups, singleDeviceBody: singleDeviceBody)
+        return removedNotificationContents(groups: removedGroups, thunderboltInvolved: thunderboltInvolved)
+            + addedNotificationContents(groups: addedGroups, thunderboltInvolved: thunderboltInvolved, singleDeviceBody: singleDeviceBody)
     }
 
     /// True when a removed group and an added group are almost certainly the
@@ -172,8 +187,19 @@ public enum NotificationDecision {
     /// showed up as "connected" even though they were posted. Mirrors
     /// `removedNotificationContents`'s merge so >1 group becomes ONE
     /// notification, same as a disconnect. See issue #556.
+    ///
+    /// - Parameter thunderboltInvolved: when true and there's more than one
+    ///   group (so this is the MERGED title, never the single-group
+    ///   "Connected: <name>" title), the title reads "Thunderbolt devices
+    ///   connected" instead of "USB devices connected". Set by the caller
+    ///   from `NotificationDecision.thunderboltInvolved(previous:current:)`
+    ///   when a downstream Thunderbolt fabric switch appeared or disappeared
+    ///   in the same settle window. Defaults to false so existing call sites
+    ///   keep compiling and today's wording is byte-identical when it isn't
+    ///   passed.
     public static func addedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
+        thunderboltInvolved: Bool = false,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
@@ -184,10 +210,10 @@ public enum NotificationDecision {
             return [NotificationContent(title: title, body: body)]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            return [NotificationContent(
-                title: String(localized: "USB devices connected", bundle: _notificationsLocalizedBundle),
-                body: allNames.joined(separator: "\n")
-            )]
+            let title = thunderboltInvolved
+                ? String(localized: "Thunderbolt devices connected", bundle: _notificationsLocalizedBundle)
+                : String(localized: "USB devices connected", bundle: _notificationsLocalizedBundle)
+            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
         }
         return []
     }
@@ -197,18 +223,24 @@ public enum NotificationDecision {
     /// devices disconnected" notification), extracted so
     /// `deviceNotificationContents` can compose it with the reconnect gate.
     /// See issue #556.
+    ///
+    /// - Parameter thunderboltInvolved: same swap as
+    ///   `addedNotificationContents`'s own parameter, "Thunderbolt devices
+    ///   disconnected" in place of "USB devices disconnected", only for the
+    ///   merged (>1 group) title.
     public static func removedNotificationContents(
-        groups: [USBDeviceChangeGrouper.ChangeGroup]
+        groups: [USBDeviceChangeGrouper.ChangeGroup],
+        thunderboltInvolved: Bool = false
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
             let title = String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
             return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            return [NotificationContent(
-                title: String(localized: "USB devices disconnected", bundle: _notificationsLocalizedBundle),
-                body: allNames.joined(separator: "\n")
-            )]
+            let title = thunderboltInvolved
+                ? String(localized: "Thunderbolt devices disconnected", bundle: _notificationsLocalizedBundle)
+                : String(localized: "USB devices disconnected", bundle: _notificationsLocalizedBundle)
+            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
         }
         return []
     }

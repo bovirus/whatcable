@@ -97,6 +97,18 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `reconcileChargers` (which runs both from the charger settle task and
     /// directly from tests).
     private let currentChargerSources: () -> [PowerSource]
+    /// Live IDs of the downstream Thunderbolt fabric switches (depth > 0;
+    /// the Mac's own host-root switches are depth 0 and always present, so
+    /// they're excluded before this closure is even called). Read fresh at
+    /// settle time, same discipline as `currentDevices` /
+    /// `currentChargerSources`. A bare `Set<Int64>`, not
+    /// `WhatCableCore.IOThunderboltSwitch`, on purpose: the sequencer only
+    /// ever needs identity (did the downstream set change), never any other
+    /// field on the switch, so the seam carries the smallest type that says
+    /// that, rather than a Core model this type has no other use for. The
+    /// shim maps it from `WatcherHub.shared.tbWatcher.switches.filter {
+    /// $0.depth > 0 }.map(\.id)`.
+    private let currentDownstreamTBSwitchIDs: () -> Set<Int64>
     /// Gate read AFTER baseline bookkeeping in `diffDevices` /
     /// `reconcileChargers`, exactly where `AppSettings.shared.notifyOnChanges`
     /// was read in the original, so state stays primed even when
@@ -120,6 +132,13 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     // baseline.
     var knownDevices: [UInt64: USBDeviceChangeGrouper.Snapshot] = [:]
     var knownChargerLabels: [String: String] = [:]
+    /// Baseline for `NotificationDecision.thunderboltInvolved(previous:current:)`.
+    /// Updated in exactly the same two places `knownDevices` is (primed in
+    /// `primeBaseline`, refreshed in `diffDevices` unconditionally, BEFORE
+    /// the `notifyOnChanges` gate), so a user who has notifications off and
+    /// later turns them on doesn't see a stale baseline manufacture a false
+    /// "Thunderbolt involved" on the next diff.
+    var knownTBSwitchIDs: Set<Int64> = []
     var didPrimeBaseline = false
 
     private var chargerSettleTask: Task<Void, Never>?
@@ -142,6 +161,19 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// already waiting means a fresh device episode is starting, so the
     /// waiting one is superseded, same as `deviceSettleTask` itself.
     private var deferredDeviceDiffDevices: [USBDevice]?
+    /// The downstream TB switch-ID set captured ALONGSIDE `deferredDeviceDiffDevices`,
+    /// at the same settle-time moment, not re-read when the diff eventually
+    /// lands. Landing can be delayed up to `deferredDeviceDiffDeadlineWindow`
+    /// (3.5s in production) after settle time; sampling
+    /// `currentDownstreamTBSwitchIDs()` at landing instead of settle would
+    /// let an UNRELATED TB switch change during that window mislabel a
+    /// batch of plain USB devices as Thunderbolt (or the reverse: a real
+    /// TB event settling with the batch, then reverting before landing,
+    /// would wrongly read as "no Thunderbolt involved"). Set together with
+    /// `deferredDeviceDiffDevices` at every park site (`deferDeviceDiff`,
+    /// `parkAndDelayDevicePost`), cleared together at every consuming site
+    /// (`landDeferredDeviceDiffNow`, `supersedeAnyParkedDiff`).
+    private var deferredDeviceDiffTBSwitchIDs: Set<Int64>?
     /// The ABSOLUTE, NON-RESETTING backstop for a parked diff. Started ONCE,
     /// at park time (`scheduleAbsoluteDeadline`, called from `deferDeviceDiff`
     /// and `parkAndDelayDevicePost`), and never touched again except by an
@@ -384,6 +416,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         clock: ClockType,
         currentDevices: @escaping () -> [USBDevice],
         currentChargerSources: @escaping () -> [PowerSource],
+        currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
         notifyOnChanges: @escaping () -> Bool,
         post: @escaping (NotificationCategory, NotificationContent) -> Void,
         log: @escaping (String) -> Void = { _ in },
@@ -394,6 +427,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         self.clock = clock
         self.currentDevices = currentDevices
         self.currentChargerSources = currentChargerSources
+        self.currentDownstreamTBSwitchIDs = currentDownstreamTBSwitchIDs
         self.notifyOnChanges = notifyOnChanges
         self.post = post
         self.log = log
@@ -425,6 +459,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // baseline and the diff use the same key space (else every connected
         // charger would fire a spurious "connected" on the first poll).
         knownChargerLabels = chargerLabels(for: chargerSources)
+        knownTBSwitchIDs = currentDownstreamTBSwitchIDs()
         didPrimeBaseline = true
     }
 
@@ -491,6 +526,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         deferredDeviceDiffToken += 1
         let token = deferredDeviceDiffToken
         deferredDeviceDiffDevices = devices
+        // Sampled here, at park time (this function runs synchronously
+        // right after `scheduleDeviceDiff` reads `currentDevices()`), not
+        // when the diff eventually lands. See `deferredDeviceDiffTBSwitchIDs`'s
+        // doc comment for why landing-time sampling is wrong.
+        deferredDeviceDiffTBSwitchIDs = currentDownstreamTBSwitchIDs()
 
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -691,15 +731,24 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// leaving the old parked one to land later against an already-mutated
     /// `knownDevices` baseline, producing a wrong diff for it.
     func runNowOrDelayForRecentChargerPost(_ devices: [USBDevice]) {
+        // Sampled once, here, regardless of which branch below runs: this
+        // call site IS settle time (see `deferredDeviceDiffTBSwitchIDs`'s
+        // doc comment). The `delay == 0` branch's landing coincides with
+        // settle time anyway, so sampling here changes nothing for it; the
+        // `delay > 0` branch is the one this actually fixes, by carrying
+        // the same settle-time snapshot through the park instead of
+        // re-reading the closure when `parkAndDelayDevicePost`'s gap task
+        // eventually lands it.
+        let tbSwitchIDs = currentDownstreamTBSwitchIDs()
         let delay = NotificationDecision.devicePostDelay(
             elapsedSinceLastChargerPost: elapsedSinceLastChargerPost(),
             presentationGap: deferredDeviceDiffPresentationGapWindow
         )
         if delay > .zero {
-            parkAndDelayDevicePost(devices, delay: delay)
+            parkAndDelayDevicePost(devices, tbSwitchIDs: tbSwitchIDs, delay: delay)
         } else {
             supersedeAnyParkedDiff()
-            diffDevices(devices)
+            diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
         }
     }
 
@@ -710,10 +759,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `landDeferredDeviceDiff` doesn't care HOW a diff got parked before
     /// re-scheduling its gap), then schedules the gap-guarded landing after
     /// `delay`.
-    private func parkAndDelayDevicePost(_ devices: [USBDevice], delay: Duration) {
+    private func parkAndDelayDevicePost(_ devices: [USBDevice], tbSwitchIDs: Set<Int64>, delay: Duration) {
         deferredDeviceDiffToken += 1
         let token = deferredDeviceDiffToken
         deferredDeviceDiffDevices = devices
+        deferredDeviceDiffTBSwitchIDs = tbSwitchIDs
         scheduleAbsoluteDeadline(token: token)
         scheduleGapLanding(token: token, delay: delay)
     }
@@ -732,6 +782,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     private func supersedeAnyParkedDiff() {
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
+        deferredDeviceDiffTBSwitchIDs = nil
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -746,11 +797,23 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// is the guard that keeps only the first of those to actually arrive
     /// from doing anything; see the interleaving walk-through above.
     private func landDeferredDeviceDiffNow(token: Int) {
+        // `deferredDeviceDiffTBSwitchIDs` is always set alongside
+        // `deferredDeviceDiffDevices` at every park site (`deferDeviceDiff`,
+        // `parkAndDelayDevicePost`), so it is bound in the same guard as the
+        // devices rather than falling back to a landing-time
+        // `currentDownstreamTBSwitchIDs()` read: that fallback would silently
+        // reopen the exact settle-time-vs-landing-time bug this snapshot
+        // exists to close if the invariant ever regressed. An absent
+        // snapshot here means there was never a valid parked diff to land,
+        // same as an absent `deferredDeviceDiffDevices`, so it backs out the
+        // same way.
         guard let devices = deferredDeviceDiffDevices,
+              let tbSwitchIDs = deferredDeviceDiffTBSwitchIDs,
               NotificationDecision.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
         else { return }
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
+        deferredDeviceDiffTBSwitchIDs = nil
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -758,10 +821,10 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // never set this true): once ANY path actually lands the diff, no
         // gap should be treated as still pending for it.
         isPresentationGapPending = false
-        diffDevices(devices)
+        diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
     }
 
-    private func diffDevices(_ current: [USBDevice]) {
+    private func diffDevices(_ current: [USBDevice], tbSwitchIDs: Set<Int64>) {
         guard didPrimeBaseline else { return }
 
         let previousSnapshots = Array(knownDevices.values)
@@ -769,6 +832,22 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         knownDevices = Dictionary(
             currentSnapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
+        )
+
+        // Baseline discipline: refreshed unconditionally, in lockstep with
+        // knownDevices above, BEFORE the notifyOnChanges gate below, so a
+        // user who has notifications off during a TB plug/unplug doesn't
+        // see a stale baseline manufacture a false "Thunderbolt involved" on
+        // the first diff after turning notifications back on. `tbSwitchIDs`
+        // is the caller's SETTLE-TIME snapshot (see
+        // `deferredDeviceDiffTBSwitchIDs`'s doc comment), not re-read here:
+        // re-reading `currentDownstreamTBSwitchIDs()` at landing time would
+        // reopen the exact bug that snapshot exists to close.
+        let previousTBSwitchIDs = knownTBSwitchIDs
+        knownTBSwitchIDs = tbSwitchIDs
+        let thunderboltInvolved = NotificationDecision.thunderboltInvolved(
+            previous: previousTBSwitchIDs,
+            current: tbSwitchIDs
         )
 
         guard notifyOnChanges() else { return }
@@ -790,7 +869,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // the same model report the same product name, so name matching
         // could pick the wrong one.
         let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let contents = NotificationDecision.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups) { rootID in
+        let contents = NotificationDecision.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved) { rootID in
             currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
         }
         for content in contents {

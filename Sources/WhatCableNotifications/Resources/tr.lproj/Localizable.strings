@@ -8,3 +8,5 @@
 "USB device" = "USB aygıtı";
 "USB devices connected" = "USB aygıtları bağlandı";
 "USB devices disconnected" = "USB aygıtları çıkarıldı";
+"Thunderbolt devices connected" = "Thunderbolt aygıtları bağlandı";
+"Thunderbolt devices disconnected" = "Thunderbolt aygıtları çıkarıldı";

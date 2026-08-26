@@ -8,3 +8,5 @@
 "USB device" = "USB սարք";
 "USB devices connected" = "USB սարքերը միացվեցին";
 "USB devices disconnected" = "USB սարքերն անջատվեցին";
+"Thunderbolt devices connected" = "Thunderbolt սարքերը միացվեցին";
+"Thunderbolt devices disconnected" = "Thunderbolt սարքերն անջատվեցին";

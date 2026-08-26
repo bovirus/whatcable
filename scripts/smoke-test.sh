@@ -140,6 +140,20 @@ if [[ -d "${APP_RESOURCES_SRC}" ]]; then
     cp -R "${APP_RESOURCES_SRC}/." "${bundle_path}/"
 fi
 
+# WhatCableNotifications (the notification decision module, PR #564) has its
+# own localised strings, separate from the app's. WhatCableCLI does not
+# depend on this target (verified against Package.swift), so unlike
+# WhatCable_WhatCableCore.bundle above, this one is app-only: no CLI staging
+# needed.
+NOTIFICATIONS_BUNDLE_NAME="WhatCable_WhatCableNotifications.bundle"
+NOTIFICATIONS_RESOURCES_SRC="Sources/WhatCableNotifications/Resources"
+if [[ -d "${NOTIFICATIONS_RESOURCES_SRC}" ]]; then
+    bundle_path="${RESOURCES_DIR}/${NOTIFICATIONS_BUNDLE_NAME}"
+    rm -rf "${bundle_path}"
+    mkdir -p "${bundle_path}"
+    cp -R "${NOTIFICATIONS_RESOURCES_SRC}/." "${bundle_path}/"
+fi
+
 # TUIkit declares SPM resources, so the build produces TUIkit_TUIkit.bundle
 # alongside the binaries in the products dir. Bundle.module's lookup chain
 # needs it at runtime when the --dashboard command initialises the TUI.
@@ -153,6 +167,46 @@ if [[ ! -d "${TUIKIT_BUNDLE_SRC}" ]]; then
     exit 1
 fi
 cp -R "${TUIKIT_BUNDLE_SRC}" "${RESOURCES_DIR}/${TUIKIT_BUNDLE_NAME}"
+
+# Guard against the class of bug that shipped WhatCableNotifications without
+# its bundle staged (a `.process("Resources")` SPM target that nothing above
+# copies into Contents/Resources crashes at launch with "unable to find
+# bundle named ..." the first time Bundle.module is touched). Every target
+# in the app's dependency closure that declares `resources:` in Package.swift
+# must have a matching WhatCable_<Target>.bundle staged by this point. This
+# is a static list, not a generic Package.swift parse: keep it in sync by
+# hand whenever a target gains (or loses) a `resources:` declaration.
+#
+# A plain directory-existence check isn't enough: an interrupted `cp -R`
+# (e.g. a rerun that races a partial previous copy) can leave the bundle
+# directory present but empty, which satisfies `-d` while shipping no
+# strings at all. `Bundle(url:)` succeeds on an empty directory, so that
+# doesn't crash at launch; it silently falls back to English (or the raw
+# key) for every string the bundle should have carried, everywhere except
+# en. So the check also requires at least one `*.lproj/Localizable.strings`
+# file inside, the shape every one of these targets' Resources/ carries
+# today.
+RESOURCE_BEARING_APP_TARGETS=(
+    "WhatCableCore"
+    "WhatCable"
+    "WhatCableNotifications"
+)
+for target in "${RESOURCE_BEARING_APP_TARGETS[@]}"; do
+    expected_bundle="${RESOURCES_DIR}/WhatCable_${target}.bundle"
+    if [[ ! -d "${expected_bundle}" ]]; then
+        echo "ERROR: ${expected_bundle} not found. ${target} declares SPM" >&2
+        echo "       resources but nothing staged its bundle: the app will" >&2
+        echo "       crash at launch the first time Bundle.module is touched." >&2
+        exit 1
+    fi
+    if ! find "${expected_bundle}" -mindepth 2 -name "Localizable.strings" -print -quit | grep -q .; then
+        echo "ERROR: ${expected_bundle} exists but has no *.lproj/Localizable.strings" >&2
+        echo "       inside it. Staging left an empty or partial bundle: the app" >&2
+        echo "       won't crash, but every string ${target} owns will silently" >&2
+        echo "       fall back to English (or the raw key) at runtime." >&2
+        exit 1
+    fi
+done
 
 # macOS needs .lproj directories at the app bundle root to recognize
 # supported languages. The actual strings live in the SPM sub-bundles,

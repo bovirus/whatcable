@@ -1,0 +1,7 @@
+"Charger connected" = "Ładowarka podłączona";
+"Charger disconnected" = "Ładowarka odłączona";
+"Connected: %@" = "Podłączone: %@";
+"Disconnected: %@" = "Odłączone: %@";
+"Reconnected: %@" = "Ponownie podłączone: %@";
+"USB devices connected" = "Urządzenia USB podłączone";
+"USB devices disconnected" = "Urządzenia USB odłączone";

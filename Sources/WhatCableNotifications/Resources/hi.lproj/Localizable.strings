@@ -1,0 +1,7 @@
+"Charger connected" = "चार्जर कनेक्ट हुआ";
+"Charger disconnected" = "चार्जर डिस्कनेक्ट हुआ";
+"Connected: %@" = "कनेक्टेड: %@";
+"Disconnected: %@" = "डिस्कनेक्टेड: %@";
+"Reconnected: %@" = "फिर से कनेक्टेड: %@";
+"USB devices connected" = "USB डिवाइस कनेक्ट हुए";
+"USB devices disconnected" = "USB डिवाइस डिस्कनेक्ट हुए";

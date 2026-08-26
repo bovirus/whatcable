@@ -10,13 +10,8 @@
 "Built by %@." = "Utviklet av %@.";
 "Cable trust signals" = "Tillitssignaler for kabel";
 "Cancel" = "Avbryt";
-"Charger connected" = "Lader tilkoblet";
-"Charger disconnected" = "Lader frakoblet";
 "Check for Updates…" = "Se etter oppdateringer…";
 "Connected devices" = "Tilkoblede enheter";
-"Connected: %@" = "Tilkoblet: %@";
-"Disconnected: %@" = "Frakoblet: %@";
-"Reconnected: %@" = "Tilkoblet på nytt: %@";
 "Connection" = "Tilkobling";
 "Display" = "Skjerm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Stasjonær Mac: laderidentitet (FedDetails) er ikke tilgjengelig.";
@@ -78,8 +73,6 @@
 "Transports" = "Transporter";
 "USB active" = "USB aktiv";
 "USB device" = "USB-enhet";
-"USB devices connected" = "USB-enheter tilkoblet";
-"USB devices disconnected" = "USB-enheter frakoblet";
 "Unknown" = "Ukjent";
 "Verifying signature…" = "Verifiserer signatur…";
 "View release" = "Vis utgivelse";

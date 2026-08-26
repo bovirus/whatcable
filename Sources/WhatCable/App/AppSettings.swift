@@ -3,6 +3,7 @@ import ServiceManagement
 import os.log
 import WhatCableAppKit
 import WhatCableCore
+import WhatCableNotifications
 import WhatCableDarwinBackend
 
 /// How the menu bar shows charger power when `showChargingWatts` is on: the
@@ -155,6 +156,7 @@ final class AppSettings: ObservableObject {
             UserDefaults.standard.set(preferredLanguage, forKey: Keys.preferredLanguage)
             setCoreLocale(preferredLanguage)
             setAppLocale(preferredLanguage)
+            setNotificationsLocale(preferredLanguage)
         }
     }
 
@@ -328,6 +330,7 @@ final class AppSettings: ObservableObject {
         self.preferredLanguage = savedLanguage
         setCoreLocale(savedLanguage)
         setAppLocale(savedLanguage)
+        setNotificationsLocale(savedLanguage)
         let stored = UserDefaults.standard.double(forKey: Keys.fontSize)
         let raw = stored > 0 ? stored : 1.0
         let initialScale = min(max(raw, Self.fontSizeRange.lowerBound), Self.fontSizeRange.upperBound)

@@ -1,0 +1,7 @@
+"Charger connected" = "Şarj aleti bağlandı";
+"Charger disconnected" = "Şarj aleti çıkarıldı";
+"Connected: %@" = "Bağlı: %@";
+"Disconnected: %@" = "Bağlantı kesildi: %@";
+"Reconnected: %@" = "Yeniden bağlandı: %@";
+"USB devices connected" = "USB aygıtları bağlandı";
+"USB devices disconnected" = "USB aygıtları çıkarıldı";

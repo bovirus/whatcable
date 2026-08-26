@@ -94,6 +94,7 @@ BASE_LANG = "en"
 CATALOGUES = {
     "_coreLocalizedBundle": ("WhatCableCore", "Sources/WhatCableCore/Resources"),
     "_appLocalizedBundle": ("WhatCable (app)", "Sources/WhatCable/Resources"),
+    "_notificationsLocalizedBundle": ("WhatCableNotifications", "Sources/WhatCableNotifications/Resources"),
 }
 
 # The locale directories every catalogue is expected to carry, asserted

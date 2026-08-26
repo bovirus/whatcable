@@ -1,0 +1,7 @@
+"Charger connected" = "Լիցքավորիչը միացված է";
+"Charger disconnected" = "Լիցքավորիչը անջատված է";
+"Connected: %@" = "Միացված է՝ %@";
+"Disconnected: %@" = "Անջատված է՝ %@";
+"Reconnected: %@" = "Վերամիացված է՝ %@";
+"USB devices connected" = "USB սարքերը միացվեցին";
+"USB devices disconnected" = "USB սարքերն անջատվեցին";

@@ -10,13 +10,8 @@
 "Built by %@." = "Criado por %@.";
 "Cable trust signals" = "Sinais de confiança do cabo";
 "Cancel" = "Cancelar";
-"Charger connected" = "Carregador conectado";
-"Charger disconnected" = "Carregador desconectado";
 "Check for Updates…" = "Buscar atualizações…";
 "Connected devices" = "Dispositivos conectados";
-"Connected: %@" = "Conectado: %@";
-"Disconnected: %@" = "Desconectado: %@";
-"Reconnected: %@" = "Reconectado: %@";
 "Connection" = "Conexão";
 "Display" = "Tela";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac de mesa: a identidade do carregador (FedDetails) não está disponível.";
@@ -78,8 +73,6 @@
 "Transports" = "Transportes";
 "USB active" = "USB ativo";
 "USB device" = "Dispositivo USB";
-"USB devices connected" = "Dispositivos USB conectados";
-"USB devices disconnected" = "Dispositivos USB desconectados";
 "Unknown" = "Desconhecido";
 "Verifying signature…" = "Verificando assinatura…";
 "View release" = "Ver versão";

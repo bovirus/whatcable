@@ -3,6 +3,7 @@ import Combine
 import UserNotifications
 import os.log
 import WhatCableCore
+import WhatCableNotifications
 import WhatCableDarwinBackend
 
 /// Posts user notifications when USB-C cables / power sources connect or
@@ -83,23 +84,12 @@ final class NotificationManager {
     var knownChargerLabels: [String: String] = [:]
     var didPrimeBaseline = false
 
-    /// One notification category per event type (issue #567). Posting with
-    /// the same identifier replaces the previous notification in place
-    /// (Apple's sanctioned "one standing notification per topic" pattern),
-    /// so a second device event doesn't leave two separate banners sitting
-    /// in Notification Centre. Charger and device events use distinct
-    /// identifiers so one never replaces the other.
-    enum NotificationCategory: String, Equatable {
-        case device = "device-event"
-        case charger = "charger-event"
-    }
-
-    /// Pure identifier lookup, kept separate from `postNotification` so the
-    /// "same category -> same identifier, different category -> different
-    /// identifier" rule is unit-testable without `UNUserNotificationCenter`.
-    nonisolated static func notificationIdentifier(for category: NotificationCategory) -> String {
-        category.rawValue
-    }
+    /// `NotificationCategory` and `notificationIdentifier(for:)` moved to
+    /// `WhatCableNotifications` (pure, no `UNUserNotificationCenter`
+    /// dependency). Typealiased here so every existing call site
+    /// (`NotificationManager.NotificationCategory`, `.device`, `.charger`)
+    /// keeps compiling unchanged.
+    typealias NotificationCategory = WhatCableNotifications.NotificationCategory
 
     private var chargerSettleTask: Task<Void, Never>?
     /// True from the moment a charger settle task is scheduled until the
@@ -374,7 +364,7 @@ final class NotificationManager {
             try? await Task.sleep(for: self?.deviceSettleWindow ?? .milliseconds(1500))
             guard !Task.isCancelled, let self else { return }
             let devices = WatcherHub.shared.deviceWatcher.devices
-            switch Self.deviceDiffDisposition(chargerSettlePending: self.isChargerSettlePending) {
+            switch NotificationDecision.deviceDiffDisposition(chargerSettlePending: self.isChargerSettlePending) {
             case .runNow:
                 // Both-orders fix: `isChargerSettlePending` being false here
                 // only means no charger settle is CURRENTLY pending; it says
@@ -388,36 +378,11 @@ final class NotificationManager {
         }
     }
 
-    /// Stack-order fix (owner report): unplugging a powered dock fires a
-    /// device settle and a charger settle from the same physical event, and
-    /// they used to post device-then-charger. macOS stacks the newest post
-    /// on top, so the charger banner landed on top of the richer device
-    /// banner, the one users actually read. When both settle windows belong
-    /// to the same episode, the charger content must post FIRST so the
-    /// device content posts LAST and stacks on top.
-    ///
-    /// An earlier version of this fix cancelled the pending charger settle
-    /// timer and ran `reconcileChargers` early, synchronously, from here.
-    /// Review (Codex) caught that `isChargerSettlePending` only means "a
-    /// charger update happened in the last `chargerSettleWindow`", not "the
-    /// charger set has stopped changing": running the reconcile on that
-    /// signal can fire mid-flap, posting exactly the spurious
-    /// disconnected/connected pair issue #227's debounce exists to
-    /// suppress. So the charger side is never touched early. Instead the
-    /// DEVICE post is deferred: `reconcileChargers` still runs on its own
-    /// undisturbed 1.5s window, and once it finishes it lands the waiting
-    /// device diff itself, so the charger post always precedes it.
-    enum DeviceDiffDisposition: Equatable {
-        case runNow
-        case deferUntilChargerReconcile
-    }
-
-    /// Pure ordering rule: given a charger settle task still pending in the
-    /// same episode as a settling device diff, the device diff must wait for
-    /// that charger reconcile to land it, not run immediately.
-    nonisolated static func deviceDiffDisposition(chargerSettlePending: Bool) -> DeviceDiffDisposition {
-        chargerSettlePending ? .deferUntilChargerReconcile : .runNow
-    }
+    /// `DeviceDiffDisposition` and `deviceDiffDisposition(chargerSettlePending:)`
+    /// (the stack-order fix's pure ordering rule) moved to
+    /// `WhatCableNotifications.NotificationDecision`. See that type's doc
+    /// comment for the full stack-order reasoning.
+    typealias DeviceDiffDisposition = NotificationDecision.DeviceDiffDisposition
 
     /// Park a settled device diff until the pending charger reconcile lands
     /// it (see `reconcileChargers`'s `defer`) or `deferredDeviceDiffDeadlineTask`
@@ -475,26 +440,10 @@ final class NotificationManager {
         }
     }
 
-    /// Whether landing a parked device diff, on the reconcile-completion
-    /// path specifically, should wait out a deliberate presentation gap
-    /// first or run immediately. Pure rule extracted so the decision is
-    /// unit-testable without `Task`. Only `landDeferredDeviceDiff(token:
-    /// afterChargerPost:)` reads it; the timeout path in `deferDeviceDiff`
-    /// never asks, because a diff that timed out waiting for a reconcile has,
-    /// by definition, no charger post to clash with.
-    enum DeferredDiffLanding: Equatable {
-        case immediate
-        case afterPresentationGap
-    }
-
-    /// `reconcileChargers` actually posted charger content this time ->
-    /// its post and the device post would otherwise land in the same
-    /// millisecond and macOS would show only the later one. Nothing posted
-    /// -> nothing on screen to clash with, so land immediately, unchanged
-    /// from before this fix.
-    nonisolated static func deferredDiffLanding(reconcilePostedChargerContent: Bool) -> DeferredDiffLanding {
-        reconcilePostedChargerContent ? .afterPresentationGap : .immediate
-    }
+    /// `DeferredDiffLanding` and `deferredDiffLanding(reconcilePostedChargerContent:)`
+    /// moved to `WhatCableNotifications.NotificationDecision`. See that
+    /// type's doc comment for the presentation-gap reasoning.
+    typealias DeferredDiffLanding = NotificationDecision.DeferredDiffLanding
 
     /// Entry point for the reconcile-completion landing path (called from
     /// `reconcileChargers`'s `defer`). Decides gap vs immediate via
@@ -576,7 +525,7 @@ final class NotificationManager {
     ///    theoretical hygiene.
     func landDeferredDeviceDiff(token: Int, afterChargerPost: Bool) {
         guard deferredDeviceDiffDevices != nil else { return }
-        switch Self.deferredDiffLanding(reconcilePostedChargerContent: afterChargerPost) {
+        switch NotificationDecision.deferredDiffLanding(reconcilePostedChargerContent: afterChargerPost) {
         case .immediate:
             guard !isPresentationGapPending else { return }
             landDeferredDeviceDiffNow(token: token)
@@ -629,24 +578,10 @@ final class NotificationManager {
         }
     }
 
-    /// Both-orders fix: how long a device post must wait, given how long ago
-    /// the last CHARGER post actually went out. `nil` elapsed (no charger
-    /// post yet this app launch) or an elapsed at or past `presentationGap`
-    /// both mean nothing to delay for: zero. Otherwise the REMAINDER of the
-    /// window (`presentationGap - elapsed`), not the full window again, so a
-    /// device post that already waited some of the gap out (by settling a
-    /// little later) doesn't wait the full window a second time. Pure and
-    /// separate from `runNowOrDelayForRecentChargerPost` so the arithmetic is
-    /// unit-testable without `Task` or a real clock.
-    nonisolated static func devicePostDelay(
-        elapsedSinceLastChargerPost: Duration?,
-        presentationGap: Duration
-    ) -> Duration {
-        guard let elapsed = elapsedSinceLastChargerPost, elapsed < presentationGap else {
-            return .zero
-        }
-        return presentationGap - elapsed
-    }
+    /// `devicePostDelay(elapsedSinceLastChargerPost:presentationGap:)` (the
+    /// both-orders fix's pure arithmetic) moved to
+    /// `WhatCableNotifications.NotificationDecision`. See that type's doc
+    /// comment for the reasoning.
 
     /// Wall-clock time since `lastChargerPostTime`, or `nil` if no charger
     /// post has gone out yet this app launch. Kept separate from
@@ -684,7 +619,7 @@ final class NotificationManager {
     /// leaving the old parked one to land later against an already-mutated
     /// `knownDevices` baseline, producing a wrong diff for it.
     func runNowOrDelayForRecentChargerPost(_ devices: [USBDevice]) {
-        let delay = Self.devicePostDelay(
+        let delay = NotificationDecision.devicePostDelay(
             elapsedSinceLastChargerPost: elapsedSinceLastChargerPost(),
             presentationGap: deferredDeviceDiffPresentationGapWindow
         )
@@ -740,7 +675,7 @@ final class NotificationManager {
     /// from doing anything; see the interleaving walk-through above.
     private func landDeferredDeviceDiffNow(token: Int) {
         guard let devices = deferredDeviceDiffDevices,
-              Self.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
+              NotificationDecision.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
         else { return }
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
@@ -754,15 +689,9 @@ final class NotificationManager {
         diffDevices(devices)
     }
 
-    /// Pure guard behind the "lands exactly once" property: a landing
-    /// attempt may proceed only while its captured `token` still matches the
-    /// live one. `landDeferredDeviceDiffNow` invalidates the live token (by
-    /// incrementing it) as the very first thing it does after this check
-    /// passes, before running the diff, so a second attempt with the same
-    /// captured token always sees a stale value and backs out.
-    nonisolated static func shouldLandDeferredDiff(token: Int, liveToken: Int) -> Bool {
-        token == liveToken
-    }
+    /// `shouldLandDeferredDiff(token:liveToken:)` (the pure "lands exactly
+    /// once" guard) moved to `WhatCableNotifications.NotificationDecision`.
+    /// See that type's doc comment for the exactly-once reasoning.
 
     private func diffDevices(_ current: [USBDevice]) {
         guard didPrimeBaseline else { return }
@@ -785,7 +714,7 @@ final class NotificationManager {
         // `deviceNotificationContents` runs below, so the log line reflects
         // what actually decides "Reconnected" vs "Disconnected"+"Connected".
         let reconnectGateFired = removedGroups.count == 1 && addedGroups.count == 1
-            && Self.isReconnectPair(removed: removedGroups[0], added: addedGroups[0])
+            && NotificationDecision.isReconnectPair(removed: removedGroups[0], added: addedGroups[0])
         Self.log.info("diffDevices: addedGroups=\(addedGroups.count, privacy: .public) removedGroups=\(removedGroups.count, privacy: .public) addedRoots=\(addedGroups.map(\.rootName).joined(separator: ", "), privacy: .public) removedRoots=\(removedGroups.map(\.rootName).joined(separator: ", "), privacy: .public) reconnectGateFired=\(reconnectGateFired, privacy: .public)")
 
         // Recover the full USBDevice for the speed/vendor body of a
@@ -793,7 +722,7 @@ final class NotificationManager {
         // the same model report the same product name, so name matching
         // could pick the wrong one.
         let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let contents = Self.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups) { rootID in
+        let contents = NotificationDecision.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups) { rootID in
             currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
         }
         for content in contents {
@@ -801,131 +730,18 @@ final class NotificationManager {
         }
     }
 
-    /// Decides the full batch of notification content for one settled device
-    /// diff: the reconnect gate first, then (when it doesn't fire) the usual
-    /// removed-then-added composition. Pure and separate from `diffDevices`
-    /// so the GATE ITSELF, not just its two halves, is unit-testable without
-    /// `UNUserNotificationCenter`.
+    /// `deviceNotificationContents`, `isReconnectPair`,
+    /// `reconnectedNotificationContent`, `addedNotificationContents`, and
+    /// `removedNotificationContents` (the pure device-content decisions, plus
+    /// the reconnect gate) moved to
+    /// `WhatCableNotifications.NotificationDecision`. See that type's doc
+    /// comments for the full reconnect-gate and merge reasoning (issues #556,
+    /// #567).
     ///
-    /// A device can disconnect and re-enumerate under a new entryID within
-    /// one settle window (e.g. a hub power-cycling), so the same settled
-    /// diff can hold both a removal and an addition for what was physically
-    /// one event. Both post under the shared "device-event" identifier
-    /// (issue #567), so the second post replaces the first in Notification
-    /// Centre: only the LATEST post is ever shown, not both. Removed-before-
-    /// added ordering means a device that reconnects within the window
-    /// leaves "Connected" standing (its true current state); a device that
-    /// only disconnects leaves "Disconnected" standing because there's no
-    /// later add to replace it.
-    ///
-    /// A narrow subset of that "reconnects within the window" case gets its
-    /// own wording: exactly one removed group and one added group, matching
-    /// by physical port. That flap deserves to say "Reconnected" rather than
-    /// silently reading as a fresh "Connected", since to the user it looked
-    /// like a fault, not a first-time plug-in. Every other shape (multiple
-    /// groups, no match, adds only, removes only) keeps the removed-then-
-    /// added composition below untouched.
-    nonisolated static func deviceNotificationContents(
-        removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
-        addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
-        singleDeviceBody: (UInt64) -> String?
-    ) -> [NotificationContent] {
-        if let removed = removedGroups.first, removedGroups.count == 1,
-           let added = addedGroups.first, addedGroups.count == 1,
-           isReconnectPair(removed: removed, added: added) {
-            return [reconnectedNotificationContent(for: added, singleDeviceBody: singleDeviceBody)]
-        }
-        return removedNotificationContents(groups: removedGroups)
-            + addedNotificationContents(groups: addedGroups, singleDeviceBody: singleDeviceBody)
-    }
-
-    /// True when a removed group and an added group are almost certainly the
-    /// same physical device re-enumerating rather than a genuine disconnect
-    /// paired with an unrelated connect: same physical port path
-    /// (`rootLocationID`, which survives a re-enumeration even though the
-    /// entryID doesn't) AND the same product name. A different name at the
-    /// same port (a device swapped on that port within the settle window) is
-    /// deliberately NOT a reconnect: it falls through to today's separate
-    /// "Disconnected" / "Connected" pair instead.
-    nonisolated static func isReconnectPair(
-        removed: USBDeviceChangeGrouper.ChangeGroup,
-        added: USBDeviceChangeGrouper.ChangeGroup
-    ) -> Bool {
-        removed.rootLocationID == added.rootLocationID && removed.rootName == added.rootName
-    }
-
-    /// Content for the single "Reconnected: <name>" notification posted for
-    /// a matched drop-and-return pair. Same body treatment as
-    /// `addedNotificationContents`'s single-group case (member names, or the
-    /// speed/vendor line for a memberless group), because the added group's
-    /// content is what's true of the device right now.
-    nonisolated static func reconnectedNotificationContent(
-        for added: USBDeviceChangeGrouper.ChangeGroup,
-        singleDeviceBody: (UInt64) -> String?
-    ) -> NotificationContent {
-        let title = String(localized: "Reconnected: \(added.rootName)", bundle: _appLocalizedBundle)
-        let body = added.memberNames.isEmpty
-            ? (singleDeviceBody(added.rootID) ?? "")
-            : added.memberNames.joined(separator: "\n")
-        return NotificationContent(title: title, body: body)
-    }
-
-    /// A single notification's title and body, decided independently of
-    /// `UNUserNotificationCenter` so the merge decision below is testable
-    /// without posting anything. See issue #556.
-    struct NotificationContent: Equatable {
-        let title: String
-        let body: String
-    }
-
-    /// Decides what to post for one settled batch of added groups. A dock
-    /// with several subtrees (main USB3 hub, USB2 companion hubs, PD device)
-    /// arrives as multiple groups in a single settle window; posting one
-    /// `UNUserNotificationCenter.add` per group produced 2-3 simultaneous
-    /// banners with only the last one visible, so most of the devices never
-    /// showed up as "connected" even though they were posted. Mirrors
-    /// `removedNotificationContents`'s merge so >1 group becomes ONE
-    /// notification, same as a disconnect. See issue #556.
-    nonisolated static func addedNotificationContents(
-        groups: [USBDeviceChangeGrouper.ChangeGroup],
-        singleDeviceBody: (UInt64) -> String?
-    ) -> [NotificationContent] {
-        if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Connected: \(group.rootName)", bundle: _appLocalizedBundle)
-            let body = group.memberNames.isEmpty
-                ? (singleDeviceBody(group.rootID) ?? "")
-                : group.memberNames.joined(separator: "\n")
-            return [NotificationContent(title: title, body: body)]
-        } else if groups.count > 1 {
-            let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            return [NotificationContent(
-                title: String(localized: "USB devices connected", bundle: _appLocalizedBundle),
-                body: allNames.joined(separator: "\n")
-            )]
-        }
-        return []
-    }
-
-    /// Decides what to post for one settled batch of removed groups. Mirrors
-    /// `addedNotificationContents`'s merge (>1 group becomes ONE "USB
-    /// devices disconnected" notification), extracted so
-    /// `deviceNotificationContents` can compose it with the reconnect gate.
-    /// See issue #556.
-    nonisolated static func removedNotificationContents(
-        groups: [USBDeviceChangeGrouper.ChangeGroup]
-    ) -> [NotificationContent] {
-        if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Disconnected: \(group.rootName)", bundle: _appLocalizedBundle)
-            return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
-        } else if groups.count > 1 {
-            let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            return [NotificationContent(
-                title: String(localized: "USB devices disconnected", bundle: _appLocalizedBundle),
-                body: allNames.joined(separator: "\n")
-            )]
-        }
-        return []
-    }
+    /// `NotificationContent` itself moved to `WhatCableNotifications` as a
+    /// top-level type; typealiased here so every existing call site
+    /// (`NotificationManager.NotificationContent`) keeps compiling unchanged.
+    typealias NotificationContent = WhatCableNotifications.NotificationContent
 
     private func snapshot(for device: USBDevice) -> USBDeviceChangeGrouper.Snapshot {
         USBDeviceChangeGrouper.Snapshot(
@@ -950,46 +766,10 @@ final class NotificationManager {
         }
     }
 
-    /// Decides what to post for one settled charger reconcile. With the
-    /// shared "charger-event" identifier (issue #567), posting one
-    /// notification per changed port meant each later post replaced the
-    /// one before it under Notification Centre's own rules, so 2+ charger
-    /// changes in a single settle window silently lost all but the last.
-    /// Mirrors the device path's merge: every added charger becomes ONE
-    /// "Charger connected" post (labels joined by newline), every removed
-    /// charger becomes ONE "Charger disconnected" post, same as before for
-    /// the single-charger case. Removed comes first, added second, mirroring
-    /// `diffDevices`'s ordering so the same "latest post wins" reasoning
-    /// applies if a charger both drops and reconnects within the window.
-    nonisolated static func chargerNotificationContents(
-        addedLabels: [String],
-        removedLabels: [String]
-    ) -> [NotificationContent] {
-        var contents: [NotificationContent] = []
-        if !removedLabels.isEmpty {
-            contents.append(NotificationContent(
-                title: String(localized: "Charger disconnected", bundle: _appLocalizedBundle),
-                body: removedLabels.joined(separator: "\n")
-            ))
-        }
-        if !addedLabels.isEmpty {
-            contents.append(NotificationContent(
-                title: String(localized: "Charger connected", bundle: _appLocalizedBundle),
-                body: addedLabels.joined(separator: "\n")
-            ))
-        }
-        return contents
-    }
-
-    /// Turns a set of changed charger port keys into their labels, sorted by
-    /// the stable port key rather than left in Set iteration order. Set and
-    /// Dictionary don't guarantee a stable order between runs, so without
-    /// this the merged notification's line order would flap for no reason a
-    /// user could see. Pure and separate from `reconcileChargers` so the
-    /// ordering is unit-testable without `WatcherHub`.
-    nonisolated static func sortedChargerLabels(for portKeys: some Sequence<String>, labels: [String: String]) -> [String] {
-        portKeys.sorted().compactMap { labels[$0] }
-    }
+    /// `chargerNotificationContents(addedLabels:removedLabels:)` and
+    /// `sortedChargerLabels(for:labels:)` moved to
+    /// `WhatCableNotifications.NotificationDecision`. See that type's doc
+    /// comments for the merge and ordering reasoning (issue #567).
 
     /// Reconcile the current charger ports against the last-notified set, after
     /// the published list has settled. Notify once per charger (port), not once
@@ -1030,9 +810,9 @@ final class NotificationManager {
         for portKey in addedPortKeys where addedLabelsByPortKey[portKey] == nil {
             addedLabelsByPortKey[portKey] = String(localized: "PD source", bundle: _appLocalizedBundle)
         }
-        let addedLabels = Self.sortedChargerLabels(for: addedPortKeys, labels: addedLabelsByPortKey)
-        let removedLabels = Self.sortedChargerLabels(for: removedPortKeys, labels: previousLabels)
-        let contents = Self.chargerNotificationContents(addedLabels: addedLabels, removedLabels: removedLabels)
+        let addedLabels = NotificationDecision.sortedChargerLabels(for: addedPortKeys, labels: addedLabelsByPortKey)
+        let removedLabels = NotificationDecision.sortedChargerLabels(for: removedPortKeys, labels: previousLabels)
+        let contents = NotificationDecision.chargerNotificationContents(addedLabels: addedLabels, removedLabels: removedLabels)
         chargerPostedContent = !contents.isEmpty
         for content in contents {
             postNotification(category: .charger, title: content.title, body: content.body)
@@ -1069,7 +849,7 @@ final class NotificationManager {
         if !content.body.isEmpty { mutableContent.body = content.body }
         mutableContent.sound = nil
 
-        let identifier = NotificationManager.notificationIdentifier(for: category)
+        let identifier = NotificationDecision.notificationIdentifier(for: category)
         let bodyLineCount = content.body.isEmpty ? 0 : content.body.split(separator: "\n").count
         NotificationManager.log.info("postNotification: identifier=\(identifier, privacy: .public) title=\(content.title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
 

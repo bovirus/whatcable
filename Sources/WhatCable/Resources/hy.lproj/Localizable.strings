@@ -10,13 +10,8 @@
 "Built by %@." = "Ստեղծվել է %@-ի կողմից:";
 "Cable trust signals" = "Կաբելի վստահելիության ազդանշաններ";
 "Cancel" = "Չեղարկել";
-"Charger connected" = "Լիցքավորիչը միացված է";
-"Charger disconnected" = "Լիցքավորիչը անջատված է";
 "Check for Updates…" = "Ստուգել թարմացումները…";
 "Connected devices" = "Միացված սարքեր";
-"Connected: %@" = "Միացված է՝ %@";
-"Disconnected: %@" = "Անջատված է՝ %@";
-"Reconnected: %@" = "Վերամիացված է՝ %@";
 "Connection" = "Կապ";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Աշխատասեղանային Mac. լիցքավորիչի ինքնությունը (FedDetails) հասանելի չէ:";
 "Display" = "Էկրան";
@@ -78,8 +73,6 @@
 "Transports" = "Տվյալների փոխանցում";
 "USB active" = "USB-ն ակտիվ է";
 "USB device" = "USB սարք";
-"USB devices connected" = "USB սարքերը միացվեցին";
-"USB devices disconnected" = "USB սարքերն անջատվեցին";
 "Unknown" = "Անհայտ";
 "Verifying signature…" = "Ստուգվում է թվային ստորագրությունը…";
 "View release" = "Տեսնել թողարկումը";

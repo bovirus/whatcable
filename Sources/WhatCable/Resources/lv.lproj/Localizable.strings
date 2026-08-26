@@ -10,13 +10,8 @@
 "Built by %@." = "Izstrādāja %@.";
 "Cable trust signals" = "Kabeļa uzticamības signāli";
 "Cancel" = "Atcelt";
-"Charger connected" = "Lādētājs pievienots";
-"Charger disconnected" = "Lādētājs atvienots";
 "Check for Updates…" = "Pārbaudīt atjauninājumus…";
 "Connected devices" = "Pievienotās ierīces";
-"Connected: %@" = "Pievienots: %@";
-"Disconnected: %@" = "Atvienots: %@";
-"Reconnected: %@" = "Atkārtoti pievienots: %@";
 "Connection" = "Savienojums";
 "Display" = "Displejs";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Galda Mac: lādētāja identitāte (FedDetails) nav pieejama.";
@@ -78,8 +73,6 @@
 "Transports" = "Transporti";
 "USB active" = "USB aktīvs";
 "USB device" = "USB ierīce";
-"USB devices connected" = "USB ierīces pievienotas";
-"USB devices disconnected" = "USB ierīces atvienotas";
 "Unknown" = "Nezināms";
 "Verifying signature…" = "Pārbauda parakstu…";
 "View release" = "Skatīt laidienu";

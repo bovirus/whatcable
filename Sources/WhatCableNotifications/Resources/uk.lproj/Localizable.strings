@@ -1,0 +1,7 @@
+"Charger connected" = "Зарядний пристрій підключено";
+"Charger disconnected" = "Зарядний пристрій відключено";
+"Connected: %@" = "Підключено: %@";
+"Disconnected: %@" = "Відключено: %@";
+"Reconnected: %@" = "Повторно підключено: %@";
+"USB devices connected" = "USB-пристрої підключено";
+"USB devices disconnected" = "USB-пристрої відключено";

@@ -1,0 +1,7 @@
+"Charger connected" = "Lādētājs pievienots";
+"Charger disconnected" = "Lādētājs atvienots";
+"Connected: %@" = "Pievienots: %@";
+"Disconnected: %@" = "Atvienots: %@";
+"Reconnected: %@" = "Atkārtoti pievienots: %@";
+"USB devices connected" = "USB ierīces pievienotas";
+"USB devices disconnected" = "USB ierīces atvienotas";

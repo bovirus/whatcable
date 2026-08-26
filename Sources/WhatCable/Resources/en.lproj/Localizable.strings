@@ -10,14 +10,9 @@
 "Built by %@." = "Built by %@.";
 "Cable trust signals" = "Cable trust signals";
 "Cancel" = "Cancel";
-"Charger connected" = "Charger connected";
-"Charger disconnected" = "Charger disconnected";
 "Check for Updates…" = "Check for Updates…";
 "Connected devices" = "Connected devices";
-"Connected: %@" = "Connected: %@";
 "Connection" = "Connection";
-"Disconnected: %@" = "Disconnected: %@";
-"Reconnected: %@" = "Reconnected: %@";
 "Display" = "Display";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: charger identity (FedDetails) is not available.";
 "Done" = "Done";
@@ -81,8 +76,6 @@
 "Transports" = "Transports";
 "USB active" = "USB active";
 "USB device" = "USB device";
-"USB devices connected" = "USB devices connected";
-"USB devices disconnected" = "USB devices disconnected";
 "Unknown" = "Unknown";
 "Verifying signature…" = "Verifying signature…";
 "View release" = "View release";

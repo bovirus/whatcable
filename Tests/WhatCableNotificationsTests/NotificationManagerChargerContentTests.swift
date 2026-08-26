@@ -1,5 +1,5 @@
 import XCTest
-@testable import WhatCable
+import WhatCableNotifications
 
 /// `reconcileChargers` posted one `UNUserNotificationCenter.add` PER changed
 /// port; once charger events shared a single "charger-event" identifier
@@ -9,13 +9,13 @@ import XCTest
 /// the pure merge decision, testable without `UNUserNotificationCenter`.
 final class NotificationManagerChargerContentTests: XCTestCase {
     func testTwoAddedChargersMergeIntoOneContentWithBothLines() {
-        let contents = NotificationManager.chargerNotificationContents(
+        let contents = NotificationDecision.chargerNotificationContents(
             addedLabels: ["30W negotiated", "65W negotiated"],
             removedLabels: []
         )
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(
+            NotificationContent(
                 title: "Charger connected",
                 body: "30W negotiated\n65W negotiated"
             )
@@ -23,30 +23,30 @@ final class NotificationManagerChargerContentTests: XCTestCase {
     }
 
     func testOneAddedChargerIsUnchanged() {
-        let contents = NotificationManager.chargerNotificationContents(
+        let contents = NotificationDecision.chargerNotificationContents(
             addedLabels: ["30W negotiated"],
             removedLabels: []
         )
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Charger connected", body: "30W negotiated")
+            NotificationContent(title: "Charger connected", body: "30W negotiated")
         ])
     }
 
     func testMixedAddAndRemoveProducesRemovedContentThenAddedContent() {
-        let contents = NotificationManager.chargerNotificationContents(
+        let contents = NotificationDecision.chargerNotificationContents(
             addedLabels: ["65W negotiated"],
             removedLabels: ["30W negotiated"]
         )
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Charger disconnected", body: "30W negotiated"),
-            NotificationManager.NotificationContent(title: "Charger connected", body: "65W negotiated")
+            NotificationContent(title: "Charger disconnected", body: "30W negotiated"),
+            NotificationContent(title: "Charger connected", body: "65W negotiated")
         ])
     }
 
     func testNoChangesProducesNoContent() {
-        let contents = NotificationManager.chargerNotificationContents(addedLabels: [], removedLabels: [])
+        let contents = NotificationDecision.chargerNotificationContents(addedLabels: [], removedLabels: [])
         XCTAssertEqual(contents, [])
     }
 
@@ -67,7 +67,7 @@ final class NotificationManagerChargerContentTests: XCTestCase {
         // otherwise be exposed to).
         let unsortedKeys: Set<String> = ["portZ", "portA", "portM"]
 
-        let sorted = NotificationManager.sortedChargerLabels(for: unsortedKeys, labels: labels)
+        let sorted = NotificationDecision.sortedChargerLabels(for: unsortedKeys, labels: labels)
 
         XCTAssertEqual(sorted, ["30W negotiated", "45W negotiated", "65W negotiated"])
     }

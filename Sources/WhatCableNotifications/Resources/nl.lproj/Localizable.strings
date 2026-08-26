@@ -1,0 +1,7 @@
+"Charger connected" = "Oplader verbonden";
+"Charger disconnected" = "Oplader verbroken";
+"Connected: %@" = "Verbonden: %@";
+"Disconnected: %@" = "Verbroken: %@";
+"Reconnected: %@" = "Opnieuw verbonden: %@";
+"USB devices connected" = "USB-apparaten verbonden";
+"USB devices disconnected" = "USB-apparaten verbroken";

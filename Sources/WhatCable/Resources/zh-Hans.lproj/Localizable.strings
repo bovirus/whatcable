@@ -11,13 +11,8 @@
 "Built by %@." = "由 %@ 构建。";
 "Cable trust signals" = "线缆可信度信号";
 "Cancel" = "取消";
-"Charger connected" = "充电器已连接";
-"Charger disconnected" = "充电器已断开";
 "Check for Updates…" = "检查更新…";
 "Connected devices" = "已连接设备";
-"Connected: %@" = "已连接：%@";
-"Disconnected: %@" = "已断开：%@";
-"Reconnected: %@" = "已重新连接：%@";
 "Connection" = "连接";
 "Display" = "显示";
 "Desktop Mac: charger identity (FedDetails) is not available." = "台式 Mac: 充电器身份信息 (FedDetails) 不可用。";
@@ -79,8 +74,6 @@
 "Transports" = "传输";
 "USB active" = "USB 活跃";
 "USB device" = "USB 设备";
-"USB devices connected" = "USB 设备已连接";
-"USB devices disconnected" = "USB 设备已断开";
 "Unknown" = "未知";
 "Verifying signature…" = "正在验证签名…";
 "View release" = "查看发布页";

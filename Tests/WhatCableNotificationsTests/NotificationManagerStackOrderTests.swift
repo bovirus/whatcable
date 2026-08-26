@@ -1,11 +1,11 @@
 import XCTest
-@testable import WhatCable
+import WhatCableNotifications
 
 /// The stack-order fix defers the DEVICE post (never flushes the charger
 /// reconcile early) when a device settle window fires and a charger settle
 /// task is still pending from the same physical event, so the charger post
 /// always lands first and the device post stacks on top (macOS puts the
-/// newest notification on top). Both `NotificationManager.deviceDiffDisposition`
+/// newest notification on top). Both `NotificationDecision.deviceDiffDisposition`
 /// (should this diff wait?) and `shouldLandDeferredDiff` (has it already been
 /// landed by the other path?) are pure, unit-tested here without `Task` or
 /// `UNUserNotificationCenter`.
@@ -14,7 +14,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testDefersWhenAChargerSettleIsPending() {
         XCTAssertEqual(
-            NotificationManager.deviceDiffDisposition(chargerSettlePending: true),
+            NotificationDecision.deviceDiffDisposition(chargerSettlePending: true),
             .deferUntilChargerReconcile,
             "a same-episode charger settle still waiting to fire must hold the device post back"
         )
@@ -22,7 +22,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testRunsNowWhenNoChargerSettleIsPending() {
         XCTAssertEqual(
-            NotificationManager.deviceDiffDisposition(chargerSettlePending: false),
+            NotificationDecision.deviceDiffDisposition(chargerSettlePending: false),
             .runNow,
             "a device-only event (no charger settle in flight) must post immediately, unchanged"
         )
@@ -32,7 +32,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testALandingAttemptWithTheLiveTokenMayProceed() {
         XCTAssertTrue(
-            NotificationManager.shouldLandDeferredDiff(token: 1, liveToken: 1),
+            NotificationDecision.shouldLandDeferredDiff(token: 1, liveToken: 1),
             "the first landing attempt, whichever path reaches it, must be allowed to run the diff"
         )
     }
@@ -44,12 +44,12 @@ final class NotificationManagerStackOrderTests: XCTestCase {
         // token must see a stale value and back out.
         let capturedToken = 1
         var liveToken = capturedToken
-        XCTAssertTrue(NotificationManager.shouldLandDeferredDiff(token: capturedToken, liveToken: liveToken))
+        XCTAssertTrue(NotificationDecision.shouldLandDeferredDiff(token: capturedToken, liveToken: liveToken))
 
         liveToken += 1 // the winning landing path's invalidation
 
         XCTAssertFalse(
-            NotificationManager.shouldLandDeferredDiff(token: capturedToken, liveToken: liveToken),
+            NotificationDecision.shouldLandDeferredDiff(token: capturedToken, liveToken: liveToken),
             "a deferred diff must land exactly once: reconcile-completion and timeout must not both run it"
         )
     }
@@ -61,7 +61,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
         let staleToken = 1
         let liveTokenAfterASecondDefer = 2
         XCTAssertFalse(
-            NotificationManager.shouldLandDeferredDiff(token: staleToken, liveToken: liveTokenAfterASecondDefer),
+            NotificationDecision.shouldLandDeferredDiff(token: staleToken, liveToken: liveTokenAfterASecondDefer),
             "a diff superseded by a newer deferral must not land using the old, now-stale devices"
         )
     }
@@ -77,7 +77,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testWaitsForThePresentationGapWhenTheReconcilePostedChargerContent() {
         XCTAssertEqual(
-            NotificationManager.deferredDiffLanding(reconcilePostedChargerContent: true),
+            NotificationDecision.deferredDiffLanding(reconcilePostedChargerContent: true),
             .afterPresentationGap,
             "a reconcile that actually posted charger content would otherwise post the device content in the same instant, so the device post must wait"
         )
@@ -85,7 +85,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testLandsImmediatelyWhenTheReconcilePostedNothing() {
         XCTAssertEqual(
-            NotificationManager.deferredDiffLanding(reconcilePostedChargerContent: false),
+            NotificationDecision.deferredDiffLanding(reconcilePostedChargerContent: false),
             .immediate,
             "no charger post means nothing on screen to clash with, so this must be unchanged from before the presentation-gap fix"
         )
@@ -101,7 +101,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testReturnsTheRemainderWhenInsideTheWindow() {
         XCTAssertEqual(
-            NotificationManager.devicePostDelay(
+            NotificationDecision.devicePostDelay(
                 elapsedSinceLastChargerPost: .milliseconds(200),
                 presentationGap: .milliseconds(500)
             ),
@@ -112,7 +112,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testReturnsZeroWhenOutsideTheWindow() {
         XCTAssertEqual(
-            NotificationManager.devicePostDelay(
+            NotificationDecision.devicePostDelay(
                 elapsedSinceLastChargerPost: .milliseconds(600),
                 presentationGap: .milliseconds(500)
             ),
@@ -123,7 +123,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testReturnsZeroWhenNoChargerHasEverPosted() {
         XCTAssertEqual(
-            NotificationManager.devicePostDelay(
+            NotificationDecision.devicePostDelay(
                 elapsedSinceLastChargerPost: nil,
                 presentationGap: .milliseconds(500)
             ),
@@ -134,7 +134,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
 
     func testReturnsZeroExactlyAtTheBoundary() {
         XCTAssertEqual(
-            NotificationManager.devicePostDelay(
+            NotificationDecision.devicePostDelay(
                 elapsedSinceLastChargerPost: .milliseconds(500),
                 presentationGap: .milliseconds(500)
             ),
@@ -155,7 +155,7 @@ final class NotificationManagerStackOrderTests: XCTestCase {
         // this still demonstrates "genuinely separated, not delayed", not the
         // boundary case `testReturnsZeroExactlyAtTheBoundary` already covers.
         XCTAssertEqual(
-            NotificationManager.devicePostDelay(
+            NotificationDecision.devicePostDelay(
                 elapsedSinceLastChargerPost: .milliseconds(2500),
                 presentationGap: .milliseconds(2000)
             ),

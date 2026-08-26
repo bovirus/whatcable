@@ -10,13 +10,8 @@
 "Built by %@." = "Gemaakt door %@.";
 "Cable trust signals" = "Kabelvertrouwenssignalen";
 "Cancel" = "Annuleer";
-"Charger connected" = "Oplader verbonden";
-"Charger disconnected" = "Oplader verbroken";
 "Check for Updates…" = "Controleer op updates…";
 "Connected devices" = "Verbonden apparaten";
-"Connected: %@" = "Verbonden: %@";
-"Disconnected: %@" = "Verbroken: %@";
-"Reconnected: %@" = "Opnieuw verbonden: %@";
 "Connection" = "Verbinding";
 "Display" = "Scherm";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Desktop Mac: opladeridentiteit (FedDetails) is niet beschikbaar.";
@@ -78,8 +73,6 @@
 "Transports" = "Transporten";
 "USB active" = "USB actief";
 "USB device" = "USB-apparaat";
-"USB devices connected" = "USB-apparaten verbonden";
-"USB devices disconnected" = "USB-apparaten verbroken";
 "Unknown" = "Onbekend";
 "Verifying signature…" = "Handtekening verifiëren…";
 "View release" = "Release bekijken";

@@ -1,6 +1,6 @@
 import XCTest
 import WhatCableCore
-@testable import WhatCable
+import WhatCableNotifications
 
 /// A device that drops and returns within one settle window used to read as
 /// a plain "Connected: <name>" (the removal's "Disconnected" got replaced in
@@ -29,7 +29,7 @@ final class NotificationManagerReconnectContentTests: XCTestCase {
         let removedGroup = try! XCTUnwrap(removed.first)
         let addedGroup = try! XCTUnwrap(added.first)
 
-        XCTAssertTrue(NotificationManager.isReconnectPair(removed: removedGroup, added: addedGroup))
+        XCTAssertTrue(NotificationDecision.isReconnectPair(removed: removedGroup, added: addedGroup))
     }
 
     /// A device swapped on the same physical port within the settle window
@@ -43,7 +43,7 @@ final class NotificationManagerReconnectContentTests: XCTestCase {
         let removedGroup = try! XCTUnwrap(removed.first)
         let addedGroup = try! XCTUnwrap(added.first)
 
-        XCTAssertFalse(NotificationManager.isReconnectPair(removed: removedGroup, added: addedGroup))
+        XCTAssertFalse(NotificationDecision.isReconnectPair(removed: removedGroup, added: addedGroup))
     }
 
     /// Same product name on a different physical port (e.g. the same model
@@ -58,7 +58,7 @@ final class NotificationManagerReconnectContentTests: XCTestCase {
         let removedGroup = try! XCTUnwrap(removed.first)
         let addedGroup = try! XCTUnwrap(added.first)
 
-        XCTAssertFalse(NotificationManager.isReconnectPair(removed: removedGroup, added: addedGroup))
+        XCTAssertFalse(NotificationDecision.isReconnectPair(removed: removedGroup, added: addedGroup))
     }
 
     // MARK: - reconnectedNotificationContent
@@ -71,9 +71,9 @@ final class NotificationManagerReconnectContentTests: XCTestCase {
         let (added, _) = USBDeviceChangeGrouper.diff(previous: [], current: current)
         let group = try! XCTUnwrap(added.first)
 
-        let content = NotificationManager.reconnectedNotificationContent(for: group) { _ in nil }
+        let content = NotificationDecision.reconnectedNotificationContent(for: group) { _ in nil }
 
-        XCTAssertEqual(content, NotificationManager.NotificationContent(title: "Reconnected: Dock", body: "Hub"))
+        XCTAssertEqual(content, NotificationContent(title: "Reconnected: Dock", body: "Hub"))
     }
 
     func testReconnectContentForMemberlessGroupUsesSpeedVendorBody() {
@@ -81,13 +81,13 @@ final class NotificationManagerReconnectContentTests: XCTestCase {
         let (added, _) = USBDeviceChangeGrouper.diff(previous: [], current: current)
         let group = try! XCTUnwrap(added.first)
 
-        let content = NotificationManager.reconnectedNotificationContent(for: group) { rootID in
+        let content = NotificationDecision.reconnectedNotificationContent(for: group) { rootID in
             rootID == 7 ? "10 Gbps · Vendor Co" : nil
         }
 
         XCTAssertEqual(
             content,
-            NotificationManager.NotificationContent(title: "Reconnected: SSD Enclosure", body: "10 Gbps · Vendor Co")
+            NotificationContent(title: "Reconnected: SSD Enclosure", body: "10 Gbps · Vendor Co")
         )
     }
 }

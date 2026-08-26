@@ -1,6 +1,6 @@
 import XCTest
 import WhatCableCore
-@testable import WhatCable
+import WhatCableNotifications
 
 /// A reviewer forced the reconnect branch in `diffDevices` off and rebuilt:
 /// all 5 pure-helper tests for `isReconnectPair` /
@@ -34,13 +34,13 @@ final class NotificationManagerDeviceContentsTests: XCTestCase {
         let removed = removedGroups(from: [snapshot(id: 1, locationID: 0x01100000, name: "SSD Enclosure")])
         let added = addedGroups(from: [snapshot(id: 2, locationID: 0x01100000, name: "SSD Enclosure")])
 
-        let contents = NotificationManager.deviceNotificationContents(
+        let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: removed,
             addedGroups: added
         ) { _ in nil }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Reconnected: SSD Enclosure", body: "")
+            NotificationContent(title: "Reconnected: SSD Enclosure", body: "")
         ])
     }
 
@@ -62,7 +62,7 @@ final class NotificationManagerDeviceContentsTests: XCTestCase {
         XCTAssertEqual(removed.count, 2, "fixture should produce 2 removed groups; test is invalid otherwise")
         XCTAssertEqual(added.count, 2, "fixture should produce 2 added groups; test is invalid otherwise")
 
-        let contents = NotificationManager.deviceNotificationContents(
+        let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: removed,
             addedGroups: added
         ) { _ in nil }
@@ -80,14 +80,14 @@ final class NotificationManagerDeviceContentsTests: XCTestCase {
         let removed = removedGroups(from: [snapshot(id: 1, locationID: 0x01100000, name: "SSD Enclosure")])
         let added = addedGroups(from: [snapshot(id: 2, locationID: 0x01200000, name: "SSD Enclosure")])
 
-        let contents = NotificationManager.deviceNotificationContents(
+        let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: removed,
             addedGroups: added
         ) { _ in nil }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Disconnected: SSD Enclosure", body: ""),
-            NotificationManager.NotificationContent(title: "Connected: SSD Enclosure", body: "")
+            NotificationContent(title: "Disconnected: SSD Enclosure", body: ""),
+            NotificationContent(title: "Connected: SSD Enclosure", body: "")
         ])
     }
 
@@ -95,13 +95,13 @@ final class NotificationManagerDeviceContentsTests: XCTestCase {
     func testRemovesOnlyIsUnchanged() {
         let removed = removedGroups(from: [snapshot(id: 1, locationID: 0x01100000, name: "SSD Enclosure")])
 
-        let contents = NotificationManager.deviceNotificationContents(
+        let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: removed,
             addedGroups: []
         ) { _ in nil }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Disconnected: SSD Enclosure", body: "")
+            NotificationContent(title: "Disconnected: SSD Enclosure", body: "")
         ])
     }
 
@@ -109,13 +109,13 @@ final class NotificationManagerDeviceContentsTests: XCTestCase {
     func testAddsOnlyIsUnchanged() {
         let added = addedGroups(from: [snapshot(id: 1, locationID: 0x01100000, name: "SSD Enclosure")])
 
-        let contents = NotificationManager.deviceNotificationContents(
+        let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: [],
             addedGroups: added
         ) { _ in nil }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Connected: SSD Enclosure", body: "")
+            NotificationContent(title: "Connected: SSD Enclosure", body: "")
         ])
     }
 }

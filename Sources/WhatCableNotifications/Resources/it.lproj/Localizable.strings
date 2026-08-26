@@ -1,0 +1,7 @@
+"Charger connected" = "Caricatore collegato";
+"Charger disconnected" = "Caricatore scollegato";
+"Connected: %@" = "Connesso: %@";
+"Disconnected: %@" = "Disconnesso: %@";
+"Reconnected: %@" = "Riconnesso: %@";
+"USB devices connected" = "Dispositivi USB connessi";
+"USB devices disconnected" = "Dispositivi USB disconnessi";

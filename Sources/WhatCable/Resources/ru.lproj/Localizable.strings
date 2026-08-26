@@ -10,13 +10,8 @@
 "Built by %@." = "Автор: %@.";
 "Cable trust signals" = "Признаки доверия к кабелю";
 "Cancel" = "Отмена";
-"Charger connected" = "Зарядное устройство подключено";
-"Charger disconnected" = "Зарядное устройство отключено";
 "Check for Updates…" = "Проверить обновления…";
 "Connected devices" = "Подключённые устройства";
-"Connected: %@" = "Подключено: %@";
-"Disconnected: %@" = "Отключено: %@";
-"Reconnected: %@" = "Переподключено: %@";
 "Connection" = "Подключение";
 "Display" = "Отображение";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Настольный Mac: идентификация ЗУ (FedDetails) недоступна.";
@@ -78,8 +73,6 @@
 "Transports" = "Транспорты";
 "USB active" = "USB активен";
 "USB device" = "USB-устройство";
-"USB devices connected" = "USB-устройства подключены";
-"USB devices disconnected" = "USB-устройства отключены";
 "Unknown" = "Неизвестно";
 "Verifying signature…" = "Проверка подписи…";
 "View release" = "Открыть релиз";

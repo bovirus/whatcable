@@ -10,13 +10,8 @@
 "Built by %@." = "開発者: %@";
 "Cable trust signals" = "ケーブル信頼性シグナル";
 "Cancel" = "キャンセル";
-"Charger connected" = "充電器接続";
-"Charger disconnected" = "充電器切断";
 "Check for Updates…" = "アップデートを確認…";
 "Connected devices" = "接続デバイス";
-"Connected: %@" = "接続中: %@";
-"Disconnected: %@" = "切断: %@";
-"Reconnected: %@" = "再接続: %@";
 "Connection" = "接続";
 "Display" = "ディスプレイ";
 "Desktop Mac: charger identity (FedDetails) is not available." = "デスクトップMac: 充電器のID（FedDetails）は利用できません。";
@@ -78,8 +73,6 @@
 "Transports" = "トランスポート";
 "USB active" = "USBアクティブ";
 "USB device" = "USBデバイス";
-"USB devices connected" = "USBデバイスが接続されました";
-"USB devices disconnected" = "USBデバイスが切断されました";
 "Unknown" = "不明";
 "Verifying signature…" = "署名を検証中…";
 "View release" = "リリースを表示";

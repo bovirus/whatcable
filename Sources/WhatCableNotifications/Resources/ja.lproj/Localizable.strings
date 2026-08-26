@@ -1,0 +1,7 @@
+"Charger connected" = "充電器接続";
+"Charger disconnected" = "充電器切断";
+"Connected: %@" = "接続中: %@";
+"Disconnected: %@" = "切断: %@";
+"Reconnected: %@" = "再接続: %@";
+"USB devices connected" = "USBデバイスが接続されました";
+"USB devices disconnected" = "USBデバイスが切断されました";

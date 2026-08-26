@@ -10,13 +10,8 @@
 "Built by %@." = "Zbudowany przez %@.";
 "Cable trust signals" = "Sygnały zaufania kabla";
 "Cancel" = "Anuluj";
-"Charger connected" = "Ładowarka podłączona";
-"Charger disconnected" = "Ładowarka odłączona";
 "Check for Updates…" = "Sprawdź aktualizacje…";
 "Connected devices" = "Podłączone urządzenia";
-"Connected: %@" = "Podłączone: %@";
-"Disconnected: %@" = "Odłączone: %@";
-"Reconnected: %@" = "Ponownie podłączone: %@";
 "Connection" = "Połączenie";
 "Display" = "Monitor";
 "Desktop Mac: charger identity (FedDetails) is not available." = "Mac stacjonarny: dane identyfikacyjne ładowarki (FedDetails) są niedostępne.";
@@ -78,8 +73,6 @@
 "Transports" = "Transporty";
 "USB active" = "USB aktywne";
 "USB device" = "Urządzenie USB";
-"USB devices connected" = "Urządzenia USB podłączone";
-"USB devices disconnected" = "Urządzenia USB odłączone";
 "Unknown" = "Nieznane";
 "Verifying signature…" = "Weryfikacja podpisu…";
 "View release" = "Zobacz wydanie";

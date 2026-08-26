@@ -1,6 +1,6 @@
 import XCTest
 import WhatCableCore
-@testable import WhatCable
+import WhatCableNotifications
 
 /// `postAddedGroupNotifications` posted one `UNUserNotificationCenter.add`
 /// PER group, so a dock spanning several subtrees (main USB3 hub, USB2
@@ -33,10 +33,10 @@ final class NotificationManagerAddedContentTests: XCTestCase {
         ]
         let (added, _) = USBDeviceChangeGrouper.diff(previous: [], current: current)
 
-        let contents = NotificationManager.addedNotificationContents(groups: added) { _ in nil }
+        let contents = NotificationDecision.addedNotificationContents(groups: added) { _ in nil }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Connected: Dock", body: "Hub\nCard Reader")
+            NotificationContent(title: "Connected: Dock", body: "Hub\nCard Reader")
         ])
     }
 
@@ -44,12 +44,12 @@ final class NotificationManagerAddedContentTests: XCTestCase {
         let current = [snapshot(id: 7, locationID: 0x01100000, name: "SSD Enclosure")]
         let (added, _) = USBDeviceChangeGrouper.diff(previous: [], current: current)
 
-        let contents = NotificationManager.addedNotificationContents(groups: added) { rootID in
+        let contents = NotificationDecision.addedNotificationContents(groups: added) { rootID in
             rootID == 7 ? "10 Gbps · Vendor Co" : nil
         }
 
         XCTAssertEqual(contents, [
-            NotificationManager.NotificationContent(title: "Connected: SSD Enclosure", body: "10 Gbps · Vendor Co")
+            NotificationContent(title: "Connected: SSD Enclosure", body: "10 Gbps · Vendor Co")
         ])
     }
 
@@ -68,7 +68,7 @@ final class NotificationManagerAddedContentTests: XCTestCase {
         let (added, _) = USBDeviceChangeGrouper.diff(previous: [], current: current)
         XCTAssertEqual(added.count, 3, "fixture should produce 3 groups; test is invalid otherwise")
 
-        let contents = NotificationManager.addedNotificationContents(groups: added) { _ in nil }
+        let contents = NotificationDecision.addedNotificationContents(groups: added) { _ in nil }
 
         // Exactly one notification, titled with the merged key, listing every
         // root and member in group order, root before its own members: same

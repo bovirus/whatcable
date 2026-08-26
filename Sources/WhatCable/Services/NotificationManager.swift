@@ -9,6 +9,63 @@ import WhatCableDarwinBackend
 /// disconnect, gated by the user's `AppSettings.notifyOnChanges` preference.
 @MainActor
 final class NotificationManager {
+    // MARK: - Ordering mechanism, at a glance
+    //
+    // Two independent settle tasks debounce the two raw event streams before
+    // anything gets posted: `deviceSettleTask` (`scheduleDeviceDiff`) and
+    // `chargerSettleTask` (`diffSources`). Each waits for its own stream to
+    // stop flapping, then runs its diff/reconcile once.
+    //
+    // A device diff that must not post ahead of a same-episode charger post
+    // gets PARKED rather than posted immediately. The parking state is:
+    //   - `deferredDeviceDiffDevices`: the one slot holding the parked diff.
+    //   - `deferredDeviceDiffToken`: identifies which parked diff is live, so
+    //     a stale landing attempt can tell it's been superseded and back out.
+    //   - `deferredDeviceDiffPresentationGapGeneration`: same idea, scoped to
+    //     just the current presentation-gap task, so a cancelled gap task
+    //     can't mutate state even if it somehow still runs.
+    //   - `isPresentationGapPending`: true only while a gap task is the
+    //     scheduled lander, so a second reconcile landing mid-gap yields to
+    //     it instead of racing it.
+    //   - `deferredDeviceDiffPresentationGapTask` / `Window`: the deliberate
+    //     delay that lets both banners actually present on screen.
+    //   - `deferredDeviceDiffDeadlineTask` / `Window`: the absolute,
+    //     non-resetting backstop that bounds the total wait no matter how
+    //     many times the gap above gets re-scheduled.
+    //   - `lastChargerPostTime`: when a charger post last actually went out,
+    //     so a device diff that finds no charger settle CURRENTLY pending can
+    //     still tell "a charger post just landed" from "nothing to wait for".
+    //
+    // A diff gets parked from exactly three entry points: `deferDeviceDiff`
+    // (device settle found a charger settle pending), `parkAndDelayDevicePost`
+    // (device settle found no charger settle pending, but a charger post went
+    // out moments ago), and `runNowOrDelayForRecentChargerPost` (the router
+    // that decides between an immediate post and the `parkAndDelayDevicePost`
+    // path above).
+    //
+    // A parked diff LANDS through exactly one of three paths, all converging
+    // on `landDeferredDeviceDiffNow`: the synchronous `.immediate` case
+    // inside `landDeferredDeviceDiff` (the most common case: a reconcile that
+    // posted no charger content of its own), the presentation-gap task
+    // (`scheduleGapLanding`), or the absolute deadline task
+    // (`scheduleAbsoluteDeadline`). A parked diff can also be DISCARDED
+    // rather than landed, if a newer diff supersedes it before any of those
+    // three fires (`deferDeviceDiff` / `supersedeAnyParkedDiff` invalidating
+    // it in favour of the new one; the superseded diff's own devices are
+    // simply dropped, never posted). `landDeferredDeviceDiff(token:
+    // afterChargerPost:)`'s doc comment walks through every interleaving of
+    // landing and discarding in detail; start there for the mechanics.
+    //
+    // Why TWO windows, not one: the settle windows (`chargerSettleWindow`,
+    // `deviceSettleWindow`) exist to group several raw IOKit publishes from
+    // one physical event into a single episode. The presentation gap
+    // (`deferredDeviceDiffPresentationGapWindow`) is a different problem:
+    // giving macOS enough real wall-clock time between two posts that both
+    // banners actually render, not just reach Notification Centre's list.
+    // The absolute deadline is derived from both, because the worst case has
+    // to cover one full charger settle (in case the diff was parked before
+    // the charger even started reconciling) plus one full presentation gap
+    // (in case the charger reconciles right at the last moment).
     static let shared = NotificationManager()
 
     private nonisolated static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "notifications")
@@ -71,6 +128,23 @@ final class NotificationManager {
     /// `deferredDeviceDiffDeadlineWindow`'s doc comment for why this has to
     /// be non-resetting.
     private var deferredDeviceDiffDeadlineTask: Task<Void, Never>?
+    /// ONE task, scheduled at park time, that nothing resets. Gap
+    /// re-schedules never touch it (`scheduleGapLanding` doesn't reference
+    /// it at all); only an actual landing, a fresh `deferDeviceDiff` /
+    /// `parkAndDelayDevicePost` call (a NEWER parked diff superseding this
+    /// one, which cancels this deadline and starts its own), or
+    /// `supersedeAnyParkedDiff` (the zero-delay `.runNow` path cancelling
+    /// this one outright, with no replacement parked) can stop it.
+    /// Worst case, a device banner waits `deferredDeviceDiffPresentationGapWindow`
+    /// + `chargerSettleWindow` from the moment it was parked: one full
+    /// charger debounce (in case the charger hadn't even reconciled yet when
+    /// the diff was parked) plus one full presentation gap (in case the
+    /// charger reconciles right at the last moment and needs the full gap to
+    /// present). Derived from those two windows at `init()` time (3.5s at
+    /// their defaults), not a fresh literal, so it moves automatically if
+    /// either window changes. `var`, like the other windows, so a test can
+    /// shrink it.
+    ///
     /// Starvation fix (both reviewers, on an earlier design this replaces):
     /// that design cancelled the parked diff's backstop the moment a
     /// presentation gap took over landing, on the theory that the gap is
@@ -80,22 +154,12 @@ final class NotificationManager {
     /// (`scheduleGapLanding`), and sustained PD flapping (real; see
     /// `chargerSettleWindow`'s own doc comment) could delay the device
     /// banner indefinitely.
-    ///
-    /// This deadline is the fix: ONE task, scheduled at park time, that
-    /// nothing resets. Gap re-schedules never touch it (`scheduleGapLanding`
-    /// doesn't reference it at all); only an actual landing or a fresh
-    /// `deferDeviceDiff` / `parkAndDelayDevicePost` call (a NEWER parked
-    /// diff superseding this one, which cancels this deadline and starts
-    /// its own) can stop it. Worst case, a device banner waits
-    /// `deferredDeviceDiffPresentationGapWindow` + `chargerSettleWindow`
-    /// from the moment it was parked: one full charger debounce (in case the
-    /// charger hadn't even reconciled yet when the diff was parked) plus one
-    /// full presentation gap (in case the charger reconciles right at the
-    /// last moment and needs the full gap to present). Derived from those
-    /// two windows at `init()` time (3.5s at their defaults), not a fresh
-    /// literal, so it moves automatically if either window changes. `var`,
-    /// like the other windows, so a test can shrink it.
     var deferredDeviceDiffDeadlineWindow: Duration
+    /// Re-scheduled on every `scheduleGapLanding` call (unlike
+    /// `deferredDeviceDiffDeadlineTask`, which is scheduled once at park
+    /// time and never re-scheduled); both are cancelled on an actual
+    /// landing, see `landDeferredDeviceDiffNow`.
+    ///
     /// Presentation-gap fix (owner, live verification): when a parked device
     /// diff landed synchronously inside `reconcileChargers`'s `defer`, the
     /// charger post and the device post both reached
@@ -105,10 +169,7 @@ final class NotificationManager {
     /// the fix that made ordering correct accidentally made the older of the
     /// two invisible. The old code's accidental ~300ms gap between the two
     /// posts is what used to let both banners present, so a deliberate delay
-    /// restores that presentation gap on purpose. Re-scheduled on every
-    /// `scheduleGapLanding` call (unlike `deferredDeviceDiffDeadlineTask`,
-    /// which is scheduled once at park time and never re-scheduled); both
-    /// are cancelled on an actual landing, see `landDeferredDeviceDiffNow`.
+    /// restores that presentation gap on purpose.
     private var deferredDeviceDiffPresentationGapTask: Task<Void, Never>?
     /// True from the moment `landDeferredDeviceDiff` schedules a presentation
     /// gap until that gap actually lands the diff (or is cancelled by a
@@ -116,17 +177,19 @@ final class NotificationManager {
     /// a SECOND `reconcileChargers` call that lands while the gap from a
     /// FIRST is still pending, and posts no charger content of its own,
     /// would otherwise take the `.immediate` branch below and land the diff
-    /// right there, defeating the gap the first call scheduled. Originally
-    /// reasoned unreachable live at the 500ms gap (`reconcileChargers` is
-    /// trailing-debounced to `chargerSettleWindow`, 1.5s, comfortably longer
-    /// than a 500ms gap, so two reconciles for the same charger couldn't
-    /// land inside one gap window) and kept only as belt-and-braces. That
-    /// reasoning no longer holds now that the gap is 2s (see
-    /// `deferredDeviceDiffPresentationGapWindow`'s doc comment): 2s
+    /// right there, defeating the gap the first call scheduled. This guard
+    /// is load-bearing, not precautionary: at the current 2s gap (see
+    /// `deferredDeviceDiffPresentationGapWindow`'s doc comment), 2s
     /// comfortably EXCEEDS the 1.5s charger debounce, so a second charger
-    /// settle completing while the first's gap is still pending is now a
-    /// real production interleaving, not just a timing coincidence. This
-    /// guard is load-bearing, not precautionary.
+    /// settle completing while the first's gap is still pending is a real
+    /// production interleaving, not just a timing coincidence.
+    ///
+    /// Originally reasoned unreachable live at the 500ms gap
+    /// (`reconcileChargers` is trailing-debounced to `chargerSettleWindow`,
+    /// 1.5s, comfortably longer than a 500ms gap, so two reconciles for the
+    /// same charger couldn't land inside one gap window) and kept only as
+    /// belt-and-braces. That reasoning stopped holding once the gap was
+    /// raised to 2s.
     private var isPresentationGapPending = false
     /// Identity for the CURRENT gap task, bumped every time
     /// `landDeferredDeviceDiff`'s `.afterPresentationGap` case schedules one.
@@ -165,16 +228,8 @@ final class NotificationManager {
     /// natural spacing between the two settle timers, so it doesn't read as
     /// an artificially long pause.
     var deferredDeviceDiffPresentationGapWindow: Duration = .milliseconds(2000)
-    /// Both-orders fix (owner, live verification): the gap fix above only
-    /// covers the DEVICE-fires-first order (device settle finds
-    /// `isChargerSettlePending` true, defers, and the charger reconcile lands
-    /// it later). Logs showed the opposite order happens too: the CHARGER
-    /// settle fires first and posts, and by the time the device settle fires
-    /// a moment later, `isChargerSettlePending` already reads false, so
-    /// `deviceDiffDisposition` says `.runNow` and the device post goes out
-    /// ~1ms after the charger post, same-millisecond problem again, charger
-    /// banner suppressed. Recorded here, in `postNotification`, whenever a
-    /// CHARGER post actually goes out, so the `.runNow` path (see
+    /// Recorded here, in `postNotification`, whenever a CHARGER post
+    /// actually goes out, so the `.runNow` path (see
     /// `runNowOrDelayForRecentChargerPost`) can tell "a charger post just
     /// went out and hasn't had time to present yet" from "nothing charger-
     /// related happened recently". `nil` until the first charger post of the
@@ -186,6 +241,16 @@ final class NotificationManager {
     /// call can otherwise leave a recent-enough timestamp here to make a
     /// later, unrelated test see a non-zero `devicePostDelay` it didn't ask
     /// for.
+    ///
+    /// Both-orders fix (owner, live verification): the gap fix above only
+    /// covers the DEVICE-fires-first order (device settle finds
+    /// `isChargerSettlePending` true, defers, and the charger reconcile lands
+    /// it later). Logs showed the opposite order happens too: the CHARGER
+    /// settle fires first and posts, and by the time the device settle fires
+    /// a moment later, `isChargerSettlePending` already reads false, so
+    /// `deviceDiffDisposition` says `.runNow` and the device post goes out
+    /// ~1ms after the charger post, same-millisecond problem again, charger
+    /// banner suppressed. This property is the fix that closes that gap.
     var lastChargerPostTime: ContinuousClock.Instant?
     /// Guards against the deferred diff landing twice. Incremented both when
     /// a new diff is deferred (invalidating any earlier one still in
@@ -210,6 +275,11 @@ final class NotificationManager {
     /// by WatcherHub's steady poll, so the flap happens at IOKit speed
     /// regardless of the poll cadence; the gap is sub-second. 1.5s clears it
     /// with margin. See issue #227 follow-up.
+    ///
+    /// Deliberately `private let`, not `var` like the other windows above:
+    /// wiring tests drive around this window's real 1.5s length (waiting it
+    /// out, or triggering `reconcileChargers()` directly instead of going
+    /// through `diffSources`'s debounce) rather than needing to shrink it.
     private let chargerSettleWindow: Duration = .milliseconds(1500)
 
     private var deviceSettleTask: Task<Void, Never>?
@@ -540,7 +610,10 @@ final class NotificationManager {
     /// deferred waiting on a charger reconcile) and
     /// `parkAndDelayDevicePost` (a REMAINDER, for a device diff that was
     /// never deferred at all but happens to be settling shortly after an
-    /// unrelated charger post already went out).
+    /// unrelated charger post already went out). This is also the function
+    /// that implements interleaving 4 (a second reconcile scheduling its own
+    /// gap task while an earlier one is still pending): the cancel-then-
+    /// generation-bump below is what lets only the newest gap task win.
     private func scheduleGapLanding(token: Int, delay: Duration) {
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -644,7 +717,11 @@ final class NotificationManager {
     /// any of their still-in-flight continuations see a stale value and back
     /// out, and clears the pending-gap flag. Called before running a device
     /// diff immediately whenever an OLDER one might still be parked; see the
-    /// interleaving walk-through on `runNowOrDelayForRecentChargerPost`.
+    /// interleaving walk-through on `runNowOrDelayForRecentChargerPost`. Same
+    /// cancel-before-superseding shape as interleaving 3 on
+    /// `landDeferredDeviceDiff(token:afterChargerPost:)` (a new parked diff
+    /// invalidating an outgoing one), just reached from the `.runNow` router
+    /// instead of `deferDeviceDiff`.
     private func supersedeAnyParkedDiff() {
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
@@ -656,8 +733,9 @@ final class NotificationManager {
 
     /// The single place a deferred device diff actually runs, reached from
     /// three places: directly from `landDeferredDeviceDiff(token:afterChargerPost:)`'s
-    /// `.immediate` case, after the presentation gap it schedules, or after
-    /// the absolute deadline (`scheduleAbsoluteDeadline`). `shouldLandDeferredDiff`
+    /// `.immediate` case, after the presentation gap it schedules
+    /// (interleaving 1), or after the absolute deadline
+    /// (`scheduleAbsoluteDeadline`, interleaving 2). `shouldLandDeferredDiff`
     /// is the guard that keeps only the first of those to actually arrive
     /// from doing anything; see the interleaving walk-through above.
     private func landDeferredDeviceDiffNow(token: Int) {

@@ -10,4 +10,3 @@
 "USB devices disconnected" = "Appareils USB déconnectés";
 "Thunderbolt devices connected" = "Appareils Thunderbolt connectés";
 "Thunderbolt devices disconnected" = "Appareils Thunderbolt déconnectés";
-"%@ (%@)" = "%1$@ (%2$@)";

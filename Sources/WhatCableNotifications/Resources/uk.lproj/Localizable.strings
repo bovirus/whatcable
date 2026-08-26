@@ -10,4 +10,3 @@
 "USB devices disconnected" = "USB-пристрої відключено";
 "Thunderbolt devices connected" = "Thunderbolt-пристрої підключено";
 "Thunderbolt devices disconnected" = "Thunderbolt-пристрої відключено";
-"%@ (%@)" = "%1$@ (%2$@)";

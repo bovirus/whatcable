@@ -5,7 +5,6 @@ import os.log
 import WhatCableCore
 import WhatCableNotifications
 import WhatCableDarwinBackend
-import WhatCableAppKit
 
 /// Posts user notifications when USB-C cables / power sources connect or
 /// disconnect, gated by the user's `AppSettings.notifyOnChanges` preference.
@@ -47,39 +46,6 @@ final class NotificationManager {
     /// (`NotificationManager.NotificationContent`) keeps compiling unchanged.
     typealias NotificationContent = WhatCableNotifications.NotificationContent
 
-    /// Folds every registered Pro cable-label provider into one dictionary
-    /// (at most one registers in practice; see
-    /// `PluginRegistry.notificationCableLabelProviders`'s doc comment). No
-    /// providers at all (the public-mirror build) -> nil: the feature is
-    /// unavailable, matching the free build with Pro locked. With
-    /// providers, only the ones that actually returned a value (non-nil)
-    /// contribute; if EVERY provider returned nil (licence locked), the
-    /// fold is nil too, not `[:]`. Collapsing "unavailable" into
-    /// "available, empty" is the exact bug this seam exists to prevent
-    /// (Codex review, finding 1): a licence transition mid-session would
-    /// otherwise read, to the sequencer's diff, as every attached labelled
-    /// cable disconnecting or appearing at once.
-    ///
-    /// A free function of `providers` rather than a closure reading
-    /// `PluginRegistry.shared` directly, purely so it's testable in
-    /// isolation: `PluginRegistry` is an append-only global singleton (no
-    /// way to reset registrations between tests), so a test asserting on
-    /// "zero providers registered" against the live registry would be
-    /// order-dependent on whatever else in the same process happened to
-    /// call `bootstrapPlugins` first. Passing the provider list in as a
-    /// plain argument sidesteps that entirely.
-    static func foldLabelledCables(from providers: [() -> [String: String]?]) -> [String: String]? {
-        guard !providers.isEmpty else { return nil }
-        var result: [String: String] = [:]
-        var anyAvailable = false
-        for provider in providers {
-            guard let value = provider() else { continue }
-            anyAvailable = true
-            result.merge(value, uniquingKeysWith: { first, _ in first })
-        }
-        return anyAvailable ? result : nil
-    }
-
     private init() {
         sequencer = DeviceDiffSequencer(
             clock: ContinuousClock(),
@@ -87,11 +53,6 @@ final class NotificationManager {
             currentChargerSources: { WatcherHub.shared.powerWatcher.sources },
             currentDownstreamTBSwitchIDs: {
                 Set(WatcherHub.shared.tbWatcher.switches.filter { $0.depth > 0 }.map(\.id))
-            },
-            // See `foldLabelledCables(from:)`'s doc comment for the
-            // nil-vs-`[:]` reasoning; this just hands it the live registry.
-            currentLabelledCables: {
-                NotificationManager.foldLabelledCables(from: PluginRegistry.shared.notificationCableLabelProviders)
             },
             notifyOnChanges: { AppSettings.shared.notifyOnChanges },
             // Not a `[weak self]` capture: `self` isn't fully initialized

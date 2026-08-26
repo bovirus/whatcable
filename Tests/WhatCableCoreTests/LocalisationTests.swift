@@ -54,7 +54,7 @@ struct LocalisationTests {
         // target needed for that reason: the logic below is target-agnostic
         // already, and duplicating it in WhatCableNotificationsTests would
         // just be the same check running twice. Its en.lproj carries far
-        // fewer keys (13, all short notification titles/bodies) than the
+        // fewer keys (12, all short notification titles/bodies) than the
         // other two modules, hence its own, lower floor.
         ("Sources/WhatCableNotifications/Resources", 10),
     ])

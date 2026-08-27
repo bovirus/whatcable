@@ -53,7 +53,11 @@ final class DeviceDiffSequencerTests: XCTestCase {
             currentChargerSources: { [] },
             currentDownstreamTBSwitchIDs: currentDownstreamTBSwitchIDs,
             notifyOnChanges: notifyOnChanges,
-            post: { category, content in posted.entries.append((category, content)) }
+            post: { category, content, _ in posted.entries.append((category, content)) },
+            // Fixed, not generated: this file tests ordering/timing, not
+            // identifier content, so a stable token keeps every directive
+            // this sequencer hands out deterministic across runs.
+            launchToken: "test-launch"
         )
     }
 

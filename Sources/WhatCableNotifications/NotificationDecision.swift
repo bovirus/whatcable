@@ -7,11 +7,124 @@ import WhatCableCore
 /// Everything on here is `nonisolated` and side-effect free, so it's testable
 /// without `Task`, `UNUserNotificationCenter`, or `WatcherHub`.
 public enum NotificationDecision {
-    /// Pure identifier lookup, kept separate from posting so the
-    /// "same category -> same identifier, different category -> different
-    /// identifier" rule is unit-testable without `UNUserNotificationCenter`.
-    public static func notificationIdentifier(for category: NotificationCategory) -> String {
-        category.rawValue
+    /// What one post should do, decided entirely in the module: the
+    /// identifier to post under, and any previously-delivered identifiers
+    /// (same category, earlier posts) the shim should clear from
+    /// Notification Centre first.
+    ///
+    /// This replaces the old fixed-per-category identifier
+    /// (`"device-event"`/`"charger-event"` reused on every post, relying on
+    /// macOS's own identifier-replacement semantics to keep exactly one
+    /// notification standing). The owner observed a no-banner fault
+    /// (2026-08-26: notifications landed in Notification Centre with no live
+    /// banner) that a controlled same-identifier repost didn't reproduce, so
+    /// the fix stops depending on those semantics altogether: every post
+    /// gets a fresh, never-reused identifier (so macOS always treats it as
+    /// new and always banners it), and the "one standing notification per
+    /// category" behaviour is now enforced explicitly, by the directive
+    /// telling the shim which older identifier to remove.
+    public struct DeliveryDirective: Equatable, Sendable {
+        /// Identifier this post must use. Never reused, so a banner always
+        /// fires: macOS has no reason to treat this post as "replacing" an
+        /// existing entry, because nothing already in Notification Centre
+        /// carries this identifier.
+        public let identifier: String
+        /// Previously-delivered identifiers, same category only, that the
+        /// shim must remove from Notification Centre before (or alongside)
+        /// posting the new one. Empty for a category's first-ever post.
+        /// Never more than one entry in the current design (one post per
+        /// category ever stands at a time), but `[String]` rather than
+        /// `String?` so the shim's removal call
+        /// (`removeDeliveredNotifications(withIdentifiers:)`) can hand this
+        /// straight through without translating shapes.
+        public let removeDeliveredIdentifiers: [String]
+
+        public init(identifier: String, removeDeliveredIdentifiers: [String]) {
+            self.identifier = identifier
+            self.removeDeliveredIdentifiers = removeDeliveredIdentifiers
+        }
+    }
+
+    /// Pure identifier construction: `sequence` is a per-category, ever-
+    /// increasing counter the caller supplies (`NotificationDeliveryLedger`
+    /// owns it in production), never `Date()` or `UUID()` inside this
+    /// module, so the result is deterministic and testable without a clock.
+    /// `launchToken` is likewise supplied by the caller (never generated
+    /// here): a short string unique to the current app launch, folded into
+    /// the identifier so a fresh launch's sequence-1 post can never collide
+    /// with a previous launch's sequence-1 post still sitting in
+    /// Notification Centre (Codex finding: delivered notifications survive
+    /// a relaunch even though this module's own counters don't).
+    /// `previousIdentifier` is the identifier of the LAST post in the same
+    /// category, or `nil` for a category's first post; it becomes the sole
+    /// entry in `removeDeliveredIdentifiers` (or an empty array).
+    public static func deliveryDirective(
+        for category: NotificationCategory,
+        sequence: UInt64,
+        previousIdentifier: String?,
+        launchToken: String
+    ) -> DeliveryDirective {
+        DeliveryDirective(
+            identifier: "\(category.rawValue)-\(launchToken)-\(sequence)",
+            removeDeliveredIdentifiers: previousIdentifier.map { [$0] } ?? []
+        )
+    }
+
+    /// True when `identifier` is one this module considers itself the
+    /// owner of, so the app-side shim's startup sweep (`NotificationManager
+    /// .start()`) knows which entries still sitting in Notification Centre
+    /// from a PREVIOUS launch are safe to clear. Two shapes count as owned:
+    /// - The legacy fixed identifiers this module used before the
+    ///   launch-token fix above (`"device-event"`, `"charger-event"`,
+    ///   i.e. exactly a `NotificationCategory`'s bare `rawValue`), so
+    ///   notifications posted by an older build still get swept.
+    /// - Anything prefixed `"<category rawValue>-"` for a known category
+    ///   (e.g. `"device-event-4f2a-3"`), which is every identifier this
+    ///   module has produced since. The prefix check (not an exact match)
+    ///   is deliberate: the launch token and sequence number both vary
+    ///   across launches and posts, so there is no fixed string to compare
+    ///   against for the current scheme.
+    ///
+    /// Pure and static, so the shim's sweep and this module's own tests can
+    /// both exercise the exact ownership rule without touching
+    /// `UNUserNotificationCenter`.
+    public static func ownsIdentifier(_ identifier: String) -> Bool {
+        for category in [NotificationCategory.device, .charger] {
+            if identifier == category.rawValue || identifier.hasPrefix("\(category.rawValue)-") {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The startup sweep's actual removal guard: `ownsIdentifier` decides
+    /// which identifiers this module could ever have produced; this adds a
+    /// second condition, that the identifier must NOT carry the CURRENT
+    /// launch's own token.
+    ///
+    /// Why this is needed: `sweepDeliveredNotificationsOwnedFromEarlierLaunches`
+    /// (`NotificationManager.start()`) fires `getDeliveredNotifications`
+    /// before this launch has posted anything, on the assumption that
+    /// whatever comes back is necessarily from an earlier launch. That
+    /// assumption doesn't hold under login contention: `getDeliveredNotifications`
+    /// is async with no bounded latency, and this launch's very first post
+    /// can land in Notification Centre (and in a second, concurrent
+    /// `getDeliveredNotifications` call this launch's own code makes) before
+    /// the sweep's completion handler runs. If that happens, `ownsIdentifier`
+    /// alone would match the fresh post and the sweep would remove a
+    /// notification this launch just posted, seconds after posting it. The
+    /// token exclusion closes that: an identifier carrying this launch's own
+    /// token can only have been posted by this launch, so it is never safe
+    /// to sweep, no matter when the completion handler happens to run.
+    ///
+    /// The token is matched as `"-<currentLaunchToken>-"` (dashes either
+    /// side), the same interior shape `deliveryDirective(for:sequence:
+    /// previousIdentifier:launchToken:)` always produces
+    /// (`"<category>-<token>-<sequence>"`): this rules out a token that
+    /// happens to be a substring of a different token or of the sequence
+    /// number matching by accident.
+    public static func sweepShouldRemove(_ identifier: String, currentLaunchToken: String) -> Bool {
+        ownsIdentifier(identifier) && !identifier.contains("-\(currentLaunchToken)-")
     }
 
     /// Stack-order fix (owner report): unplugging a powered dock fires a

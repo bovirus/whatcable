@@ -14,10 +14,14 @@ enum NotificationClickAction: Equatable {
 }
 
 /// Pure identifier -> action mapping (issue #567). `NotificationManager`
-/// posts device/charger events under `device-event` / `charger-event`;
-/// `UpdateChecker` posts update notifications under `update-<version>`.
-/// Anything else (a stale identifier from an older build, say) falls back
-/// to just opening the popover.
+/// posts device/charger events under `<category>-<launch token>-<sequence>`
+/// (e.g. `device-event-4f2a-3`), a fresh identifier per post so macOS never
+/// treats a new post as silently replacing an old one; `UpdateChecker`
+/// posts update notifications under `update-<version>`. Anything else (a
+/// stale identifier from an older build, say a bare `device-event` or
+/// `charger-event`, or an unrecognised one) falls back to just opening the
+/// popover: this routing only ever special-cases the `update-` prefix, so
+/// it doesn't need to know the device/charger scheme's exact shape at all.
 enum NotificationRouting {
     static func action(for identifier: String) -> NotificationClickAction {
         identifier.hasPrefix("update-") ? .openPopoverShowingUpdate : .openPopover

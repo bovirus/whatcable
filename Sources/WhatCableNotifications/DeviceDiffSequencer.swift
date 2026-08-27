@@ -116,8 +116,20 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     private let notifyOnChanges: () -> Bool
     /// Where a decided notification actually gets posted. The shim builds
     /// and submits the real `UNNotificationRequest`; this type only ever
-    /// hands it a category and content.
-    private let post: (NotificationCategory, NotificationContent) -> Void
+    /// hands it a category, content, and the `DeliveryDirective` deciding
+    /// what identifier to post under and what to remove first. The shim
+    /// makes NO delivery decisions of its own: it just executes the
+    /// directive (remove, then add).
+    private let post: (NotificationCategory, NotificationContent, NotificationDecision.DeliveryDirective) -> Void
+
+    /// Per-category sequence counter + last-posted-identifier bookkeeping
+    /// behind every `DeliveryDirective`. See its own doc comment for why
+    /// it's a separate type rather than more ad-hoc state on this class.
+    /// `let`, not `var`: constructed once per sequencer instance and never
+    /// swapped out, so "a fresh sequencer starts clean" holds by
+    /// construction. Built in `init` now (rather than as a property
+    /// initializer), because it needs `launchToken`, an `init` parameter.
+    private let deliveryLedger: NotificationDeliveryLedger
     /// Diagnostic log sink. Called with the exact same message text the
     /// original `os.log` calls produced (module stays free of `import os`),
     /// so the shim can wrap each call in `Logger.info("\(msg, privacy:
@@ -412,17 +424,26 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     ///     it's always derived from the other two, exactly as the original
     ///     `init()` computed it, so it can't drift out of sync with a custom
     ///     `presentationGapWindow` / `chargerSettleWindow` pair.
+    ///   - launchToken: a short string unique to this app launch, passed
+    ///     straight through to `NotificationDeliveryLedger` (see its own
+    ///     doc comment). No default, deliberately: `DeviceDiffSequencer`
+    ///     itself never calls `UUID()` or `Date()` (this module has no
+    ///     platform imports), so the app-side shim must generate this and
+    ///     hand it in; a default here would either have to violate that
+    ///     purity rule or silently pick a non-unique constant. Tests pass a
+    ///     fixed string so directives stay deterministic.
     public init(
         clock: ClockType,
         currentDevices: @escaping () -> [USBDevice],
         currentChargerSources: @escaping () -> [PowerSource],
         currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
         notifyOnChanges: @escaping () -> Bool,
-        post: @escaping (NotificationCategory, NotificationContent) -> Void,
+        post: @escaping (NotificationCategory, NotificationContent, NotificationDecision.DeliveryDirective) -> Void,
         log: @escaping (String) -> Void = { _ in },
         deviceSettleWindow: Duration = defaultDeviceSettleWindow,
         chargerSettleWindow: Duration = defaultChargerSettleWindow,
-        presentationGapWindow: Duration = defaultPresentationGapWindow
+        presentationGapWindow: Duration = defaultPresentationGapWindow,
+        launchToken: String
     ) {
         self.clock = clock
         self.currentDevices = currentDevices
@@ -434,6 +455,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         self.deviceSettleWindow = deviceSettleWindow
         self.chargerSettleWindow = chargerSettleWindow
         self.deferredDeviceDiffPresentationGapWindow = presentationGapWindow
+        self.deliveryLedger = NotificationDeliveryLedger(launchToken: launchToken)
         // Derived, not a fresh literal: see `deferredDeviceDiffDeadlineWindow`'s
         // doc comment for why the deadline is presentationGap + chargerSettleWindow.
         // Computed once here rather than as a property-declaration default so
@@ -984,6 +1006,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         if category == .charger {
             lastChargerPostTime = clock.now
         }
-        post(category, NotificationContent(title: title, body: body))
+        let directive = deliveryLedger.nextDirective(for: category)
+        post(category, NotificationContent(title: title, body: body), directive)
     }
 }

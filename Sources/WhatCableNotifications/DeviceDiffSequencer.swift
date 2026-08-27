@@ -238,7 +238,269 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// event safe to leave sitting here: it is never read by anything that
     /// doesn't ALSO consume it in the same breath, so nothing can ever pick
     /// up a value meant for a different job.
-    private var pendingCableLabelEvent: (name: String, wasAdded: Bool)?
+    ///
+    /// Episode-scoped (fix1, follow-up to the review round above): capture
+    /// time is not enough on its own. Two failure paths survived it, both
+    /// real: a label arriving AFTER its own batch's cap (the batch already
+    /// flushed unlabelled) used to sit here indefinitely and label the NEXT
+    /// unrelated batch that happened to settle in the same direction; and a
+    /// labelled-cables change with NO device diff at all (a bare TB
+    /// renegotiation flap) used to park an event that could label a much
+    /// later, completely unrelated plug. `episodeID` is what closes both
+    /// holes: every event is now tagged with the `deviceEpisodeID` of
+    /// whichever settling, parked, or held device episode it was assigned to
+    /// at the moment it arrived (see `assignCableLabelEvent(_:)`), and every
+    /// consumption site -- the at-settle check in `resolveDevicePost`
+    /// (against the `episodeID` PARAMETER that round is running under, not
+    /// a live property; see `settlingDeviceEpisodeID`'s doc comment for why)
+    /// and `flushHeldDeviceBatch`/`tryFlushHeldDeviceBatchForPendingEvent`
+    /// -- only ever matches when that tag equals the episode it is being
+    /// checked against. `clearEventIfOwnedBy(_:)`, driving
+    /// `closeParkedEpisode()`/`closeHeldEpisode()` and every direct terminal
+    /// branch in `diffDevices`/`resolveDevicePost`, clears an event still
+    /// tagged to the episode being closed, consumed or not, so a stale tag
+    /// can never survive to be misread by a later, unrelated episode.
+    ///
+    /// Round-2 fix (adversarial review, P2): episode-close clearing alone
+    /// missed a quick lock/unlock landing entirely BEFORE the owning episode
+    /// ever reaches a terminal path -- the event would still be correctly
+    /// owned and still get legitimately consumed once that episode resolves,
+    /// even though a lock happened in between. `updateLabelledCables(_:)`
+    /// clears this (and `graceCableLabelEvent`) outright on every nil feed
+    /// again, on top of episode-close clearing, to close that gap. See
+    /// `graceCableLabelEvent` for the fourth case: an event arriving while NO
+    /// episode is open at all.
+    private var pendingCableLabelEvent: (episodeID: UInt64, name: String, wasAdded: Bool)?
+
+    /// Monotonically increasing, never reused: the source of every
+    /// `deviceEpisodeID` handed out below. A device episode is the unit
+    /// this file's header doc already describes end to end (settle debounce
+    /// through charger deferral, presentation delay, `diffDevices`, and any
+    /// cable-plausibility hold): this counter is what gives that unit an
+    /// identity a cable-label event can be tagged with.
+    private var deviceEpisodeIDCounter: UInt64 = 0
+
+    /// Non-nil from the moment a device episode opens (see
+    /// `openDeviceEpisodeIfNeeded()`) until whichever of `runNowOrDelayForRecentChargerPost`
+    /// or `deferDeviceDiff` next runs clears it, right after capturing the
+    /// episode id into a local value: it is a pure GATE for "may a new raw
+    /// publish open a fresh episode", never a source of truth read later in
+    /// the pipeline. `diffDevices`/`resolveDevicePost` are handed the
+    /// episode id as a PARAMETER instead of reading this property, precisely
+    /// because by the time they run it may already be `nil` (this round is
+    /// resolving/parking right now) or may belong to a totally different,
+    /// NEWER episode (a fresh raw publish opened one while this round was
+    /// parked or held) -- see `parkedDeviceEpisodeID` and
+    /// `heldDeviceBatchEpisodeID`'s doc comments for why those exist as
+    /// separate properties rather than reusing this one across a park/hold.
+    ///
+    /// P1-a fix (adversarial round 2): opening used to happen only once a
+    /// settle round actually FIRED (inside `runNowOrDelayForRecentChargerPost`/
+    /// `deferDeviceDiff`, called from `scheduleDeviceDiff`'s task after its
+    /// sleep). That silently lost the flagship "label arrives just before
+    /// the first USB publish" case under a burst-heavy debounce: each raw
+    /// publish resets `scheduleDeviceDiff`'s settle timer with no upper
+    /// bound, so four publishes 600ms apart can push the actual fire time
+    /// out to 4+ seconds after the label arrived, well past
+    /// `deviceSettleWindow` -- the grace slot would expire before the
+    /// episode that should claim it ever opened. `openDeviceEpisodeIfNeeded()`
+    /// is now called SYNCHRONOUSLY from `scheduleDeviceDiff()` itself, on
+    /// EVERY raw publish, not just the one that survives the debounce: the
+    /// first publish of a burst opens the episode (and claims the grace slot
+    /// there and then, at the moment of the burst's start, not its end);
+    /// every further publish in the SAME burst is a no-op here (idempotent
+    /// on an already-open episode), which is exactly "further
+    /// `scheduleDeviceDiff` calls during the same settle debounce belong to
+    /// that episode."
+    private var settlingDeviceEpisodeID: UInt64?
+
+    /// Non-nil exactly while a device diff is parked in the
+    /// `deferredDeviceDiffDevices` slot (the charger-ordering park/defer/gap/
+    /// deadline machinery above, entirely distinct from the cable-plausibility
+    /// hold below): the id of the episode that diff belongs to. Set,
+    /// alongside `deferredDeviceDiffDevices`, at every park site
+    /// (`deferDeviceDiff`, `parkAndDelayDevicePost`), after first closing
+    /// whatever was PREVIOUSLY parked (`closeParkedEpisode()`, P1-b fix: a
+    /// superseded parked diff's episode must close, not silently lend its
+    /// identity to whatever supersedes it). Cleared, together with any event
+    /// still tagged to it, the moment that diff is discarded
+    /// (`supersedeAnyParkedDiff`) -- and simply cleared (ownership transfers
+    /// into the `diffDevices` call, untouched) the moment it actually lands
+    /// (`landDeferredDeviceDiffNow`, which reads this value and hands it to
+    /// `diffDevices` as the `episodeID` parameter).
+    ///
+    /// `settlingDeviceEpisodeID` is cleared the instant a diff parks (see
+    /// its own doc comment), specifically so a raw publish arriving while
+    /// something is parked opens a genuinely FRESH episode rather than
+    /// reusing the parked one's id (P1-b fix, adversarial round 2): the
+    /// parked-diff-supersede path (`runNowOrDelayForRecentChargerPost`'s
+    /// `delay == 0` branch, `supersedeAnyParkedDiff`, then `diffDevices`
+    /// directly) used to run under the STILL-OPEN `settlingDeviceEpisodeID`,
+    /// so an event that had been tagged to the now-discarded parked diff
+    /// could wrongly label the completely unrelated diff that superseded it.
+    private var parkedDeviceEpisodeID: UInt64?
+
+    /// Non-nil exactly while `heldDeviceBatch` is non-nil: the id of the
+    /// episode that produced the currently held batch, carried over
+    /// unchanged from the `episodeID` `resolveDevicePost` was called with at
+    /// the moment it decided to hold (same episode, same id -- holding is
+    /// not a new episode). Cleared, together with any event still tagged to
+    /// it, the moment that batch actually flushes
+    /// (`flushHeldDeviceBatch`/`closeHeldEpisode()`). A NEW raw device
+    /// publish arriving while a batch is held is free to open a fresh
+    /// episode of its own (`settlingDeviceEpisodeID` being `nil` is what
+    /// gates that, and holding never sets it) -- this is what lets a
+    /// completely unrelated plug settle, and even hold its own batch, while
+    /// an OLDER one is still waiting out its cap.
+    private var heldDeviceBatchEpisodeID: UInt64?
+
+    /// A cable-label change that arrived while NO device episode was open
+    /// at all (`settlingDeviceEpisodeID`, `parkedDeviceEpisodeID`, and
+    /// `heldDeviceBatchEpisodeID` all `nil`): the streams have no ordering
+    /// guarantee, so a saved cable's identity can legitimately resolve a
+    /// moment BEFORE the USB publish that will open its episode ever
+    /// arrives. Bounded and single-slot, exactly like `pendingCableLabelEvent`,
+    /// but unowned until claimed: the NEXT episode to open
+    /// (`openDeviceEpisodeIfNeeded()`) claims it only if `arrivedAt` is
+    /// still within `deviceSettleWindow` of `clock.now` at the moment it
+    /// opens; otherwise it has expired, and is discarded rather than
+    /// claimed. Either way, opening an episode always clears this slot -- it
+    /// is claimable by exactly the next episode to open, never a later one.
+    /// See `assignCableLabelEvent(_:)` and
+    /// `claimGraceCableLabelEventIfEligible(for:)`.
+    private var graceCableLabelEvent: (name: String, wasAdded: Bool, arrivedAt: ClockType.Instant)?
+
+    /// Opens a fresh device episode if none is currently settling
+    /// (`settlingDeviceEpisodeID == nil`), and, if one opens, immediately
+    /// gives it first claim on any pending `graceCableLabelEvent`. A batch
+    /// being PARKED or HELD does not block a new episode from opening here
+    /// -- see `parkedDeviceEpisodeID`/`heldDeviceBatchEpisodeID`'s doc
+    /// comments -- only a still-settling one does. Idempotent: returns the
+    /// existing episode id if one is already open, so calling this more than
+    /// once for the same settle round is always safe.
+    ///
+    /// Called from THREE places: `scheduleDeviceDiff()` itself (P1-a fix,
+    /// adversarial round 2 -- see `settlingDeviceEpisodeID`'s doc comment for
+    /// why opening has to happen at the FIRST raw publish, not when the
+    /// settle eventually fires), and, defensively, at the top of both
+    /// `runNowOrDelayForRecentChargerPost` and `deferDeviceDiff` too, so a
+    /// test driving either of those directly (bypassing `scheduleDeviceDiff`
+    /// and its settle sleep entirely, as most of this file's tests do -- see
+    /// their own doc comments) still opens an episode correctly.
+    @discardableResult
+    private func openDeviceEpisodeIfNeeded() -> UInt64 {
+        if let existing = settlingDeviceEpisodeID { return existing }
+        deviceEpisodeIDCounter += 1
+        let episodeID = deviceEpisodeIDCounter
+        settlingDeviceEpisodeID = episodeID
+        claimGraceCableLabelEventIfEligible(for: episodeID)
+        return episodeID
+    }
+
+    /// Claims `graceCableLabelEvent` for the just-opened `episodeID` if it
+    /// is still within `deviceSettleWindow` of its own arrival; otherwise
+    /// discards it. Either way the grace slot is cleared here: it is only
+    /// ever offered to the FIRST episode to open after it arrived, never
+    /// held open for a later one.
+    private func claimGraceCableLabelEventIfEligible(for episodeID: UInt64) {
+        guard let grace = graceCableLabelEvent else { return }
+        graceCableLabelEvent = nil
+        guard grace.arrivedAt.duration(to: clock.now) <= deviceSettleWindow else { return }
+        pendingCableLabelEvent = (episodeID: episodeID, name: grace.name, wasAdded: grace.wasAdded)
+    }
+
+    /// Clears `pendingCableLabelEvent` only if it is STILL tagged to
+    /// `episodeID` (consumed or not): the shared primitive behind every
+    /// episode close (`closeParkedEpisode()`, `closeHeldEpisode()`, and the
+    /// terminal branches in `diffDevices`/`resolveDevicePost`, which pass
+    /// their own `episodeID` parameter straight through). A no-op when the
+    /// event belongs to a different episode, or there is none.
+    private func clearEventIfOwnedBy(_ episodeID: UInt64) {
+        if let event = pendingCableLabelEvent, event.episodeID == episodeID {
+            pendingCableLabelEvent = nil
+        }
+    }
+
+    /// Closes whatever diff is CURRENTLY parked, if anything: clears
+    /// `parkedDeviceEpisodeID` and any event still tagged to it. Called from
+    /// two places, both discarding a parked diff rather than landing it: the
+    /// top of `deferDeviceDiff`/`parkAndDelayDevicePost` (a NEWER diff
+    /// overwriting the single park slot; the OLD parked diff's own devices
+    /// are dropped the same way `deferredDeviceDiffDevices` always was, this
+    /// just extends that discard to the episode identity too), and
+    /// `supersedeAnyParkedDiff` (the P1-b fix target: the zero-delay
+    /// `.runNow` branch discarding a parked diff in favour of running fresh
+    /// data immediately). A no-op if nothing is parked.
+    ///
+    /// Defense-in-depth (verified during red-proofing, adversarial round 2):
+    /// on the `supersedeAnyParkedDiff` path specifically, dropping this call
+    /// ALONE does not reproduce the misattribution leak it fixes, because
+    /// `settlingDeviceEpisodeID` is already freed at park time (see its own
+    /// doc comment), so the superseding diff normally runs under a freshly-
+    /// opened `episodeID` anyway, and the owner check in `resolveDevicePost`/
+    /// `flushHeldDeviceBatch` independently blocks the mismatch. Reproducing
+    /// the leak needs BOTH guards down at once (this clear skipped, AND the
+    /// settling-gate freed at park time reverted, so the superseding diff
+    /// reuses the parked diff's still-open id) -- confirmed by deliberately
+    /// breaking both together and watching the exact bug reappear
+    /// ("Connected: Device B (Cable A)" instead of unlabelled). This call
+    /// stays as the explicit, unambiguous fix for the failure mode as
+    /// originally described (a superseded parked diff's event surviving to
+    /// label whatever replaces it), on top of the id-freshness guard, not
+    /// instead of it.
+    private func closeParkedEpisode() {
+        guard let episodeID = parkedDeviceEpisodeID else { return }
+        clearEventIfOwnedBy(episodeID)
+        parkedDeviceEpisodeID = nil
+    }
+
+    /// Closes the episode owning the currently held batch, called from
+    /// `flushHeldDeviceBatch` the moment that batch actually flushes
+    /// (matched or unmatched): clears `heldDeviceBatchEpisodeID`, and, if
+    /// `pendingCableLabelEvent` is STILL tagged to the episode being closed,
+    /// clears that too (the matched case has already consumed it by this
+    /// point, so this is only ever observable on the unmatched case). A
+    /// no-op if nothing is held.
+    private func closeHeldEpisode() {
+        guard let episodeID = heldDeviceBatchEpisodeID else { return }
+        clearEventIfOwnedBy(episodeID)
+        heldDeviceBatchEpisodeID = nil
+    }
+
+    /// Assigns a freshly computed label change to whichever device episode
+    /// owns it right now (spec design "2. Events carry an owner"), in
+    /// priority order:
+    ///  1. A settling episode (open, pre-resolve): assign to it. Preferred
+    ///     over an older parked or held one, so a genuinely new physical
+    ///     change is never swallowed by an unrelated batch still parked or
+    ///     waiting out its cap.
+    ///  2. No settling episode, but a diff is parked (charger-ordering
+    ///     machinery, not yet landed): assign to that parked episode -- it
+    ///     is exactly as "still pursuing its own outcome" as a settling one,
+    ///     just further along the park/defer/gap/deadline pipeline.
+    ///  3. No settling or parked episode, but a batch is held: assign to
+    ///     that held episode -- the feature's core path (a label arriving
+    ///     mid-hold).
+    ///  4. No episode active at all: the bounded pre-episode
+    ///     `graceCableLabelEvent` slot.
+    /// A newer change always overwrites whatever was pending before,
+    /// whichever of the four slots it lands in: single event, single owner,
+    /// at a time.
+    private func assignCableLabelEvent(_ change: (name: String, wasAdded: Bool)) {
+        if let settlingID = settlingDeviceEpisodeID {
+            graceCableLabelEvent = nil
+            pendingCableLabelEvent = (episodeID: settlingID, name: change.name, wasAdded: change.wasAdded)
+        } else if let parkedID = parkedDeviceEpisodeID {
+            graceCableLabelEvent = nil
+            pendingCableLabelEvent = (episodeID: parkedID, name: change.name, wasAdded: change.wasAdded)
+        } else if let heldID = heldDeviceBatchEpisodeID {
+            graceCableLabelEvent = nil
+            pendingCableLabelEvent = (episodeID: heldID, name: change.name, wasAdded: change.wasAdded)
+            tryFlushHeldDeviceBatchForPendingEvent()
+        } else {
+            graceCableLabelEvent = (name: change.name, wasAdded: change.wasAdded, arrivedAt: clock.now)
+        }
+    }
 
     /// Fixed, owner-locked cap on the notification hold (spec design 5):
     /// "Deadline semantics, cap 5 seconds (owner-locked)". Deliberately NOT
@@ -638,6 +900,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `diffDevices(devices)` call, which is exactly the bug this exists to
     /// catch.
     public func scheduleDeviceDiff() {
+        // P1-a fix (adversarial round 2): open (or confirm) the episode
+        // HERE, synchronously, on every raw publish -- not only once the
+        // settle task below actually fires. See `settlingDeviceEpisodeID`'s
+        // doc comment for the burst-debounce scenario this closes.
+        openDeviceEpisodeIfNeeded()
         deviceSettleTask?.cancel()
         deviceSettleTask = Task { @MainActor [weak self] in
             guard let clock = self?.clock else { return }
@@ -684,6 +951,19 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// it's accepted for the sake of getting the ordering right on the
     /// common case (the same episode) this fix targets.
     func deferDeviceDiff(_ devices: [USBDevice]) {
+        let episodeID = openDeviceEpisodeIfNeeded()
+        // This round is handing off to the park machinery now, not still
+        // settling (P1-b fix): free the gate so a fresh raw publish arriving
+        // while this diff is parked opens a genuinely NEW episode instead of
+        // reusing this one's id. `parkedDeviceEpisodeID` is this diff's own
+        // identity from here on.
+        settlingDeviceEpisodeID = nil
+        // Close whatever was PREVIOUSLY parked (P1-b fix): this overwrites
+        // the single park slot below exactly like `deferredDeviceDiffDevices`
+        // always did, so the episode identity has to be discarded the same
+        // way, not silently handed to this new diff.
+        closeParkedEpisode()
+        parkedDeviceEpisodeID = episodeID
         deferredDeviceDiffToken += 1
         let token = deferredDeviceDiffToken
         deferredDeviceDiffDevices = devices
@@ -892,6 +1172,14 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// leaving the old parked one to land later against an already-mutated
     /// `knownDevices` baseline, producing a wrong diff for it.
     func runNowOrDelayForRecentChargerPost(_ devices: [USBDevice]) {
+        let episodeID = openDeviceEpisodeIfNeeded()
+        // This round is resolving (or parking) right now, not still
+        // settling (P1-b fix): free the gate immediately, before either
+        // branch below runs, so a fresh raw publish arriving in the middle
+        // of this call's own work (there isn't one today, but this keeps
+        // the invariant true by construction rather than by accident) opens
+        // its own episode rather than reusing this one's id.
+        settlingDeviceEpisodeID = nil
         // Sampled once, here, regardless of which branch below runs: this
         // call site IS settle time (see `deferredDeviceDiffTBSwitchIDs`'s
         // doc comment). The `delay == 0` branch's landing coincides with
@@ -906,10 +1194,15 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             presentationGap: deferredDeviceDiffPresentationGapWindow
         )
         if delay > .zero {
-            parkAndDelayDevicePost(devices, tbSwitchIDs: tbSwitchIDs, delay: delay)
+            parkAndDelayDevicePost(devices, tbSwitchIDs: tbSwitchIDs, episodeID: episodeID, delay: delay)
         } else {
+            // P1-b fix: `supersedeAnyParkedDiff()` now closes whatever WAS
+            // parked (its own, possibly different, episode) before this
+            // fresh diff runs under ITS OWN `episodeID`, so an event owned
+            // by a superseded parked diff can never leak into this
+            // unrelated one.
             supersedeAnyParkedDiff()
-            diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
+            diffDevices(devices, tbSwitchIDs: tbSwitchIDs, episodeID: episodeID)
         }
     }
 
@@ -920,7 +1213,13 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `landDeferredDeviceDiff` doesn't care HOW a diff got parked before
     /// re-scheduling its gap), then schedules the gap-guarded landing after
     /// `delay`.
-    private func parkAndDelayDevicePost(_ devices: [USBDevice], tbSwitchIDs: Set<Int64>, delay: Duration) {
+    private func parkAndDelayDevicePost(_ devices: [USBDevice], tbSwitchIDs: Set<Int64>, episodeID: UInt64, delay: Duration) {
+        // Close whatever was PREVIOUSLY parked (P1-b fix), same reasoning as
+        // `deferDeviceDiff`'s own call: this overwrites the single park slot
+        // below, so the OLD parked diff's episode identity must be
+        // discarded along with its devices, not silently inherited.
+        closeParkedEpisode()
+        parkedDeviceEpisodeID = episodeID
         deferredDeviceDiffToken += 1
         let token = deferredDeviceDiffToken
         deferredDeviceDiffDevices = devices
@@ -944,6 +1243,14 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
         deferredDeviceDiffTBSwitchIDs = nil
+        // P1-b fix (adversarial round 2, "misattribution leak"): this diff
+        // is being DISCARDED, never landed, so its episode has to close here
+        // too -- clearing any event still tagged to it -- exactly like every
+        // other path that drops a parked diff. Before this fix, the parked
+        // diff's episode stayed open (nothing here touched it), so an event
+        // tagged to it could still be picked up by whatever unrelated diff
+        // runs immediately after this call.
+        closeParkedEpisode()
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -970,11 +1277,17 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // same way.
         guard let devices = deferredDeviceDiffDevices,
               let tbSwitchIDs = deferredDeviceDiffTBSwitchIDs,
+              let episodeID = parkedDeviceEpisodeID,
               NotificationDecision.shouldLandDeferredDiff(token: token, liveToken: deferredDeviceDiffToken)
         else { return }
         deferredDeviceDiffToken += 1
         deferredDeviceDiffDevices = nil
         deferredDeviceDiffTBSwitchIDs = nil
+        // Ownership TRANSFERS into the `diffDevices` call below, untouched
+        // (mirrors the settling-to-held transition in `resolveDevicePost`):
+        // this diff is landing, not being discarded, so its event (if any)
+        // must survive to be checked there, not cleared here.
+        parkedDeviceEpisodeID = nil
         deferredDeviceDiffDeadlineTask?.cancel()
         deferredDeviceDiffPresentationGapTask?.cancel()
         deferredDeviceDiffPresentationGapGeneration += 1
@@ -982,11 +1295,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // never set this true): once ANY path actually lands the diff, no
         // gap should be treated as still pending for it.
         isPresentationGapPending = false
-        diffDevices(devices, tbSwitchIDs: tbSwitchIDs)
+        diffDevices(devices, tbSwitchIDs: tbSwitchIDs, episodeID: episodeID)
     }
 
-    private func diffDevices(_ current: [USBDevice], tbSwitchIDs: Set<Int64>) {
-        guard didPrimeBaseline else { return }
+    private func diffDevices(_ current: [USBDevice], tbSwitchIDs: Set<Int64>, episodeID: UInt64) {
+        guard didPrimeBaseline else { clearEventIfOwnedBy(episodeID); return }
 
         let previousSnapshots = Array(knownDevices.values)
         let currentSnapshots = current.map(snapshot(for:))
@@ -1013,7 +1326,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             current: tbSwitchIDs
         )
 
-        guard notifyOnChanges() else { return }
+        // Terminal path (fix1, spec design 1): notifications are off, so
+        // this settle will never reach `resolveDevicePost` at all. Clear
+        // this episode's own event here, its only terminal point in that
+        // case, so a stale owned event can never survive to be misread once
+        // notifications come back on.
+        guard notifyOnChanges() else { clearEventIfOwnedBy(episodeID); return }
 
         let (addedGroups, removedGroups) = USBDeviceChangeGrouper.diff(
             previous: previousSnapshots,
@@ -1041,7 +1359,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             thunderboltInvolved: thunderboltInvolved,
             previousLocationIDs: previousLocationIDs,
             currentLocationIDs: currentLocationIDs,
-            singleDeviceBody: singleDeviceBody
+            singleDeviceBody: singleDeviceBody,
+            episodeID: episodeID
         )
     }
 
@@ -1136,9 +1455,74 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     //     moment it actually applies a label, so a lock that lands between
     //     hold-start and the job's actual fire drops the label even if
     //     `pendingCableLabelEvent` still holds a stale match from before the
-    //     lock. `updateLabelledCables(_:)` also clears `pendingCableLabelEvent`
-    //     outright on a nil feed (gate-fixes finding, Codex 4), so a stale
-    //     event can't survive to be misapplied after a LATER unlock either.
+    //     lock. A stale event surviving a lock/unlock to be misapplied to a
+    //     LATER, unrelated diff is now closed by episode-scoped ownership
+    //     (see the next bullet), not by a nil-feed special case.
+    //   - stale-binding / diff-less-flap (fix1, episode-scoped ownership):
+    //     `pendingCableLabelEvent` and `graceCableLabelEvent` are tagged
+    //     with (or bounded to) a `deviceEpisodeID` the moment they are
+    //     assigned (`assignCableLabelEvent(_:)`), and every consumption site
+    //     -- the at-settle match in `resolveDevicePost`,
+    //     `flushHeldDeviceBatch`, `tryFlushHeldDeviceBatchForPendingEvent`
+    //     -- only matches when that tag equals the episode being checked.
+    //     This closes two failure paths a bare capture-time bind did not: a
+    //     label arriving AFTER its own batch's cap (the batch already
+    //     flushed unlabelled, its episode closed) can no longer sit
+    //     indefinitely and label the next unrelated same-direction settle,
+    //     because `clearEventIfOwnedBy(_:)` (via `closeParkedEpisode()`/
+    //     `closeHeldEpisode()`, and every direct terminal branch in
+    //     `diffDevices`/`resolveDevicePost`) clears an event still tagged to
+    //     the episode being closed; and a labelled-cables change with NO
+    //     device episode open at all (a bare TB renegotiation flap) goes
+    //     into the bounded `graceCableLabelEvent` slot instead of the owned
+    //     one, claimable only by the very next episode to open within
+    //     `deviceSettleWindow` of its own arrival, so it cannot label some
+    //     much later, unrelated plug either. A second device episode opening
+    //     while an OLDER one is still held (a completely unrelated plug
+    //     settling while a prior batch waits out its cap) is not itself a
+    //     race needing special handling: the two episodes carry distinct ids
+    //     by construction (`deviceEpisodeIDCounter` never repeats),
+    //     `assignCableLabelEvent(_:)` always prefers a currently-settling
+    //     (or parked) episode over an older held one, and `resolveDevicePost`
+    //     always flushes whatever is held FIRST, before evaluating the new
+    //     settle, so the older batch is never starved by the newer one
+    //     arriving.
+    //   - P1-a, burst-heavy debounce losing the grace slot (adversarial
+    //     round 2): opening used to happen only inside
+    //     `runNowOrDelayForRecentChargerPost`/`deferDeviceDiff`, i.e. only
+    //     once a settle round actually FIRED. `scheduleDeviceDiff`'s settle
+    //     timer resets on every raw publish with no upper bound, so a burst
+    //     of publishes (four, 600ms apart, is enough) can push the actual
+    //     fire time several seconds past when a label event legitimately
+    //     arrived just before the FIRST publish of that burst -- well past
+    //     `deviceSettleWindow`, so the grace slot would have already expired
+    //     by the time an episode finally opened to claim it. Fixed by moving
+    //     `openDeviceEpisodeIfNeeded()` into `scheduleDeviceDiff()` itself,
+    //     called synchronously on EVERY raw publish (idempotent: the first
+    //     publish of a burst opens the episode and claims grace right then;
+    //     every further publish in the same burst is a no-op here), so grace
+    //     claiming happens at the START of a debounce burst, not its end.
+    //   - P1-b, parked-diff supersede misattribution (adversarial round 2):
+    //     the zero-delay `.runNow` branch of `runNowOrDelayForRecentChargerPost`
+    //     (`supersedeAnyParkedDiff()` then `diffDevices(...)` directly) used
+    //     to run the superseding diff under the SAME `settlingDeviceEpisodeID`
+    //     the just-discarded parked diff had been retaining throughout its
+    //     whole park/defer/gap/deadline lifetime, so an event tagged to the
+    //     superseded diff could wrongly label the completely unrelated one
+    //     that replaced it. Fixed by giving a parked diff its OWN identity,
+    //     `parkedDeviceEpisodeID`, separate from `settlingDeviceEpisodeID`:
+    //     parking (`deferDeviceDiff`, `parkAndDelayDevicePost`) clears the
+    //     settling gate immediately (freeing it for a genuinely fresh
+    //     episode to open on the very next raw publish) and moves the id
+    //     into `parkedDeviceEpisodeID` instead; discarding a parked diff
+    //     (`supersedeAnyParkedDiff`, or a newer park overwriting an older
+    //     one) closes THAT episode (`closeParkedEpisode()`, clearing any
+    //     event it owns) before anything else runs. The superseding diff
+    //     then resolves under its OWN, separately-opened `episodeID`,
+    //     threaded through `diffDevices`/`resolveDevicePost` as a parameter
+    //     rather than read back off `settlingDeviceEpisodeID` (which may
+    //     already be `nil`, or already belong to some OTHER, even newer
+    //     episode, by the time those functions run).
 
     /// The hold-stage entry point: called at the tail of EVERY `diffDevices`
     /// run, whichever of the three landing paths reached it. Decides,
@@ -1160,7 +1544,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         thunderboltInvolved: Bool,
         previousLocationIDs: Set<UInt32>,
         currentLocationIDs: Set<UInt32>,
-        singleDeviceBody: @escaping (UInt64) -> String?
+        singleDeviceBody: @escaping (UInt64) -> String?,
+        episodeID: UInt64
     ) {
         flushHeldDeviceBatch(token: heldDeviceBatchToken)
 
@@ -1195,6 +1580,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
                 removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
                 singleDeviceBody: singleDeviceBody, capturedLabel: nil
             ))
+            // Terminal path (fix1): reconnects never hold, so this is this
+            // episode's only chance to resolve. Clear its event here.
+            clearEventIfOwnedBy(episodeID)
             return
         }
 
@@ -1215,6 +1603,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
                 removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
                 singleDeviceBody: singleDeviceBody, capturedLabel: nil
             ))
+            // Terminal path (fix1): a batch with no port-level group, or
+            // where the feature could never label it anyway, never holds.
+            clearEventIfOwnedBy(episodeID)
             return
         }
 
@@ -1233,7 +1624,24 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // remains a genuine fire-time check, in `fireDevicePostJob`: a lock
         // can still legitimately erase a label between capture and fire,
         // and correctly should.
-        if let event = pendingCableLabelEvent,
+        // Owner-checked (fix1, spec design 3): only consume when the event
+        // is tagged to THIS round's `episodeID`. This check is a defensive
+        // invariant guard, not a reachable branch point in normal
+        // operation: `episodeID` is the value this specific settle round
+        // was opened/parked/landed under, so by construction it is the only
+        // id `pendingCableLabelEvent` could ever carry here if it was
+        // assigned to THIS round at all (`assignCableLabelEvent(_:)` always
+        // tags an incoming event to whichever episode is CURRENTLY settling
+        // or parked, and `resolveDevicePost` always flushes any older HELD
+        // batch first, before this check ever runs -- see
+        // `flushHeldDeviceBatch`'s own owner check, which is where a
+        // cross-episode mismatch actually gets exercised). Kept anyway,
+        // matching the belt-and-braces pattern already used elsewhere in
+        // this file (see `deferredDeviceDiffPresentationGapGeneration`'s
+        // doc comment): it makes "a stale event can't be misapplied here"
+        // true by construction, not by relying on every caller upstream
+        // continuing to get the assignment right.
+        if let event = pendingCableLabelEvent, event.episodeID == episodeID,
            (event.wasAdded && addedEligible) || (!event.wasAdded && removedEligible) {
             pendingCableLabelEvent = nil
             enqueueDevicePost(DevicePostJob(
@@ -1241,6 +1649,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
                 singleDeviceBody: singleDeviceBody,
                 capturedLabel: DevicePostJob.CapturedLabel(name: event.name, wasAdded: event.wasAdded)
             ))
+            // Terminal path (fix1): matched and posted, never held.
+            clearEventIfOwnedBy(episodeID)
             return
         }
 
@@ -1262,6 +1672,14 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             removedEligible: removedEligible,
             addedEligible: addedEligible
         )
+        // Not a terminal path (fix1): holding is the SAME episode, still
+        // in flight. The id moves from "settling/parked" to "held" (any
+        // event still tagged to it moves with it, untouched), it does not
+        // close. Uses the `episodeID` PARAMETER, not `settlingDeviceEpisodeID`:
+        // that property was already cleared (or reassigned to a totally
+        // different, newer episode) by the caller before this function ever
+        // ran -- see `settlingDeviceEpisodeID`'s doc comment.
+        heldDeviceBatchEpisodeID = episodeID
         scheduleHeldDeviceBatchDeadline(token: token)
     }
 
@@ -1307,8 +1725,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         heldDeviceBatchDeadlineTask?.cancel()
         heldDeviceBatchDeadlineTask = nil
 
+        // Owner-checked (fix1, spec design 3): only consume when the event
+        // is tagged to THIS held episode, mirroring the settling-side check
+        // in `resolveDevicePost`.
         var capturedLabel: DevicePostJob.CapturedLabel?
-        if let event = pendingCableLabelEvent {
+        if let episodeID = heldDeviceBatchEpisodeID,
+           let event = pendingCableLabelEvent, event.episodeID == episodeID {
             if event.wasAdded, batch.addedEligible {
                 capturedLabel = DevicePostJob.CapturedLabel(name: event.name, wasAdded: true)
                 pendingCableLabelEvent = nil
@@ -1317,6 +1739,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
                 pendingCableLabelEvent = nil
             }
         }
+
+        // Terminal path (fix1): this held batch is done, whichever of the
+        // three callers flushed it. Close its episode, clearing any event
+        // still tagged to it (the unmatched case above).
+        closeHeldEpisode()
 
         enqueueDevicePost(DevicePostJob(
             removedGroups: batch.removedGroups,
@@ -1335,7 +1762,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `pendingCableLabelEvent`, still available to a LATER settle or a
     /// later, matching push).
     private func tryFlushHeldDeviceBatchForPendingEvent() {
-        guard let batch = heldDeviceBatch, let event = pendingCableLabelEvent else { return }
+        guard let batch = heldDeviceBatch,
+              let episodeID = heldDeviceBatchEpisodeID,
+              let event = pendingCableLabelEvent, event.episodeID == episodeID else { return }
         let matches = (event.wasAdded && batch.addedEligible) || (!event.wasAdded && batch.removedEligible)
         guard matches else { return }
         flushHeldDeviceBatch(token: heldDeviceBatchToken)
@@ -1540,27 +1969,36 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         knownLabelledCables = feed?.attachedLabelled
         knownHasSavedCables = feed?.hasSavedCables ?? false
 
-        // Gate-fixes finding (Codex 4): a nil feed means availability was
-        // just LOST (licence locked, or every provider stopped answering).
-        // Any `pendingCableLabelEvent` still sitting here is, by
-        // definition, stale the instant that happens: it was computed from
-        // a comparison of two snapshots taken while the feature WAS
-        // available, and nothing about it describes anything true post-
-        // lock. Left uncleared, an unrelated change after a later UNLOCK
-        // could pick up this stale event and label a post with the wrong
-        // cable's name (the exact wrong-name scenario Codex described:
-        // lock, unlock, then an unrelated same-direction change must NOT
-        // inherit the pre-lock event). `fireDevicePostJob`'s own
-        // `knownLabelledCables != nil` guard already stops a stale event
-        // from being APPLIED while still locked; this clears it outright so
-        // it can never survive to be misapplied after a later unlock either.
+        // A transition across availability (nil feed -> some, or some ->
+        // nil, i.e. a licence lock or unlock) never itself produces an
+        // event: that guard is what stops a licence change from reading as
+        // a cable connecting or disconnecting.
+        //
+        // P2 fix (adversarial round 2): a nil feed still clears BOTH
+        // `pendingCableLabelEvent` and `graceCableLabelEvent` outright,
+        // regardless of which episode (if any) owns the former. Episode-
+        // close clearing alone is not enough: a lock immediately followed by
+        // an unlock, both landing before the OWNING episode ever reaches a
+        // terminal path, leaves the pre-lock event sitting there, still
+        // correctly owned, ready to be legitimately consumed by that
+        // episode once it resolves -- even though the licence was locked in
+        // between. `fireDevicePostJob`'s fire-time `knownLabelledCables`
+        // nil-guard only protects the WINDOW while still locked; once
+        // unlocked again, capture-time binding (this event) can go on to
+        // label a post that never should have inherited a pre-lock
+        // identity. Clearing outright on every nil feed, on top of episode-
+        // close clearing, closes that gap. `graceCableLabelEvent` is
+        // cleared here too, for the same reason: it is just as reachable by
+        // a quick lock/unlock as the owned slot is.
         guard let previous, let current = feed?.attachedLabelled else {
-            if feed == nil { pendingCableLabelEvent = nil }
+            if feed == nil {
+                pendingCableLabelEvent = nil
+                graceCableLabelEvent = nil
+            }
             return
         }
         guard let change = NotificationDecision.cableLabelChange(previous: previous, current: current) else { return }
-        pendingCableLabelEvent = change
-        tryFlushHeldDeviceBatchForPendingEvent()
+        assignCableLabelEvent(change)
     }
 
     private func snapshot(for device: USBDevice) -> USBDeviceChangeGrouper.Snapshot {

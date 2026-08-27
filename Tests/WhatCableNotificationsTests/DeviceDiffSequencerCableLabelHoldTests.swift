@@ -882,10 +882,25 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
     /// The positive twin: Device A's job DOES capture its own matching
     /// event at flush time, then queues behind the spacing floor. While it
     /// waits, an unrelated "Cable B" event arrives. Device A's job still
-    /// posts with ITS OWN captured name (not B's, not unlabelled), and
-    /// "Cable B"'s event survives, uncorrupted, for the NEXT diff that is
-    /// actually eligible for it.
-    func testQueuedJobKeepsItsOwnCapturedEventAndTheUnrelatedOneSurvivesForTheNextDiff() async {
+    /// posts with ITS OWN captured name (not B's, not unlabelled).
+    ///
+    /// fix1 (episode-scoped ownership): this replaces
+    /// `testQueuedJobKeepsItsOwnCapturedEventAndTheUnrelatedOneSurvivesForTheNextDiff`.
+    /// That test's ending -- "Cable B"'s event survives, untouched,
+    /// indefinitely, for whatever diff eventually turns out to be eligible
+    /// for it -- was itself the stale-binding bug this fix closes: a
+    /// pre-fix1 `pendingCableLabelEvent` had no expiry at all, so it really
+    /// would sit there forever no matter how much later or how unrelated
+    /// the next eligible diff was. Under episode-scoped ownership, "Cable
+    /// B"'s event arrives while NO device episode is open (Device A's own
+    /// episode already closed the moment its batch flushed), so it lands in
+    /// the bounded `graceCableLabelEvent` slot, not the owned one, and is
+    /// claimable only by the very next episode to open within
+    /// `deviceSettleWindow` of its own arrival. Device C's episode here
+    /// opens well OUTSIDE that window, so the event has already expired by
+    /// the time Device C settles, and Device C posts unlabelled instead of
+    /// inheriting "Cable B"'s name.
+    func testQueuedJobKeepsItsOwnCapturedEventAndTheUnrelatedOneExpiresInstead() async {
         let clock = ManualClock()
         let posted = PostedLog()
         let sequencer = makeSequencer(clock: clock, posted: posted)
@@ -918,7 +933,9 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         XCTAssertEqual(posted.entries.count, 1, "Device A's job is queued, captured with \"Cable A\" already bound")
 
         // WHILE Device A's job waits, an UNRELATED cable's event arrives.
-        // Nothing is held to consume it, so it sits pending.
+        // No device episode is open at this instant (Device A's own episode
+        // already closed the moment its batch flushed above), so this lands
+        // in the bounded pre-episode grace slot, timestamped now.
         sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-a": "Cable A", "cable-b": "Cable B"]))
 
         await clock.advance(by: .milliseconds(200))
@@ -930,9 +947,17 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
             "Device A's own captured event must survive, uncorrupted by the later unrelated one"
         )
 
-        // A NEW, genuinely eligible diff (Device C) now settles. "Cable B"'s
-        // event, never consumed by anything else, is still exactly where it
-        // belongs and gets matched correctly.
+        // Let "Cable B"'s grace event expire: well past `deviceSettleWindow`
+        // (1500ms default) since it arrived, with no episode ever opening
+        // to claim it in that time.
+        await clock.advance(by: .milliseconds(1400))
+        await flush(clock)
+
+        // A NEW, genuinely eligible diff (Device C) now settles, well
+        // outside "Cable B"'s claim window. Red-proof: drop the
+        // `deviceSettleWindow` bound in `claimGraceCableLabelEventIfEligible`
+        // (always claim regardless of elapsed time) and this test goes red
+        // -- Device C would post "Connected: Device C (Cable B)" instead.
         sequencer.knownDevices[portLevelDevice(id: 1, bus: 0x02, name: "Device A").id] =
             snapshot(for: portLevelDevice(id: 1, bus: 0x02, name: "Device A"))
         sequencer.runNowOrDelayForRecentChargerPost([
@@ -941,15 +966,573 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
             portLevelDevice(id: 2, bus: 0x06, name: "Device C"),
         ])
         await flush(clock)
-        XCTAssertEqual(posted.entries.count, 2, "Device C's job is captured immediately (a usable label was already present) but still queues behind the spacing floor")
+        XCTAssertEqual(posted.entries.count, 2, "no captured event: \"Cable B\" already expired, so Device C holds instead of enqueuing immediately")
 
-        await clock.advance(by: .milliseconds(200))
+        await clock.advance(by: .seconds(5))
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 3)
         XCTAssertEqual(
-            posted.entries.last?.1.title, "Connected: Device C (Cable B)",
-            "\"Cable B\"'s event survived untouched and correctly labels the diff it actually belongs to"
+            posted.entries.last?.1.title, "Connected: Device C",
+            "\"Cable B\"'s event expired rather than surviving indefinitely: Device C posts unlabelled, never inheriting a stranger's name"
+        )
+    }
+
+    // MARK: - Episode lifecycle (fix1: episode-scoped cable label events)
+
+    /// Diff-less flap: a labelled-cables change with NO device episode open
+    /// at all (a bare TB renegotiation flap, not tied to any settling or
+    /// held device diff) lands in the bounded pre-episode grace slot, not an
+    /// owned one. Once `deviceSettleWindow` has elapsed since it arrived
+    /// with nothing claiming it, it has expired: a plug settling after that
+    /// point must not be labelled by it.
+    ///
+    /// Red-proof: remove the `grace.arrivedAt.duration(to: clock.now) <=
+    /// deviceSettleWindow` bound in `claimGraceCableLabelEventIfEligible`
+    /// (always claim regardless of elapsed time) and this goes red -- the
+    /// plug below would post "Connected: Late Plug (Flap Cable)" instead of
+    /// unlabelled.
+    func testDiffLessFlapGraceSlotExpiresAfterDeviceSettleWindow() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["existing-cable": "Existing Cable"]))
+
+        // No device episode is open anywhere near this call: a bare
+        // labelled-cables flap, with no device diff involved at all.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["existing-cable": "Existing Cable", "flap-cable": "Flap Cable"]))
+
+        // Past `deviceSettleWindow` (1500ms default) since the flap, with
+        // nothing having opened to claim it.
+        await clock.advance(by: .milliseconds(1501))
+        await flush(clock)
+
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, name: "Late Plug")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "holds: no captured event, since the flap's grace event already expired")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Late Plug", "must post unlabelled: the expired flap event must never attach to an unrelated later plug")
+    }
+
+    /// Ordering permutation A (the flagship grace case): a labelled-cables
+    /// change arrives FIRST, with no device episode open yet, then the raw
+    /// device publish that opens the matching episode arrives shortly
+    /// after, still WITHIN `deviceSettleWindow` of the event's own arrival.
+    /// The streams have no ordering guarantee (issue #570 part B's own
+    /// framing), so this ordering is a real, accepted case, not just a
+    /// timing coincidence to tolerate: the newly-opened episode must claim
+    /// the grace event and label its post.
+    ///
+    /// Red-proof: make `openDeviceEpisodeIfNeeded()` skip
+    /// `claimGraceCableLabelEventIfEligible(for:)` entirely (drop the claim)
+    /// and this goes red -- the connect would post unlabelled at the 5s cap
+    /// instead of labelled, immediately, on the settle that claimed it.
+    func testOrderingPermutationAGraceSlotClaimsWithinWindow() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true))
+
+        // The label arrives first, with nothing open to receive it yet.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["early-cable": "Early Cable"]))
+
+        // Well within `deviceSettleWindow` (1500ms default) of the event's
+        // own arrival.
+        await clock.advance(by: .milliseconds(500))
+        await flush(clock)
+
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, name: "Early Plug")])
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1, "the newly-opened episode must claim the grace event and post immediately, not hold")
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Early Plug (Early Cable)")
+    }
+
+    /// New episode during hold: an OLDER batch (Device A, still eligible)
+    /// is held, awaiting a label, when a genuinely unrelated raw publish
+    /// (Device B) opens a NEW episode via the charger-deferral park path (so
+    /// it stays genuinely "settling", not yet resolved, while A is still
+    /// held). A label for Device B's cable arrives while BOTH are alive:
+    /// the currently-settling episode (B) must get it, never the older held
+    /// one (A) -- "no steal in either direction". Landing B then flushes A
+    /// first (flush-never-drop), unlabelled, before B's own match resolves.
+    ///
+    /// Red-proof: in `assignCableLabelEvent(_:)`, swap the priority so a
+    /// settling episode is assigned to `heldDeviceBatchEpisodeID` whenever
+    /// one is held, ahead of `settlingDeviceEpisodeID` (assign to the held
+    /// episode instead of preferring settling) and this goes red -- Device
+    /// A would post "Disconnected... " no, would post labelled
+    /// "Connected: Device A (Cable For B)" and Device B would post
+    /// unlabelled, exactly the steal this fix prevents.
+    func testNewEpisodeDuringHoldPrefersSettlingAndDoesNotStealFromTheHeldBatch() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true))
+
+        // Device A connects and holds: episode A, held, no event yet.
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, bus: 0x02, name: "Device A")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "Device A holds")
+
+        // Device B settles via the charger-deferral park path, so it stays
+        // genuinely SETTLING (not yet resolved) while A is still held --
+        // the one construction where a settling and a held episode are
+        // simultaneously alive.
+        sequencer.knownDevices = [portLevelDevice(id: 1, bus: 0x02, name: "Device A").id:
+            snapshot(for: portLevelDevice(id: 1, bus: 0x02, name: "Device A"))]
+        sequencer.deferDeviceDiff([
+            portLevelDevice(id: 1, bus: 0x02, name: "Device A"),
+            portLevelDevice(id: 2, bus: 0x06, name: "Device B"),
+        ])
+
+        // A label for Device B's cable arrives while A is held AND B is
+        // still settling (parked, not yet landed).
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-for-b": "Cable For B"]))
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "nothing has landed yet: A is still held, B is still parked")
+
+        // Land B via the bounded deadline (no charger reconcile involved).
+        await clock.advance(by: sequencer.deferredDeviceDiffDeadlineWindow)
+        await flush(clock)
+
+        // Landing B flushes A first (flush-never-drop), unlabelled: this is
+        // the very first `.device` post this launch, so it fires
+        // synchronously with no spacing wait.
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Device A", "A must flush unlabelled: the event belongs to B, not A")
+
+        // B's own match then enqueues right behind it, but the device-post
+        // spacing floor (gate-fixes fix 1) makes it wait out the
+        // presentation gap since A's flush landed only moments ago.
+        await clock.advance(by: sequencer.deferredDeviceDiffPresentationGapWindow)
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B (Cable For B)", "B must get its own event, not A")
+
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// Stale-binding regression (the Codex high, fix1): Device A is held
+    /// with a MISMATCHED-direction event already pending against it (a
+    /// vanished key, while A itself is an add-eligible connect -- so it
+    /// never matched A when it arrived, and just sits there). While A is
+    /// still held, an unrelated Device B settles via the charger-deferral
+    /// park path and stays genuinely settling. A SAME-DIRECTION (add) event
+    /// for B's own cable then arrives: `assignCableLabelEvent(_:)` assigns
+    /// it to B (settling preferred), overwriting the single pending slot --
+    /// A's original event is gone, replaced by B's. When B finally lands,
+    /// A's held batch flushes first (flush-never-drop): the pending event
+    /// at that moment is B's (add-direction), and A is ALSO add-eligible,
+    /// so a direction-only check would wrongly match it. Only the owner
+    /// check in `flushHeldDeviceBatch` (the event is tagged to B, not A)
+    /// stops A from stealing B's label.
+    ///
+    /// Red-proof: drop the `event.episodeID == owningEpisodeID` comparison
+    /// in `flushHeldDeviceBatch` (match on direction alone) and this goes
+    /// red -- A would post "Connected: Device A (Cable Y)" instead of
+    /// unlabelled, and B would post unlabelled instead of "(Cable Y)".
+    func testStaleBindingRegressionOwnerCheckPreventsAHeldBatchStealingAnUnrelatedEpisodesEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-x": "Cable X"]))
+
+        // Device A connects (add-eligible) and holds: no event yet.
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, bus: 0x02, name: "Device A")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "Device A holds")
+
+        // "cable-x" vanishes: a REMOVE-direction event. Device A is
+        // add-eligible only, so this does not match and sits pending,
+        // owned by A's held episode.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, [:]))
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "the vanish event doesn't match A's connect direction: stays pending, owned by A")
+
+        // Device B settles via the charger-deferral park path, so it stays
+        // genuinely SETTLING while A is still held.
+        sequencer.knownDevices = [portLevelDevice(id: 1, bus: 0x02, name: "Device A").id:
+            snapshot(for: portLevelDevice(id: 1, bus: 0x02, name: "Device A"))]
+        sequencer.deferDeviceDiff([
+            portLevelDevice(id: 1, bus: 0x02, name: "Device A"),
+            portLevelDevice(id: 2, bus: 0x06, name: "Device B"),
+        ])
+
+        // "cable-y" appears: a SAME-DIRECTION (add) event, this time for a
+        // genuinely different cable. B is the currently-settling episode,
+        // so it is assigned to B, overwriting A's still-pending (and now
+        // orphaned) remove-direction event.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-y": "Cable Y"]))
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "nothing has landed yet")
+
+        // Land B via the bounded deadline.
+        await clock.advance(by: sequencer.deferredDeviceDiffDeadlineWindow)
+        await flush(clock)
+
+        // Landing B flushes A first. The pending event is B's, not A's own
+        // (long overwritten): A must NOT steal it just because the
+        // direction happens to match A's own eligibility too.
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Device A", "A must flush unlabelled: the pending event belongs to B, not A")
+
+        await clock.advance(by: sequencer.deferredDeviceDiffPresentationGapWindow)
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B (Cable Y)", "B must get its own event")
+
+        await clock.advance(by: .seconds(10))
+    }
+
+    // MARK: - Terminal-path episode close (fix1)
+    //
+    // Each of these closes the currently settling episode through a
+    // DIFFERENT terminal path (empty diff, notifications off, reconnect
+    // gate, in-tree gate), immediately after that episode has CLAIMED a
+    // grace-slot event (so it genuinely owns it, not merely could-have).
+    // A later, fully unrelated, otherwise-eligible connect must then NOT be
+    // labelled by it: proof that closing clears the event, not just that
+    // consumption is direction-gated.
+    //
+    // Red-proof (shared shape, one path skipped per test): comment out the
+    // `closeSettlingEpisode()` call on the ONE path under test. Skipping it
+    // leaves `settlingDeviceEpisodeID` stuck (never nil'd), so the very next
+    // raw publish's `openDeviceEpisodeIfNeeded()` does not open a fresh
+    // episode at all -- it silently reuses the dead, already-resolved one.
+    // The claimed-but-never-consumed event, still tagged to that same
+    // (never incremented) id, then matches trivially at the next settle's
+    // "usable label already present" check, and the unrelated connect below
+    // posts labelled instead of unlabelled at the cap. This is also this
+    // suite's proof of the stale-binding regression itself (the Codex
+    // high): a label event that outlives its own settle must never label a
+    // later, unrelated one.
+
+    /// Empty diff: two settles of the identical device list produce no
+    /// added/removed groups at all, so `resolveDevicePost`'s
+    /// `removedEligible || addedEligible` gate is false and the batch
+    /// enqueues (never holds) immediately.
+    func testEmptyDiffClosesEpisodeAndClearsItsEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable"]))
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "claimed-cable": "Claimed Cable"]))
+
+        // Settling on an unchanged (empty) device list claims the grace
+        // event, then immediately closes via the empty-diff gate.
+        sequencer.runNowOrDelayForRecentChargerPost([])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "an empty diff produces no notification content at all")
+
+        // A genuinely unrelated, otherwise-eligible connect must NOT be
+        // labelled by the claimed-and-should-have-been-cleared event.
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, name: "Unrelated Plug")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "holds: no event survives the empty diff's close")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Unrelated Plug", "must post unlabelled: the empty diff's own claimed event must not leak into a later, unrelated settle")
+    }
+
+    /// Notifications disabled: `diffDevices` returns before
+    /// `resolveDevicePost` ever runs, so this episode's only terminal path
+    /// is the `notifyOnChanges()` gate inside `diffDevices` itself.
+    func testNotifyOnChangesOffClosesEpisodeAndClearsItsEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        var notifyOnChanges = false
+        let sequencer = makeSequencer(clock: clock, posted: posted, notifyOnChanges: { notifyOnChanges })
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable"]))
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "claimed-cable": "Claimed Cable"]))
+
+        // Notifications are off: this settle claims the grace event (the
+        // episode opens regardless of `notifyOnChanges`), then closes via
+        // the `notifyOnChanges()` gate before `resolveDevicePost` ever runs.
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 1, name: "Silent Plug")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "notifications are off: nothing posts")
+
+        notifyOnChanges = true
+        sequencer.knownDevices = [portLevelDevice(id: 1, name: "Silent Plug").id: snapshot(for: portLevelDevice(id: 1, name: "Silent Plug"))]
+        sequencer.runNowOrDelayForRecentChargerPost([
+            portLevelDevice(id: 1, name: "Silent Plug"),
+            portLevelDevice(id: 2, bus: 0x06, name: "Unrelated Plug"),
+        ])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "holds: no event survives the notify-off close")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Unrelated Plug", "must post unlabelled: the notify-off episode's own claimed event must not leak into a later, unrelated settle")
+    }
+
+    /// Reconnect gate: `resolveDevicePost`'s `isReconnect` branch enqueues
+    /// unconditionally and never even looks at `pendingCableLabelEvent`.
+    func testReconnectGateClosesEpisodeAndClearsItsEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        let original = portLevelDevice(id: 1, name: "Flapping Device")
+        sequencer.knownDevices = [original.id: snapshot(for: original)]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable"]))
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "claimed-cable": "Claimed Cable"]))
+
+        // Same locationID, same name, different id: a reconnect pair. This
+        // settle claims the grace event, then closes via the reconnect
+        // gate.
+        let reconnected = USBDevice(
+            id: 2, locationID: original.locationID, vendorID: 0, productID: 0,
+            vendorName: nil, productName: "Flapping Device", serialNumber: nil,
+            usbVersion: nil, speedRaw: 3, busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+        sequencer.runNowOrDelayForRecentChargerPost([reconnected])
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Reconnected: Flapping Device", "reconnects never label, structurally")
+
+        sequencer.knownDevices[reconnected.id] = snapshot(for: reconnected)
+        sequencer.runNowOrDelayForRecentChargerPost([reconnected, portLevelDevice(id: 3, bus: 0x06, name: "Unrelated Plug")])
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1, "holds: no event survives the reconnect gate's close")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Unrelated Plug", "must post unlabelled: the reconnect's own claimed event must not leak into a later, unrelated settle")
+    }
+
+    /// In-tree gate: a change entirely inside an already-known, surviving
+    /// tree has no port-level group at all, so `resolveDevicePost`'s
+    /// `removedEligible || addedEligible` gate is false, same code path as
+    /// the empty-diff case above but with a genuinely non-empty diff.
+    func testInTreeGateClosesEpisodeAndClearsItsEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [hubDevice(id: 10).id: snapshot(for: hubDevice(id: 10))]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable"]))
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "claimed-cable": "Claimed Cable"]))
+
+        // A child arrives under the already-known hub: in-tree, claims the
+        // grace event, then closes via the in-tree gate.
+        sequencer.runNowOrDelayForRecentChargerPost([hubDevice(id: 10), childDevice(id: 11)])
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Mouse", "in-tree changes never label, structurally")
+
+        sequencer.knownDevices[childDevice(id: 11).id] = snapshot(for: childDevice(id: 11))
+        sequencer.runNowOrDelayForRecentChargerPost([hubDevice(id: 10), childDevice(id: 11), portLevelDevice(id: 1, bus: 0x06, name: "Unrelated Plug")])
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 1, "holds: no event survives the in-tree gate's close")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+        XCTAssertEqual(posted.entries.count, 2)
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Unrelated Plug", "must post unlabelled: the in-tree gate's own claimed event must not leak into a later, unrelated settle")
+    }
+
+    // MARK: - Adversarial round 2 (P1-a, P1-b, P2)
+
+    /// P1-a: a burst-heavy debounce must not age the grace slot past its
+    /// window. A label event arrives at t=200ms, well before ANY raw
+    /// publish; a burst of four publishes, 600ms apart, keeps
+    /// `scheduleDeviceDiff`'s settle timer resetting with no upper bound, so
+    /// the settle round doesn't actually FIRE until nearly 4 seconds later.
+    /// The episode must open (and claim the grace event) at the FIRST
+    /// publish of the burst, not when the settle eventually fires, so the
+    /// connect still ends up labelled.
+    ///
+    /// Drives the REAL `scheduleDeviceDiff()` entry point (not
+    /// `runNowOrDelayForRecentChargerPost` directly), since this is
+    /// specifically about the debounce wrapper's own timing.
+    ///
+    /// Red-proof: revert `openDeviceEpisodeIfNeeded()`'s call site back to
+    /// only `runNowOrDelayForRecentChargerPost`/`deferDeviceDiff` (remove it
+    /// from `scheduleDeviceDiff()`) and this goes red -- the connect posts
+    /// unlabelled, because by the time the episode finally opens (when the
+    /// settle fires, ~3.9s after the label arrived), the grace event has
+    /// long since expired against the 1500ms `deviceSettleWindow`.
+    func testP1ABurstDebounceOpensEpisodeAtFirstPublishNotAtEventualSettle() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        var devices: [USBDevice] = []
+        let sequencer = DeviceDiffSequencer(
+            clock: clock,
+            currentDevices: { devices },
+            currentChargerSources: { [] },
+            notifyOnChanges: { true },
+            post: { category, content, _ in posted.entries.append((category, content)) },
+            launchToken: "test-launch"
+        )
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true))
+
+        // t=0ms -> t=200ms: the label arrives first, nothing open yet.
+        await clock.advance(by: .milliseconds(200))
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-a": "Cable A"]))
+
+        // Four raw publishes, 600ms apart, each resetting the settle timer.
+        devices = [portLevelDevice(id: 1, name: "Cable Device")]
+        sequencer.scheduleDeviceDiff() // publish #1 at t=200ms: opens the episode, claims the grace event immediately.
+        await flush(clock)
+
+        await clock.advance(by: .milliseconds(600)) // t=800ms
+        sequencer.scheduleDeviceDiff() // publish #2: resets the debounce; episode already open, no-op.
+        await flush(clock)
+
+        await clock.advance(by: .milliseconds(600)) // t=1400ms
+        sequencer.scheduleDeviceDiff() // publish #3
+        await flush(clock)
+
+        await clock.advance(by: .milliseconds(600)) // t=2000ms
+        sequencer.scheduleDeviceDiff() // publish #4, the last of the burst
+        await flush(clock)
+
+        XCTAssertTrue(posted.entries.isEmpty, "nothing has settled yet: still mid-debounce")
+
+        // The settle window (1500ms default) elapses from the LAST publish
+        // (t=2000ms), so the round finally fires around t=3500ms -- well
+        // past the label's own arrival at t=200ms.
+        await clock.advance(by: .seconds(2))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries[0].1.title, "Connected: Cable Device (Cable A)",
+            "the episode opened (and claimed the grace event) at the FIRST publish of the burst, so the label survives the burst-extended settle"
+        )
+    }
+
+    /// P1-b: superseding a parked diff must not leak its event into the
+    /// diff that replaces it. Device A parks (episode E, via the
+    /// charger-deferral machinery); Cable A's event arrives and, with
+    /// nothing settling, is assigned to E; an unrelated Device B then
+    /// settles with NO charger settle pending and NO recent charger post
+    /// (so `runNowOrDelayForRecentChargerPost`'s zero-delay branch runs,
+    /// superseding E outright rather than landing it). B must post
+    /// unlabelled, and E's event must not survive to leak into anything
+    /// later either.
+    ///
+    /// Red-proof: dropping ONLY `closeParkedEpisode()` in
+    /// `supersedeAnyParkedDiff()` does NOT turn this red (fresh episode ids
+    /// plus the owner checks keep it green on their own; see
+    /// `closeParkedEpisode()`'s doc comment). The mutation this test guards
+    /// against is the ROOT CAUSE: skip freeing `settlingDeviceEpisodeID` at
+    /// the park sites, so the superseding diff reuses the still-open id;
+    /// that goes red here with B posting "Connected: Device B (Cable A)"
+    /// instead of unlabelled.
+    func testP1BSupersedingAParkedDiffClosesItsEpisodeInsteadOfLeakingItsEvent() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true))
+
+        // Device A parks via the charger-deferral path: episode E opens and
+        // is immediately handed to the park machinery.
+        sequencer.deferDeviceDiff([portLevelDevice(id: 1, bus: 0x02, name: "Device A")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "A is parked, not yet landed")
+
+        // Cable A's event arrives: nothing is settling, so it is assigned
+        // to the currently-parked episode E.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["cable-a": "Cable A"]))
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty)
+
+        // An unrelated Device B settles via the REAL `.runNow` zero-delay
+        // path (no charger settle pending, no recent charger post), which
+        // supersedes A's still-parked diff outright rather than landing it.
+        // With E's event correctly cleared, B finds no match and holds
+        // (`hasSavedCables` is true and B is a fresh, port-level connect).
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 2, bus: 0x06, name: "Device B")])
+        await flush(clock)
+        XCTAssertTrue(posted.entries.isEmpty, "B holds: no event survived to match it immediately")
+
+        // B's own cap expires with nothing having ever matched it.
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries[0].1.title, "Connected: Device B",
+            "B must post unlabelled: E's event belonged to the superseded parked diff, not to B"
+        )
+    }
+
+    /// P2: a quick lock immediately followed by an unlock, with a pre-lock
+    /// event still pending in the bounded GRACE slot (arrived while NO
+    /// device episode was open at all, so nothing owns it yet, and nothing
+    /// has closed to clear it), must not let that event survive to label a
+    /// LATER, unrelated diff that settles within the grace claim window.
+    /// Episode-close clearing alone cannot catch this case: an unowned
+    /// grace event has no episode to close in the first place.
+    ///
+    /// Red-proof: drop the `if feed == nil { ... }` clearing block in
+    /// `updateLabelledCables` and this goes red -- the later, unrelated
+    /// connect posts "Connected: Device Two (Old Cable)" instead of
+    /// unlabelled.
+    func testP2QuickLockUnlockClearsAPendingGraceEventBeforeALaterDiffCanClaimIt() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let sequencer = makeSequencer(clock: clock, posted: posted)
+        sequencer.didPrimeBaseline = true
+        sequencer.knownDevices = [:]
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable"]))
+
+        // "new-cable" appears: a genuine ADD-direction event, arriving while
+        // NO device episode is open at all. Lands in the bounded, unowned
+        // grace slot.
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "new-cable": "New Cable"]))
+
+        // Lock, then IMMEDIATELY unlock (no clock advance between them).
+        sequencer.updateLabelledCables(nil)
+        sequencer.updateLabelledCables(feed(hasSavedCables: true, ["old-cable": "Old Cable", "new-cable": "New Cable"]))
+
+        // A genuinely UNRELATED device connects, well within
+        // `deviceSettleWindow` of the grace event's own arrival (no clock
+        // advance at all): the exact timing "ordering permutation A" is
+        // supposed to legitimately reward, EXCEPT this event should have
+        // been wiped out by the lock/unlock cycle in between.
+        sequencer.runNowOrDelayForRecentChargerPost([portLevelDevice(id: 2, bus: 0x06, name: "Device Two")])
+        await flush(clock)
+
+        XCTAssertTrue(posted.entries.isEmpty, "holds: the pre-lock grace event must not have survived to be claimed here")
+
+        await clock.advance(by: .seconds(5))
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(
+            posted.entries[0].1.title, "Connected: Device Two",
+            "must post UNLABELLED: the quick lock/unlock must have cleared the pre-lock grace event before a later, unrelated episode could claim it"
         )
     }
 

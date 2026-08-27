@@ -247,6 +247,24 @@ final class NotificationManager {
         WatcherHub.shared.didRefresh
             .sink { [weak self] _ in self?.pushLabelledCablesFold() }
             .store(in: &cancellables)
+
+        // Fix 4 (licence deactivation reaching the label provider):
+        // subscribe to every registered change signal (in practice, at most
+        // one -- LicenceManager's licenceDidChange, wired through
+        // PluginRegistry.notificationCableLabelChangeSignals by
+        // bootstrapPlugins) so an in-app activate/deactivate re-pushes the
+        // fold immediately, rather than waiting for the didRefresh tick
+        // above (~1s) or the next PD identity publish. This file never
+        // imports WhatCablePlugins/LicenceManager directly -- the seam is
+        // the whole point (see that registry property's doc comment). The
+        // public-mirror stub's bootstrapPlugins registers nothing, so this
+        // array is empty there and the loop below subscribes to nothing.
+        for signal in PluginRegistry.shared.notificationCableLabelChangeSignals {
+            signal
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.pushLabelledCablesFold() }
+                .store(in: &cancellables)
+        }
     }
 
     /// Recomputes the folded provider snapshot and hands it to the

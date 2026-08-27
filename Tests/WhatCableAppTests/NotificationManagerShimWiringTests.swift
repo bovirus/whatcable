@@ -1,4 +1,6 @@
 import XCTest
+import Combine
+import Foundation
 import UserNotifications
 import WhatCableCore
 import WhatCableAppKit
@@ -137,6 +139,63 @@ final class NotificationManagerShimWiringTests: XCTestCase {
         XCTAssertGreaterThan(
             counter.count, countBeforeRefresh,
             "WatcherHub.shared.didRefresh firing must reach the registered provider through NotificationManager's own subscription"
+        )
+    }
+
+    /// Fix 4 (licence deactivation reaching the label provider): a change
+    /// signal registered via `PluginRegistry.register(notificationCableLabelChangeSignal:)`
+    /// (in production, `LicenceManager.licenceDidChange`, wired by
+    /// `bootstrapPlugins` -- never referenced directly here, since this file
+    /// must never import `WhatCablePlugins`/`LicenceManager`) firing must
+    /// push a fresh fold, exactly like the `didRefresh` tick above does.
+    /// Registered BEFORE `start()` is called (unlike the provider in the
+    /// test above, which is read fresh on every fold call): `start()`
+    /// subscribes to `PluginRegistry.shared.notificationCableLabelChangeSignals`
+    /// ONCE, by iterating the array at that moment, matching production
+    /// ordering (`bootstrapPlugins` populates the registry before
+    /// `NotificationManager.shared.start()` runs, in `App.swift`).
+    ///
+    /// Red-proof: comment out the
+    /// `for signal in PluginRegistry.shared.notificationCableLabelChangeSignals`
+    /// subscription loop in `NotificationManager.start()` and this goes red
+    /// (the provider registered below is never called, `callCount` stays 0).
+    @MainActor
+    func testRegisteredChangeSignalFiringPushesTheFold() {
+        let manager = NotificationManager.shared
+        manager.center = NoOpCenter()
+
+        final class CallCounter {
+            var count = 0
+        }
+        let counter = CallCounter()
+        PluginRegistry.shared.register(notificationCableLabelProvider: {
+            counter.count += 1
+            return nil
+        })
+
+        let signal = PassthroughSubject<Void, Never>()
+        PluginRegistry.shared.register(notificationCableLabelChangeSignal: signal.eraseToAnyPublisher())
+
+        manager.start()
+
+        let countBeforeSignal = counter.count
+        signal.send(())
+
+        // The subscription applies `.receive(on: DispatchQueue.main)` (spec
+        // design 4), which schedules delivery via `DispatchQueue.main.async`
+        // even when `send(())` is itself already called from the main
+        // thread/actor, so the fold does not land synchronously within this
+        // call. Spin the run loop briefly to let that scheduled block run,
+        // rather than asserting immediately (which would only prove the
+        // OLD, pre-fix4 didRefresh-style synchronous wiring, not this one).
+        let deadline = Date().addingTimeInterval(1.0)
+        while counter.count <= countBeforeSignal && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+
+        XCTAssertGreaterThan(
+            counter.count, countBeforeSignal,
+            "a registered notificationCableLabelChangeSignal firing must reach the registered provider through NotificationManager's own subscription"
         )
     }
 }

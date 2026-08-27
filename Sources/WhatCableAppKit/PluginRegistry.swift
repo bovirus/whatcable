@@ -86,6 +86,27 @@ public final class PluginRegistry {
         notificationCableLabelProviders.append(notificationCableLabelProvider)
     }
 
+    /// Fires whenever a registered notification cable-label provider's
+    /// underlying gate state changes IN-APP (fix 4: `LicenceManager.activate`,
+    /// `deactivate`, and `clearLicence`, wired by `bootstrapPlugins`), so
+    /// the app-side notification shim can re-push the folded feed
+    /// immediately rather than waiting for the next unrelated `WatcherHub`
+    /// tick or PD identity publish. Mirrors `widgetDataContributors`'s
+    /// registry shape (a plain array, appended at registration time, read
+    /// once by the shim when it wires its subscriptions in
+    /// `NotificationManager.start()` -- same ordering requirement as
+    /// `widgetDataContributors`: registration must happen before whatever
+    /// reads the array). `AnyPublisher<Void, Never>`, not the concrete
+    /// `PassthroughSubject` type, so this seam carries no `WhatCablePlugins`
+    /// / `LicenceManager` symbol into `WhatCableAppKit`, which both the app
+    /// target and the public-mirror stub build depend on. The public-mirror
+    /// stub's `bootstrapPlugins` registers nothing, so this array stays
+    /// empty there and the shim's subscription loop over it is a no-op.
+    public private(set) var notificationCableLabelChangeSignals: [AnyPublisher<Void, Never>] = []
+    public func register(notificationCableLabelChangeSignal: AnyPublisher<Void, Never>) {
+        notificationCableLabelChangeSignals.append(notificationCableLabelChangeSignal)
+    }
+
     public private(set) var settingsProSectionBuilders: [() -> AnyView] = []
     public func register(settingsProSection: @escaping () -> AnyView) {
         settingsProSectionBuilders.append(settingsProSection)

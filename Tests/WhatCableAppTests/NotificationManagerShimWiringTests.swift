@@ -1,6 +1,8 @@
 import XCTest
 import UserNotifications
 import WhatCableCore
+import WhatCableAppKit
+import WhatCableDarwinBackend
 @testable import WhatCable
 @testable import WhatCableNotifications
 
@@ -77,6 +79,64 @@ final class NotificationManagerShimWiringTests: XCTestCase {
         XCTAssertFalse(
             posted.first?.2.identifier.isEmpty ?? true,
             "the sink must receive a non-empty delivery directive identifier"
+        )
+    }
+
+    /// Gate-fixes fix 3 (licence staleness, Codex 1 + 4): `NotificationManager.start()`
+    /// must ALSO subscribe to `WatcherHub.shared.didRefresh`, re-pushing the
+    /// folded provider snapshot on every tick, not just on PD identity
+    /// publishes. A licence deactivation never touches `pdWatcher.$identities`
+    /// at all (no PD identity changed), so without this second subscription
+    /// a lock could sit unseen by the sequencer far longer than the 5s hold
+    /// cap or the 2s device-post spacing floor.
+    ///
+    /// Proves the wiring by registering a temporary provider on the real,
+    /// process-wide `PluginRegistry.shared` (an append-only singleton;
+    /// there is no way to unregister, so this closure staying registered
+    /// for the rest of the process is accepted, harmless: it always returns
+    /// the same fixed feed) and confirming `WatcherHub.shared.didRefresh.send(())`
+    /// actually invokes it, which can only happen if `start()` wired the
+    /// subscription through to a fold call.
+    ///
+    /// Red-proof: comment out the `WatcherHub.shared.didRefresh` subscription
+    /// in `NotificationManager.start()` and this goes red (the provider is
+    /// never called, `callCount` stays 0).
+    /// A no-op fake `center`, just enough to let `start()` run without
+    /// crashing: `start()`'s startup sweep touches `center` (lazy
+    /// `UNUserNotificationCenter.current()`, which aborts outside a signed
+    /// app bundle -- see `NotificationManager.center`'s own doc comment),
+    /// so it must be swapped out first, exactly like
+    /// `NotificationManagerDeliveryExecutionTests`'s `RecordingCenter` does
+    /// for its own `start()`-calling test.
+    private final class NoOpCenter: NotificationCenterExecuting {
+        func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: (@Sendable (Error?) -> Void)?) {}
+        func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {}
+        func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {}
+        func getDeliveredNotifications(completionHandler: @escaping @Sendable ([UNNotification]) -> Void) {}
+        func getNotificationSettings(completionHandler: @escaping @Sendable (UNNotificationSettings) -> Void) {}
+    }
+
+    @MainActor
+    func testDidRefreshSubscriptionPushesTheFold() {
+        let manager = NotificationManager.shared
+        manager.center = NoOpCenter()
+        manager.start()
+
+        final class CallCounter {
+            var count = 0
+        }
+        let counter = CallCounter()
+        PluginRegistry.shared.register(notificationCableLabelProvider: {
+            counter.count += 1
+            return nil
+        })
+
+        let countBeforeRefresh = counter.count
+        WatcherHub.shared.didRefresh.send(())
+
+        XCTAssertGreaterThan(
+            counter.count, countBeforeRefresh,
+            "WatcherHub.shared.didRefresh firing must reach the registered provider through NotificationManager's own subscription"
         )
     }
 }
@@ -165,9 +225,14 @@ final class NotificationManagerDeliveryExecutionTests: XCTestCase {
         let recording = RecordingCenter()
         manager.center = recording
 
+        // Gate-fixes fix 2: the two lists are DELIBERATELY different here
+        // (not both `["device-event-1"]` as before the split), to prove the
+        // sink executes each against its OWN directive field rather than
+        // reusing one list for both APIs.
         let directive = NotificationManager.DeliveryDirective(
             identifier: "device-event-2",
-            removeDeliveredIdentifiers: ["device-event-1"]
+            removeDeliveredIdentifiers: ["device-event-1"],
+            removePendingIdentifiers: ["device-event-0"]
         )
         manager.notificationSink(.device, NotificationManager.NotificationContent(title: "Connected: Test Device", body: ""), directive)
 
@@ -181,8 +246,37 @@ final class NotificationManagerDeliveryExecutionTests: XCTestCase {
             // case also records; it's asserted here purely because it's
             // part of the real, observed call sequence, not because this
             // test cares about it.
-            [.remove(["device-event-1"]), .removePending(["device-event-1"]), .getDelivered, .add("device-event-2")],
-            "both the delivered removal and the pending removal must be executed before the add, both using the directive's own removal list, and the add must use the directive's own identifier"
+            [.remove(["device-event-1"]), .removePending(["device-event-0"]), .getDelivered, .add("device-event-2")],
+            "the delivered removal must use removeDeliveredIdentifiers and the pending removal must use its OWN, separate removePendingIdentifiers list, both before the add, and the add must use the directive's own identifier"
+        )
+    }
+
+    /// An EMPTY `removePendingIdentifiers` (the normal case with the
+    /// device-post spacing floor: gate-fixes fix 2) must call NEITHER
+    /// `.removePending` nor `.remove` for pending -- the sink only calls
+    /// `removePendingNotificationRequests` when that list is non-empty,
+    /// mirroring the existing `removeDeliveredIdentifiers` guard.
+    ///
+    /// Red-proof: remove the `if !directive.removePendingIdentifiers.isEmpty`
+    /// guard in `notificationSink` and this goes red (an extra
+    /// `.removePending([])` call appears).
+    @MainActor
+    func testDefaultSinkSkipsPendingRemovalWhenListIsEmpty() {
+        let manager = NotificationManager.shared
+        let recording = RecordingCenter()
+        manager.center = recording
+
+        let directive = NotificationManager.DeliveryDirective(
+            identifier: "device-event-3",
+            removeDeliveredIdentifiers: ["device-event-2"],
+            removePendingIdentifiers: []
+        )
+        manager.notificationSink(.device, NotificationManager.NotificationContent(title: "Connected: Test Device", body: ""), directive)
+
+        XCTAssertEqual(
+            recording.calls,
+            [.remove(["device-event-2"]), .getDelivered, .add("device-event-3")],
+            "no .removePending call at all when removePendingIdentifiers is empty"
         )
     }
 

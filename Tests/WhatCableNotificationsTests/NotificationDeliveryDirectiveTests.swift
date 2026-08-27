@@ -1,7 +1,7 @@
 import XCTest
 import WhatCableNotifications
 
-/// `NotificationDecision.deliveryDirective(for:sequence:previousIdentifier:)`
+/// `NotificationDecision.deliveryDirective(for:sequence:previousIdentifier:previousPostWasRecent:)`
 /// and `NotificationDeliveryLedger` decide what a post's identifier is and
 /// what to remove first. This replaces the old fixed-per-category identifier
 /// design (`notificationIdentifier(for:)`, removed): posting under a shared
@@ -10,13 +10,18 @@ import WhatCableNotifications
 /// which is exactly what the owner's no-banner fault (2026-08-26) pointed
 /// at. Every post now gets a fresh, never-reused identifier, and the module
 /// tells the shim explicitly what to remove instead.
+///
+/// Every call below except the dedicated "Pending-removal policy" section
+/// passes `previousPostWasRecent: false`: those tests are about identifier
+/// uniqueness and the DELIVERED removal chain, unrelated to the recency
+/// split (gate-fixes fix 2) that section covers on its own.
 final class NotificationDeliveryDirectiveTests: XCTestCase {
     // MARK: - Directive uniqueness
 
     func testTwoConsecutiveDevicePostsGetDistinctIdentifiers() {
         let ledger = NotificationDeliveryLedger(launchToken: "abcd")
-        let first = ledger.nextDirective(for: .device)
-        let second = ledger.nextDirective(for: .device)
+        let first = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let second = ledger.nextDirective(for: .device, previousPostWasRecent: false)
         XCTAssertNotEqual(
             first.identifier, second.identifier,
             "an identifier must never be reused, or macOS treats the second post as replacing the first and no banner fires"
@@ -27,14 +32,14 @@ final class NotificationDeliveryDirectiveTests: XCTestCase {
 
     func testSecondPostRemovesExactlyTheFirstPostsIdentifierSameCategoryOnly() {
         let ledger = NotificationDeliveryLedger(launchToken: "abcd")
-        let firstDevice = ledger.nextDirective(for: .device)
-        let secondDevice = ledger.nextDirective(for: .device)
+        let firstDevice = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let secondDevice = ledger.nextDirective(for: .device, previousPostWasRecent: false)
         XCTAssertEqual(
             secondDevice.removeDeliveredIdentifiers, [firstDevice.identifier],
             "post N must remove exactly post N-1's identifier in the same category"
         )
 
-        let firstCharger = ledger.nextDirective(for: .charger)
+        let firstCharger = ledger.nextDirective(for: .charger, previousPostWasRecent: false)
         XCTAssertEqual(
             firstCharger.removeDeliveredIdentifiers, [],
             "a charger post must never remove a device identifier, even when a device post came immediately before it"
@@ -43,10 +48,10 @@ final class NotificationDeliveryDirectiveTests: XCTestCase {
 
     func testChargerAndDeviceLedgersNeverCrossRemove() {
         let ledger = NotificationDeliveryLedger(launchToken: "abcd")
-        let device1 = ledger.nextDirective(for: .device)
-        let charger1 = ledger.nextDirective(for: .charger)
-        let device2 = ledger.nextDirective(for: .device)
-        let charger2 = ledger.nextDirective(for: .charger)
+        let device1 = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let charger1 = ledger.nextDirective(for: .charger, previousPostWasRecent: false)
+        let device2 = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let charger2 = ledger.nextDirective(for: .charger, previousPostWasRecent: false)
 
         XCTAssertEqual(device2.removeDeliveredIdentifiers, [device1.identifier])
         XCTAssertEqual(charger2.removeDeliveredIdentifiers, [charger1.identifier])
@@ -57,21 +62,21 @@ final class NotificationDeliveryDirectiveTests: XCTestCase {
 
     func testFirstPostPerCategoryRemovesNothing() {
         let ledger = NotificationDeliveryLedger(launchToken: "abcd")
-        XCTAssertEqual(ledger.nextDirective(for: .device).removeDeliveredIdentifiers, [])
-        XCTAssertEqual(ledger.nextDirective(for: .charger).removeDeliveredIdentifiers, [])
+        XCTAssertEqual(ledger.nextDirective(for: .device, previousPostWasRecent: false).removeDeliveredIdentifiers, [])
+        XCTAssertEqual(ledger.nextDirective(for: .charger, previousPostWasRecent: false).removeDeliveredIdentifiers, [])
     }
 
     // MARK: - Per-instance isolation
 
     func testLedgerSurvivesAcrossCallsButIsPerInstance() {
         let ledger = NotificationDeliveryLedger(launchToken: "abcd")
-        _ = ledger.nextDirective(for: .device)
-        let third = ledger.nextDirective(for: .device)
+        _ = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let third = ledger.nextDirective(for: .device, previousPostWasRecent: false)
         // Third post still chains off the ledger's own running state.
         XCTAssertNotEqual(third.removeDeliveredIdentifiers, [])
 
         let freshLedger = NotificationDeliveryLedger(launchToken: "abcd")
-        let freshFirst = freshLedger.nextDirective(for: .device)
+        let freshFirst = freshLedger.nextDirective(for: .device, previousPostWasRecent: false)
         XCTAssertEqual(
             freshFirst.removeDeliveredIdentifiers, [],
             "a fresh ledger instance must start clean, independent of any other instance's history"
@@ -91,13 +96,61 @@ final class NotificationDeliveryDirectiveTests: XCTestCase {
         let launchOne = NotificationDeliveryLedger(launchToken: "aaaa")
         let launchTwo = NotificationDeliveryLedger(launchToken: "bbbb")
 
-        let firstDeviceOfLaunchOne = launchOne.nextDirective(for: .device)
-        let firstDeviceOfLaunchTwo = launchTwo.nextDirective(for: .device)
+        let firstDeviceOfLaunchOne = launchOne.nextDirective(for: .device, previousPostWasRecent: false)
+        let firstDeviceOfLaunchTwo = launchTwo.nextDirective(for: .device, previousPostWasRecent: false)
 
         XCTAssertNotEqual(
             firstDeviceOfLaunchOne.identifier, firstDeviceOfLaunchTwo.identifier,
             "the same category and the same sequence number, from two different launches, must never produce the same identifier"
         )
+    }
+
+    // MARK: - Pending-removal policy (gate-fixes fix 2)
+
+    /// A directive built after a SPACED post (`previousPostWasRecent: false`)
+    /// carries the previous identifier in `removeDeliveredIdentifiers` (as
+    /// always) but an EMPTY `removePendingIdentifiers`: with the device-post
+    /// spacing floor, the previous post is normally long since delivered by
+    /// the time the next one goes out, so there is no pending request left
+    /// to worry about, and sweeping one that's still pending after a FULL
+    /// spacing window is the trade this fix deliberately avoids (see
+    /// `DeliveryDirective.removePendingIdentifiers`'s doc comment).
+    ///
+    /// Red-proof: change `deliveryDirective` to always populate
+    /// `removePendingIdentifiers` whenever a previous identifier exists
+    /// (ignoring `previousPostWasRecent` entirely) and this goes red.
+    func testDirectiveAfterASpacedPostHasNoPendingRemoval() {
+        let ledger = NotificationDeliveryLedger(launchToken: "abcd")
+        _ = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let second = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+
+        XCTAssertFalse(second.removeDeliveredIdentifiers.isEmpty, "the delivered removal chain is unaffected by recency")
+        XCTAssertEqual(second.removePendingIdentifiers, [], "a spaced-out previous post needs no pending removal")
+    }
+
+    /// A directive built after a WITHIN-WINDOW post (`previousPostWasRecent: true`)
+    /// carries BOTH lists, identical, exactly the old collapsed-into-one-list
+    /// behaviour: two posts from the same settled batch (a merged
+    /// removed+added pair) still go out back-to-back with zero spacing
+    /// between them, so the first genuinely might still be pending when the
+    /// second's `add` call happens.
+    func testDirectiveAfterAWithinWindowPostHasBothRemovals() {
+        let ledger = NotificationDeliveryLedger(launchToken: "abcd")
+        let first = ledger.nextDirective(for: .device, previousPostWasRecent: false)
+        let second = ledger.nextDirective(for: .device, previousPostWasRecent: true)
+
+        XCTAssertEqual(second.removeDeliveredIdentifiers, [first.identifier])
+        XCTAssertEqual(second.removePendingIdentifiers, [first.identifier], "a within-window previous post must ALSO be cleared from pending, not just delivered")
+    }
+
+    /// A category's first-ever post has no previous identifier to remove at
+    /// all, regardless of `previousPostWasRecent` (there's nothing to be
+    /// "recent" relative to): both lists stay empty.
+    func testFirstPostPerCategoryHasNoPendingRemovalEvenIfMarkedRecent() {
+        let ledger = NotificationDeliveryLedger(launchToken: "abcd")
+        let first = ledger.nextDirective(for: .device, previousPostWasRecent: true)
+        XCTAssertEqual(first.removeDeliveredIdentifiers, [])
+        XCTAssertEqual(first.removePendingIdentifiers, [])
     }
 }
 

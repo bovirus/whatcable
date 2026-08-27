@@ -54,13 +54,19 @@ public final class NotificationDeliveryLedger {
     /// categories keep entirely separate counters and "previous identifier"
     /// slots, so a charger post never removes a device identifier or vice
     /// versa.
-    public func nextDirective(for category: NotificationCategory) -> NotificationDecision.DeliveryDirective {
+    ///
+    /// - Parameter previousPostWasRecent: whether the previous same-category
+    ///   post went out within the spacing window (the caller's clock-based
+    ///   judgement; see `DeliveryDirective.removePendingIdentifiers`'s doc
+    ///   comment). Threaded straight through to `deliveryDirective`.
+    public func nextDirective(for category: NotificationCategory, previousPostWasRecent: Bool) -> NotificationDecision.DeliveryDirective {
         let sequence = (sequences[category] ?? 0) + 1
         sequences[category] = sequence
         let directive = NotificationDecision.deliveryDirective(
             for: category,
             sequence: sequence,
             previousIdentifier: lastIdentifiers[category],
+            previousPostWasRecent: previousPostWasRecent,
             launchToken: launchToken
         )
         lastIdentifiers[category] = directive.identifier

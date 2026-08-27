@@ -44,6 +44,7 @@ struct LocalisationTests {
     @Test("Localisation key + format-specifier parity", arguments: [
         "Sources/WhatCableCore/Resources",
         "Sources/WhatCable/Resources",
+        "Sources/WhatCableNotifications/Resources",
     ])
     func localisationParity(resourceDir: String) throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
@@ -53,7 +54,12 @@ struct LocalisationTests {
         let base = repoRoot.appendingPathComponent(resourceDir)
 
         let enStrings = try loadStrings(base.appendingPathComponent("en.lproj/Localizable.strings"))
-        #expect(enStrings.count > 20, "\(resourceDir)/en.lproj is unexpectedly small (\(enStrings.count) keys)")
+        // WhatCableNotifications carries far fewer strings than the other
+        // two targets (a small, fixed set of notification titles), so its
+        // sanity floor is lower; still enough to catch a genuinely gutted
+        // file, which is all this check is for.
+        let minimumKeyCount = resourceDir.hasSuffix("WhatCableNotifications/Resources") ? 10 : 20
+        #expect(enStrings.count > minimumKeyCount, "\(resourceDir)/en.lproj is unexpectedly small (\(enStrings.count) keys)")
         let enKeys = Set(enStrings.keys)
 
         let lprojs = try FileManager.default

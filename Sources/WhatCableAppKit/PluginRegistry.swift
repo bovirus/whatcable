@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import WhatCableNotifications
 
 @MainActor
 public final class PluginRegistry {
@@ -55,6 +56,34 @@ public final class PluginRegistry {
     public private(set) var cliOutputFooterContributors: [() -> String?] = []
     public func register(cliOutputFooter: @escaping () -> String?) {
         cliOutputFooterContributors.append(cliOutputFooter)
+    }
+
+    /// Snapshot providers for the saved-cable feed: which saved cables are
+    /// CURRENTLY attached and uniquely attributed, plus whether the user
+    /// has any saved cable at all. `DeviceDiffSequencer` (via the app-side
+    /// shim) reads this on every PD identity publish to decide whether a
+    /// labelled cable connecting or disconnecting should be named in a
+    /// notification title (issue #570 part B). Mirrors
+    /// `cliOutputFooterContributors`: a plain snapshot-returning closure, no
+    /// async, called fresh at read time (no caching here). At most one Pro
+    /// provider registers; the public-mirror stub registers none, so the
+    /// shim's fold over an empty array yields `nil` there (feature
+    /// unavailable), same as the free build with Pro locked.
+    ///
+    /// `CableLabelFeed?`, not a bare `[String: String]?` (post-review fix):
+    /// `nil` means "the feature is unavailable right now" (Pro locked, or
+    /// nothing registered), unchanged. But whether the attached map being
+    /// EMPTY means "nothing saved anywhere" vs "something's saved, just not
+    /// attached right now" can no longer be inferred from the map alone
+    /// (that inference broke the feature's own flagship case: a user with
+    /// exactly one saved cable, currently unplugged, has an empty attached
+    /// map right up until that cable's e-marker resolves). `hasSavedCables`
+    /// is the provider's own, separate answer to that question. See
+    /// `WhatCableNotifications.NotificationDecision.CableLabelFeed`'s doc
+    /// comment for the full story.
+    public private(set) var notificationCableLabelProviders: [() -> NotificationDecision.CableLabelFeed?] = []
+    public func register(notificationCableLabelProvider: @escaping () -> NotificationDecision.CableLabelFeed?) {
+        notificationCableLabelProviders.append(notificationCableLabelProvider)
     }
 
     public private(set) var settingsProSectionBuilders: [() -> AnyView] = []

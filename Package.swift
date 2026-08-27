@@ -18,13 +18,19 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         .target(
+            name: "WhatCableNotifications",
+            dependencies: ["WhatCableCore"],
+            path: "Sources/WhatCableNotifications",
+            resources: [.process("Resources")]
+        ),
+        .target(
             name: "WhatCableDarwinBackend",
             dependencies: ["WhatCableCore"],
             path: "Sources/WhatCableDarwinBackend"
         ),
         .target(
             name: "WhatCableAppKit",
-            dependencies: ["WhatCableCore"],
+            dependencies: ["WhatCableCore", "WhatCableNotifications"],
             path: "Sources/WhatCableAppKit"
         ),
         .target(
@@ -34,7 +40,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "WhatCable",
-            dependencies: ["WhatCableCore", "WhatCableDarwinBackend", "WhatCableAppKit", "WhatCablePlugins"],
+            dependencies: ["WhatCableCore", "WhatCableNotifications", "WhatCableDarwinBackend", "WhatCableAppKit", "WhatCablePlugins"],
             path: "Sources/WhatCable",
             resources: [.process("Resources")]
         ),
@@ -47,6 +53,11 @@ let package = Package(
             name: "WhatCableCoreTests",
             dependencies: ["WhatCableCore"],
             path: "Tests/WhatCableCoreTests"
+        ),
+        .testTarget(
+            name: "WhatCableNotificationsTests",
+            dependencies: ["WhatCableNotifications", "WhatCableCore"],
+            path: "Tests/WhatCableNotificationsTests"
         ),
         .testTarget(
             name: "WhatCableDarwinTests",

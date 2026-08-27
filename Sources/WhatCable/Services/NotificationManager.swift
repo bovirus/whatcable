@@ -5,6 +5,7 @@ import os.log
 import WhatCableCore
 import WhatCableNotifications
 import WhatCableDarwinBackend
+import WhatCableAppKit
 
 /// The subset of `UNUserNotificationCenter` the default `notificationSink`
 /// drives. Extracted as a protocol so a test can inject a fake, recording
@@ -73,6 +74,50 @@ final class NotificationManager {
     /// `DeliveryDirective` decides the identifier a post uses and what to
     /// remove first; typealiased for the same reason as the two above.
     typealias DeliveryDirective = WhatCableNotifications.NotificationDecision.DeliveryDirective
+
+    /// Folds every registered Pro cable-label provider into one feed (at
+    /// most one registers in practice; see
+    /// `PluginRegistry.notificationCableLabelProviders`'s doc comment). No
+    /// providers at all (the public-mirror build) -> nil: the feature is
+    /// unavailable, matching the free build with Pro locked. With
+    /// providers, only the ones that actually returned a value (non-nil)
+    /// contribute; if EVERY provider returned nil (licence locked), the
+    /// fold is nil too, not an empty feed. Collapsing "unavailable" into
+    /// "available, empty" would let a licence transition mid-session read,
+    /// to the sequencer's diff, as every attached labelled cable
+    /// disconnecting or appearing at once.
+    ///
+    /// `hasSavedCables` folds by OR (any provider reporting a saved cable
+    /// is enough), `attachedLabelled` merges first-writer-wins, matching
+    /// the same policy the old bare-dictionary fold used.
+    ///
+    /// A free function of `providers` rather than a closure reading
+    /// `PluginRegistry.shared` directly, purely so it's testable in
+    /// isolation: `PluginRegistry` is an append-only global singleton (no
+    /// way to reset registrations between tests), so a test asserting on
+    /// "zero providers registered" against the live registry would be
+    /// order-dependent on whatever else in the same process happened to
+    /// call `bootstrapPlugins` first. Passing the provider list in as a
+    /// plain argument sidesteps that entirely.
+    static func foldLabelledCables(
+        from providers: [() -> WhatCableNotifications.NotificationDecision.CableLabelFeed?]
+    ) -> WhatCableNotifications.NotificationDecision.CableLabelFeed? {
+        guard !providers.isEmpty else { return nil }
+        var attachedLabelled: [String: String] = [:]
+        var hasSavedCables = false
+        var anyAvailable = false
+        for provider in providers {
+            guard let feed = provider() else { continue }
+            anyAvailable = true
+            hasSavedCables = hasSavedCables || feed.hasSavedCables
+            attachedLabelled.merge(feed.attachedLabelled, uniquingKeysWith: { first, _ in first })
+        }
+        guard anyAvailable else { return nil }
+        return WhatCableNotifications.NotificationDecision.CableLabelFeed(
+            hasSavedCables: hasSavedCables,
+            attachedLabelled: attachedLabelled
+        )
+    }
 
     /// Where `notificationSink` actually calls `UNUserNotificationCenter`.
     /// `lazy`, not a plain stored default: `UNUserNotificationCenter.current()`
@@ -171,6 +216,47 @@ final class NotificationManager {
         WatcherHub.shared.powerWatcher.$sources
             .sink { [weak self] sources in self?.sequencer.diffSources(sources) }
             .store(in: &cancellables)
+
+        // Issue #570 part B (saved-cable notification labels): feed the
+        // sequencer a fresh folded provider snapshot on every PD identity
+        // publish (spec design 2). WatcherHub's own burst refreshes
+        // (150/500/1500/3000/6000ms after a change) drive `pdWatcher.refresh()`,
+        // so this fires as the e-marker read progresses, with no separate
+        // IOKit read or polling of its own here. The subscription exists in
+        // every build; for free/locked builds `foldLabelledCables` always
+        // returns nil (no providers registered, or every provider returns
+        // nil), so this is an idle no-op there.
+        WatcherHub.shared.pdWatcher.$identities
+            .sink { [weak self] _ in self?.pushLabelledCablesFold() }
+            .store(in: &cancellables)
+
+        // Licence-staleness fix (gate finding, Codex 1 + 4): a licence
+        // DEACTIVATION never touches `pdWatcher.$identities` at all (no PD
+        // identity changed), so without this second subscription a lock
+        // could sit unseen by the sequencer indefinitely -- past the 5s
+        // hold cap, past the 2s device-post spacing floor, however long
+        // until the next unrelated PD publish happens to fire. `didRefresh`
+        // is WatcherHub's own tick, fired after every steady-poll or burst
+        // `refreshAll()` (see its doc comment), which runs at the hub's 1s
+        // VISIBLE cadence: the Settings screen a licence deactivation
+        // happens on IS a visible UI surface, so the hub is already in that
+        // 1s cadence the moment the toggle flips. Re-pushing the fold here
+        // means the nil feed reaches the sequencer within ~1s of a lock,
+        // comfortably inside any 5s hold or 2s spacing window it might be
+        // sitting in the middle of.
+        WatcherHub.shared.didRefresh
+            .sink { [weak self] _ in self?.pushLabelledCablesFold() }
+            .store(in: &cancellables)
+    }
+
+    /// Recomputes the folded provider snapshot and hands it to the
+    /// sequencer. Shared by both feed subscriptions above (PD identity
+    /// publishes and the hub's own refresh tick) so they can't drift into
+    /// two different fold call sites.
+    private func pushLabelledCablesFold() {
+        sequencer.updateLabelledCables(
+            NotificationManager.foldLabelledCables(from: PluginRegistry.shared.notificationCableLabelProviders)
+        )
     }
 
     /// Fetches delivered notifications from `center` and removes every one
@@ -278,25 +364,31 @@ final class NotificationManager {
         mutableContent.sound = nil
 
         let bodyLineCount = content.body.isEmpty ? 0 : content.body.split(separator: "\n").count
-        NotificationManager.log.info("postNotification: identifier=\(directive.identifier, privacy: .public) removals=\(directive.removeDeliveredIdentifiers.joined(separator: ", "), privacy: .public) title=\(content.title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
+        NotificationManager.log.info("postNotification: identifier=\(directive.identifier, privacy: .public) removeDelivered=\(directive.removeDeliveredIdentifiers.joined(separator: ", "), privacy: .public) removePending=\(directive.removePendingIdentifiers.joined(separator: ", "), privacy: .public) title=\(content.title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
 
-        // Executes the directive's removal, BEFORE the add below. One
+        // Executes the directive's removals, BEFORE the add below. One
         // notification per category standing in Notification Centre at any
         // time is now enforced here, explicitly, rather than by macOS's own
         // identifier-replacement semantics (which the fresh-identifier-per-
         // post scheme below deliberately stops relying on).
         //
-        // Both delivered AND pending are removed (Codex P2 finding):
-        // `removeDeliveredNotifications` only touches notifications that
-        // have already reached Notification Centre. A same-category post
-        // from moments ago can still be PENDING (enqueued via `add` but not
-        // yet delivered) when this one goes out, and if only the delivered
-        // one gets cleared, that pending request can still land on its own
-        // a moment later, leaving two notifications standing for a category
-        // that's meant to only ever show one.
+        // Gate-fixes fix 2: the two lists are executed SEPARATELY now, each
+        // against its own directive field, rather than the same list
+        // against both APIs. `removeDeliveredIdentifiers` (always the
+        // previous same-category identifier, if any) always clears whatever
+        // has already reached Notification Centre.
+        // `removePendingIdentifiers` is populated ONLY when the previous
+        // post is recent enough it might still be sitting PENDING (enqueued
+        // via `add` but not yet delivered): with the device-post spacing
+        // floor, that's normally empty, so a previous post that's still
+        // pending after a full spacing window is deliberately left alone
+        // rather than swept (see `DeliveryDirective.removePendingIdentifiers`'s
+        // doc comment for the trade-off).
         if !directive.removeDeliveredIdentifiers.isEmpty {
             center.removeDeliveredNotifications(withIdentifiers: directive.removeDeliveredIdentifiers)
-            center.removePendingNotificationRequests(withIdentifiers: directive.removeDeliveredIdentifiers)
+        }
+        if !directive.removePendingIdentifiers.isEmpty {
+            center.removePendingNotificationRequests(withIdentifiers: directive.removePendingIdentifiers)
         }
 
         // Diagnostic only, async, non-blocking: snapshot of what's actually

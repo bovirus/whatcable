@@ -38,10 +38,37 @@ public enum NotificationDecision {
         /// (`removeDeliveredNotifications(withIdentifiers:)`) can hand this
         /// straight through without translating shapes.
         public let removeDeliveredIdentifiers: [String]
+        /// The SAME previous-post identifier as `removeDeliveredIdentifiers`,
+        /// but only when the previous same-category post is recent enough
+        /// that it might still be PENDING (enqueued via `add` but not yet
+        /// actually delivered) rather than already sitting in Notification
+        /// Centre. Empty otherwise. Gate-fixes finding (Codex 5): with the
+        /// device-post spacing floor (`DeviceDiffSequencer`'s device-post
+        /// queue), device posts are normally >= one spacing window apart,
+        /// so this is normally empty for `.device` -- clearing a PENDING
+        /// request that a full spacing window has already elapsed since
+        /// would risk destroying a notification that never got the chance
+        /// to actually deliver, for no reason (nothing about to replace it
+        /// is racing it any more). The one case this stays non-empty is two
+        /// posts from the SAME settled batch going out back-to-back with NO
+        /// spacing between them (a merged removed+added pair, or a reconnect
+        /// content immediately following an unrelated flush) -- there, the
+        /// first genuinely might still be pending when the second's `add`
+        /// call happens, and the old collapse-both-into-one-list behaviour
+        /// still applies.
+        ///
+        /// Accepted trade-off, deliberate (spec fix 2): a previous post that
+        /// is STILL pending after a FULL spacing window has elapsed is left
+        /// alone rather than swept. Two standing entries under extreme
+        /// Notification Centre contention is judged better than the
+        /// alternative, silently destroying a notification that was about
+        /// to deliver on its own.
+        public let removePendingIdentifiers: [String]
 
-        public init(identifier: String, removeDeliveredIdentifiers: [String]) {
+        public init(identifier: String, removeDeliveredIdentifiers: [String], removePendingIdentifiers: [String] = []) {
             self.identifier = identifier
             self.removeDeliveredIdentifiers = removeDeliveredIdentifiers
+            self.removePendingIdentifiers = removePendingIdentifiers
         }
     }
 
@@ -57,16 +84,23 @@ public enum NotificationDecision {
     /// a relaunch even though this module's own counters don't).
     /// `previousIdentifier` is the identifier of the LAST post in the same
     /// category, or `nil` for a category's first post; it becomes the sole
-    /// entry in `removeDeliveredIdentifiers` (or an empty array).
+    /// entry in `removeDeliveredIdentifiers` (or an empty array), always.
+    /// `previousPostWasRecent` additionally gates `removePendingIdentifiers`
+    /// (spec fix 2): the caller (`DeviceDiffSequencer.postNotification`)
+    /// knows whether the PREVIOUS same-category post went out within the
+    /// spacing window, which this function has no clock access to determine
+    /// itself.
     public static func deliveryDirective(
         for category: NotificationCategory,
         sequence: UInt64,
         previousIdentifier: String?,
+        previousPostWasRecent: Bool,
         launchToken: String
     ) -> DeliveryDirective {
         DeliveryDirective(
             identifier: "\(category.rawValue)-\(launchToken)-\(sequence)",
-            removeDeliveredIdentifiers: previousIdentifier.map { [$0] } ?? []
+            removeDeliveredIdentifiers: previousIdentifier.map { [$0] } ?? [],
+            removePendingIdentifiers: previousPostWasRecent ? (previousIdentifier.map { [$0] } ?? []) : []
         )
     }
 
@@ -222,6 +256,149 @@ public enum NotificationDecision {
         return presentationGap - elapsed
     }
 
+    /// One provider's saved-cable feed (issue #570 part B, post-review
+    /// fix). Splits two facts that a bare `[String: String]?` collapsed
+    /// into one and got wrong: whether the user has ANY saved cable at all
+    /// (`hasSavedCables`), and which ones are CURRENTLY attached and
+    /// uniquely identified (`attachedLabelled`). The bug this fixes: the
+    /// hold's "is there any point waiting" gate used to read
+    /// `attachedLabelled.isEmpty` as a proxy for "no saved cables exist",
+    /// but the flagship case for this whole feature -- a user with exactly
+    /// ONE saved cable, currently unplugged, who then plugs it in -- has
+    /// `attachedLabelled == [:]` at the exact moment the connect settles
+    /// (the e-marker hasn't resolved yet, which is the entire reason the
+    /// hold exists). Reading that as "no saved cables exist" skipped the
+    /// hold and posted unlabelled every single time, on the feature's own
+    /// primary scenario. `hasSavedCables` is a separate, provider-supplied
+    /// fact (the saved-cables STORE's count, not the attached snapshot), so
+    /// an empty attached map never again gets misread as an empty catalog.
+    ///
+    /// `Sendable`: crosses from the app-side shim's Combine sink into the
+    /// `@MainActor` sequencer as a plain value, same as the `[String: String]?`
+    /// it replaces.
+    public struct CableLabelFeed: Equatable, Sendable {
+        /// True when the user has at least one saved cable ANYWHERE, saved
+        /// or attached, connected or not. Read once, cheaply, from the
+        /// saved-cables store's own count; never inferred from
+        /// `attachedLabelled`.
+        public let hasSavedCables: Bool
+        /// "cableID -> saved name" for saved cables CURRENTLY attached and
+        /// uniquely attributed. Exactly the shape the old `[String: String]`
+        /// half of the feed carried; empty is a completely normal, common
+        /// value (nothing is attached right now), not a signal about
+        /// `hasSavedCables`.
+        public let attachedLabelled: [String: String]
+
+        public init(hasSavedCables: Bool, attachedLabelled: [String: String]) {
+            self.hasSavedCables = hasSavedCables
+            self.attachedLabelled = attachedLabelled
+        }
+    }
+
+    /// The saved-cable label to attach to a settled device notification
+    /// (issue #570 part B): when the labelled-cables key SET changed by
+    /// EXACTLY ONE cable (added or removed) between two snapshots, that
+    /// cable's name; otherwise nil (zero changes, or two-or-more changes,
+    /// both read as ambiguous). Same symmetric-difference shape as
+    /// `thunderboltInvolved` above.
+    ///
+    /// Comparing the KEY SETS (cable IDs), not the dictionaries themselves,
+    /// is deliberate: a saved cable renamed while it stays connected changes
+    /// the VALUE for an unchanged KEY, which must NOT read as a label
+    /// change, since nothing about the connection itself changed
+    /// ("rename-while-connected is inert").
+    ///
+    /// Edge case, deliberately accepted (spec #570 part B): one saved
+    /// record, two identical physical cables. Attribution matches by
+    /// e-marker fingerprint against the saved record, not by physical
+    /// cable, so unplugging the first and plugging in the second reports
+    /// the SAME cableID both times: the id is present in both `previous`
+    /// and `current` throughout the swap, so the key set never changes and
+    /// the swap produces no label. A cable moved between ports is inert for
+    /// the same reason: the key is cable-ID keyed, not port-keyed, so it
+    /// never leaves the map on a port move ("port-move inert").
+    public static func cableLabelChange(
+        previous: [String: String],
+        current: [String: String]
+    ) -> (name: String, wasAdded: Bool)? {
+        let changedIDs = Set(previous.keys).symmetricDifference(current.keys)
+        guard changedIDs.count == 1, let id = changedIDs.first else { return nil }
+        if let name = current[id] { return (name, true) }
+        if let name = previous[id] { return (name, false) }
+        return nil
+    }
+
+    /// Appends the saved-cable label suffix via ONE shared localised
+    /// composition key, rather than duplicating every title key with the
+    /// label baked in. `nil` returns `title` unchanged, so every existing
+    /// call site (none of which pass a label) produces byte-identical
+    /// output to before this feature.
+    private static func applyCableLabel(_ title: String, _ cableLabel: String?) -> String {
+        guard let cableLabel else { return title }
+        return String(localized: "\(title) (\(cableLabel))", bundle: _notificationsLocalizedBundle)
+    }
+
+    /// The cable-plausibility gate behind the notification hold (issue #570
+    /// part B, spec "Design 5"). A device tree appearing or vanishing
+    /// directly at a Mac port is always cable-mediated (unplugging the
+    /// cable is the only way it can happen); a device changing INSIDE an
+    /// existing tree (a mouse plugged into an already-connected hub, a
+    /// device appearing behind a dock's downstream port) never is, because
+    /// nothing about the Mac's own port connection changed. This function
+    /// tells the two apart, pure over data `diffDevices` already holds: no
+    /// PD or port-key join anywhere, matching the spec's requirement that
+    /// cable-ID keying never joins to the device diff's key space.
+    ///
+    /// The test: walk `group.rootLocationID`'s parent chain
+    /// (`USBDevice.parentLocationID`). If any ancestor locationID is
+    /// present in BOTH `previousLocationIDs` and `currentLocationIDs` (an
+    /// ancestor that existed before this settle window and still exists
+    /// after it -- unrelated to whatever changed), that ancestor SURVIVED
+    /// the diff, so this group's root sits inside an existing tree: an
+    /// in-tree change, not port-level. If the walk reaches the top with no
+    /// such surviving ancestor, nothing above this root was already there
+    /// AND still there, so the root itself is what appeared/vanished at the
+    /// port: a port-level tree change.
+    ///
+    /// Accepted residual cost, documented in the spec (reviewer amendment
+    /// 2): this over-triggers on (a) a device plugged directly into a Mac
+    /// port with no saved-name match (unlabelled cable, captive-cable
+    /// device) and (b) Thunderbolt-tunnelled downstream devices whose USB
+    /// subtree root appears with no physical plug at the Mac's port (dock
+    /// wake, tunnel renegotiation). Both fail safe: held the full hold
+    /// window, then posted unlabelled, never mislabelled.
+    public static func isPortLevelChange(
+        group: USBDeviceChangeGrouper.ChangeGroup,
+        previousLocationIDs: Set<UInt32>,
+        currentLocationIDs: Set<UInt32>
+    ) -> Bool {
+        var locationID = USBDevice.parentLocationID(group.rootLocationID)
+        while let currentAncestor = locationID {
+            if previousLocationIDs.contains(currentAncestor), currentLocationIDs.contains(currentAncestor) {
+                return false
+            }
+            locationID = USBDevice.parentLocationID(currentAncestor)
+        }
+        return true
+    }
+
+    /// True when at least one group in either side is a port-level tree
+    /// change (`isPortLevelChange`). This is the batch-level trigger for the
+    /// notification hold: the hold applies to the WHOLE settled batch (spec
+    /// "hold granularity") the moment any group in it is cable-mediated,
+    /// even in a MIXED batch where another group in the same settle window
+    /// is a plain in-tree change.
+    public static func batchNeedsCablePlausibilityHold(
+        removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        previousLocationIDs: Set<UInt32>,
+        currentLocationIDs: Set<UInt32>
+    ) -> Bool {
+        (removedGroups + addedGroups).contains {
+            isPortLevelChange(group: $0, previousLocationIDs: previousLocationIDs, currentLocationIDs: currentLocationIDs)
+        }
+    }
+
     /// Decides the full batch of notification content for one settled device
     /// diff: the reconnect gate first, then (when it doesn't fire) the usual
     /// removed-then-added composition. Pure and separate from `diffDevices`
@@ -246,19 +423,36 @@ public enum NotificationDecision {
     /// like a fault, not a first-time plug-in. Every other shape (multiple
     /// groups, no match, adds only, removes only) keeps the removed-then-
     /// added composition below untouched.
+    ///
+    /// - Parameters:
+    ///   - addedCableLabel / removedCableLabel: the saved-cable name
+    ///     (`cableLabelChange`'s result) to append, direction-aware: only
+    ///     the side that matches which way the labelled cable changed ever
+    ///     gets a non-nil label, so at most one of the two is ever set.
+    ///     `reconnectedNotificationContent` accepts a `cableLabel` parameter
+    ///     structurally, but the sequencer (`DeviceDiffSequencer.resolveDevicePost`)
+    ///     never passes one on the reconnect path: reviewer amendment 3
+    ///     gate-exempts reconnect pairs from the hold AND from labelling
+    ///     ("a power-cycling device re-enumerating at the same locationID
+    ///     is not a cable event, the label structurally cannot resolve").
+    ///     This doc comment previously claimed the opposite (that a label
+    ///     WAS threaded into reconnect content); it wasn't, and isn't. Fixed
+    ///     as a P3 doc-only correction; no behaviour change.
     public static func deviceNotificationContents(
         removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
         addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
         thunderboltInvolved: Bool = false,
+        addedCableLabel: String? = nil,
+        removedCableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if let removed = removedGroups.first, removedGroups.count == 1,
            let added = addedGroups.first, addedGroups.count == 1,
            isReconnectPair(removed: removed, added: added) {
-            return [reconnectedNotificationContent(for: added, singleDeviceBody: singleDeviceBody)]
+            return [reconnectedNotificationContent(for: added, cableLabel: addedCableLabel, singleDeviceBody: singleDeviceBody)]
         }
-        return removedNotificationContents(groups: removedGroups, thunderboltInvolved: thunderboltInvolved)
-            + addedNotificationContents(groups: addedGroups, thunderboltInvolved: thunderboltInvolved, singleDeviceBody: singleDeviceBody)
+        return removedNotificationContents(groups: removedGroups, thunderboltInvolved: thunderboltInvolved, cableLabel: removedCableLabel)
+            + addedNotificationContents(groups: addedGroups, thunderboltInvolved: thunderboltInvolved, cableLabel: addedCableLabel, singleDeviceBody: singleDeviceBody)
     }
 
     /// True when a removed group and an added group are almost certainly the
@@ -283,9 +477,13 @@ public enum NotificationDecision {
     /// content is what's true of the device right now.
     public static func reconnectedNotificationContent(
         for added: USBDeviceChangeGrouper.ChangeGroup,
+        cableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> NotificationContent {
-        let title = String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle)
+        let title = applyCableLabel(
+            String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle),
+            cableLabel
+        )
         let body = added.memberNames.isEmpty
             ? (singleDeviceBody(added.rootID) ?? "")
             : added.memberNames.joined(separator: "\n")
@@ -313,20 +511,24 @@ public enum NotificationDecision {
     public static func addedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
         thunderboltInvolved: Bool = false,
+        cableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
+            let title = applyCableLabel(
+                String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
+                cableLabel
+            )
             let body = group.memberNames.isEmpty
                 ? (singleDeviceBody(group.rootID) ?? "")
                 : group.memberNames.joined(separator: "\n")
             return [NotificationContent(title: title, body: body)]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            let title = thunderboltInvolved
+            let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices connected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices connected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }
@@ -343,17 +545,21 @@ public enum NotificationDecision {
     ///   merged (>1 group) title.
     public static func removedNotificationContents(
         groups: [USBDeviceChangeGrouper.ChangeGroup],
-        thunderboltInvolved: Bool = false
+        thunderboltInvolved: Bool = false,
+        cableLabel: String? = nil
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
+            let title = applyCableLabel(
+                String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
+                cableLabel
+            )
             return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
-            let title = thunderboltInvolved
+            let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices disconnected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices disconnected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: title, body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }

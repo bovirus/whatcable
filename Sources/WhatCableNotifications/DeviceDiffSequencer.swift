@@ -151,6 +151,145 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// later turns them on doesn't see a stale baseline manufacture a false
     /// "Thunderbolt involved" on the next diff.
     var knownTBSwitchIDs: Set<Int64> = []
+
+    /// Issue #570 part B (saved-cable notification labels): the sequencer's
+    /// live view of "cableID -> saved name" for currently-attached,
+    /// uniquely-attributed saved cables. `nil` = the feature reads as
+    /// unavailable right now (Pro locked, or no provider registered
+    /// anywhere -- the public mirror build); `[:]` = available, nothing
+    /// attached. Double-optional semantics, same shape the reverted design
+    /// used: the OUTER optionality (this property being `nil` vs `.some`)
+    /// is availability, never "no data yet" -- `didPrimeBaseline` is what
+    /// tracks the latter, and this stays `nil` until the app-side shim's
+    /// first `updateLabelledCables(_:)` call, which can arrive before or
+    /// after `primeBaseline`, in either order (see that method's doc
+    /// comment; unlike `knownDevices`/`knownChargerLabels`/`knownTBSwitchIDs`
+    /// there is no seeding step here).
+    ///
+    /// Updated UNCONDITIONALLY by every `updateLabelledCables(_:)` call,
+    /// independent of whether any device diff is in flight (design "3.
+    /// Baseline"): a saved cable's e-marker read can complete anywhere from
+    /// milliseconds to ~2-3s after the physical plug, entirely decoupled
+    /// from USB device settle timing, so tying this update to `diffDevices`
+    /// (the way `knownTBSwitchIDs` is tied to it) would let a connect that
+    /// settled before the cable's data arrived permanently poison the
+    /// following disconnect's own comparison: the ONLY reference this or a
+    /// later diff could compare against would still show the cable never
+    /// having been there. Keeping this update independent means the truth
+    /// is always current by the time anything reads it.
+    ///
+    /// This being empty (`[:]`) is a completely ordinary state (nothing is
+    /// attached right now) and must NEVER be read as "no saved cables
+    /// exist anywhere": see `knownHasSavedCables`, the separate,
+    /// provider-supplied fact that answers that question instead.
+    var knownLabelledCables: [String: String]?
+
+    /// Whether a saved cable exists ANYWHERE (the whole catalog, not just
+    /// what's attached), as of the most recent `updateLabelledCables(_:)`
+    /// call. `false` while unavailable (no feed yet, or the feed's own
+    /// `nil`).
+    ///
+    /// Post-review fix: this used to be inferred from `knownLabelledCables`
+    /// being non-empty, which is WRONG on the feature's own flagship case.
+    /// A user with exactly one saved cable, currently unplugged, has
+    /// `knownLabelledCables == [:]` right up until that cable's e-marker
+    /// resolves -- and waiting for exactly that is the entire reason the
+    /// hold exists. Reading `[:]` as "no saved cables exist anywhere"
+    /// skipped the hold and posted unlabelled on every single connect of a
+    /// user's only saved cable. This property is instead a fact the
+    /// PROVIDER supplies directly (the saved-cables store's own count), so
+    /// an empty attached snapshot never again gets misread as an empty
+    /// catalog. See `NotificationDecision.CableLabelFeed`'s doc comment for
+    /// the full story.
+    private var knownHasSavedCables = false
+
+    /// The most recent, not-yet-consumed single-cable label transition
+    /// (`NotificationDecision.cableLabelChange`'s result), computed fresh
+    /// inside `updateLabelledCables(_:)` every time two consecutive non-nil
+    /// snapshots differ by exactly one cable ID. "Not-yet-consumed" =
+    /// nothing has yet MATCHED and CAPTURED it onto a `DevicePostJob`.
+    /// ALWAYS overwritten by the latest transition, whether or not the
+    /// previous one was ever consumed: a connect batch that already posted
+    /// unlabelled (cap expired before the cable's data arrived) leaves this
+    /// event pending, and it is exactly what lets the FOLLOWING disconnect,
+    /// whenever it eventually settles, still find the correct vanished-key
+    /// transition once the cable's own removal is observed.
+    ///
+    /// Consumption is CAPTURE-TIME BINDING (gate-fixes P2, follow-up
+    /// finding), not fire-time: the two places that ever read this property
+    /// -- `resolveDevicePost`'s "usable label already present" branch, and
+    /// `flushHeldDeviceBatch` -- both match AND clear it to `nil`
+    /// immediately, the moment a `DevicePostJob` is created, copying the
+    /// matched value onto that job's own `capturedLabel`. `fireDevicePostJob`
+    /// never reads this property at all; it only ever reads the job's own
+    /// already-captured value.
+    ///
+    /// An event sitting here UNCONSUMED (no job has matched it yet) is
+    /// completely normal and not stale by itself -- see the connect/cap/
+    /// disconnect example above. But it is emphatically NOT "harmless" in
+    /// the sense an earlier version of this comment claimed: this file used
+    /// to bind at FIRE time (a queued job matched against whatever this
+    /// property held at the moment it actually posted, not at the moment it
+    /// was created), and that was a genuine bug, not a hygiene nit. A job
+    /// enqueued for cable A could sit behind the device-post spacing floor
+    /// while cable B's event landed here in the meantime, overwriting A's
+    /// own match; when A's job finally fired, it read B's event and posted
+    /// with B's name. Binding at capture time is what makes an unconsumed
+    /// event safe to leave sitting here: it is never read by anything that
+    /// doesn't ALSO consume it in the same breath, so nothing can ever pick
+    /// up a value meant for a different job.
+    private var pendingCableLabelEvent: (name: String, wasAdded: Bool)?
+
+    /// Fixed, owner-locked cap on the notification hold (spec design 5):
+    /// "Deadline semantics, cap 5 seconds (owner-locked)". Deliberately NOT
+    /// a `var` init parameter like the other windows (`deviceSettleWindow`,
+    /// `chargerSettleWindow`, `presentationGapWindow`): those are tunable
+    /// debounce/presentation knobs; this one is a product-level ceiling the
+    /// owner fixed explicitly. Tests drive `ManualClock.advance(by:)`
+    /// straight to (and past) this value rather than shrinking it.
+    public nonisolated static var cablePlausibilityHoldWindow: Duration { .seconds(5) }
+
+    /// One settled .device batch waiting on the cable-plausibility hold
+    /// (spec design 5/6). Held at BATCH granularity: one slot, one 5.0s
+    /// timer, for every `NotificationContent` the settle would have
+    /// produced, with the direction-match rule evaluated PER SIDE only at
+    /// flush time (`removedEligible` / `addedEligible` below), never a
+    /// separate timer per item.
+    private struct HeldDeviceBatch {
+        let removedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let addedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let thunderboltInvolved: Bool
+        let singleDeviceBody: (UInt64) -> String?
+        /// Whether the REMOVED side of this batch may EVER take a label:
+        /// at least one removed group is a port-level tree change
+        /// (`NotificationDecision.isPortLevelChange`). An in-tree removed
+        /// group mixed into an otherwise-holding batch (the "mixed batch"
+        /// case) never gets a label even though the batch as a whole waits.
+        let removedEligible: Bool
+        /// Same for the ADDED side.
+        let addedEligible: Bool
+    }
+
+    /// `nil` when nothing is held. `.some` from the moment `resolveDevicePost`
+    /// decides to hold until `flushHeldDeviceBatch` clears it (labelled,
+    /// unlabelled at cap, or flushed early by a superseding new diff).
+    private var heldDeviceBatch: HeldDeviceBatch?
+    /// Mirrors `deferredDeviceDiffToken`'s discipline, scoped to this stage:
+    /// bumped every time a batch is newly held OR flushed, so a stale
+    /// deadline task (captured token from an EARLIER hold) that fires after
+    /// its batch was already flushed by something else sees a mismatched
+    /// token and backs out instead of double-flushing or flushing the WRONG
+    /// (newer) batch.
+    private var heldDeviceBatchToken = 0
+    /// The ABSOLUTE 5.0s backstop for the currently held batch, scheduled
+    /// once at hold-start (`scheduleHeldDeviceBatchDeadline`), cancelled by
+    /// any earlier flush (label match, or a superseding new diff's
+    /// flush-first). Independent of `deferredDeviceDiffDeadlineTask` in
+    /// every respect (own property, own timer, own token): this stage sits
+    /// strictly AFTER the park/defer/deadline machinery resolves and does
+    /// not splice into it (spec design 6).
+    private var heldDeviceBatchDeadlineTask: Task<Void, Never>?
+
     var didPrimeBaseline = false
 
     private var chargerSettleTask: Task<Void, Never>?
@@ -851,6 +990,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
 
         let previousSnapshots = Array(knownDevices.values)
         let currentSnapshots = current.map(snapshot(for:))
+        let previousLocationIDs = Set(previousSnapshots.map(\.locationID))
+        let currentLocationIDs = Set(currentSnapshots.map(\.locationID))
         knownDevices = Dictionary(
             currentSnapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -891,12 +1032,535 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // the same model report the same product name, so name matching
         // could pick the wrong one.
         let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let contents = NotificationDecision.deviceNotificationContents(removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved) { rootID in
+        let singleDeviceBody: (UInt64) -> String? = { rootID in
             currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
         }
+        resolveDevicePost(
+            removedGroups: removedGroups,
+            addedGroups: addedGroups,
+            thunderboltInvolved: thunderboltInvolved,
+            previousLocationIDs: previousLocationIDs,
+            currentLocationIDs: currentLocationIDs,
+            singleDeviceBody: singleDeviceBody
+        )
+    }
+
+    // MARK: - Saved-cable label hold (issue #570 part B)
+    //
+    // A new, FINAL stage that sits strictly after every device diff has
+    // resolved through the existing park/defer/deadline machinery above
+    // (`diffDevices` is the single place that machinery converges on,
+    // however it got there: `.runNow`, a landed deferred diff, or a landed
+    // gap/deadline diff). This stage never touches `deferredDeviceDiffDevices`
+    // or any of its guards; it owns an entirely separate token/generation
+    // and its own fixed 5.0s timer (`cablePlausibilityHoldWindow`).
+    //
+    // Gate-fixes revision (Codex findings 2/3/5, adversarial A1): the
+    // original design posted a held batch's content immediately on flush
+    // and used a one-shot, call-local "did I just flush" flag to decide
+    // whether the FOLLOWING post needed a presentation gap. That flag had
+    // no memory outside the single `resolveDevicePost` call it was computed
+    // in, which broke three ways: a cap-expiry flush (fired from the
+    // deadline TASK, not from `resolveDevicePost`) left no trace for the
+    // next unrelated settle to see, so device posts arriving right after a
+    // cap expired got no gap at all (A1); a THIRD diff settling during an
+    // active gap wait wasn't ordered against the one still queued, only
+    // against whatever flushed most recently (Codex 2); and content was
+    // composed and frozen at flush time, before the gap sleep, so a licence
+    // change during that sleep couldn't un-label an already-decided post
+    // (Codex 3).
+    //
+    // The fix replaces the one-shot flag with a proper FIFO queue
+    // (`deviceQueue`) gated by a single running clock value
+    // (`lastDevicePostTime`), the device-post analogue of
+    // `lastChargerPostTime`. EVERY `.device` post -- the immediate no-hold
+    // path, a synchronous hold-cap-avoided post, a hold flush from a NEW
+    // settle superseding it, and a hold flush from the cap-expiry TASK --
+    // funnels through `enqueueDevicePost(_:)`, which appends a job (the
+    // batch's INGREDIENTS, not composed content) and lets
+    // `drainDeviceQueueIfPossible()` release jobs one at a time, each
+    // waiting out whatever remainder of `deferredDeviceDiffPresentationGapWindow`
+    // is left since the last actual device post. `fireDevicePostJob(_:)` is
+    // the ONE place that ever calls `NotificationDecision.deviceNotificationContents`
+    // for a `.device` post, and it runs at the moment a job is actually
+    // released, never earlier. The label itself is BOUND EARLIER, at job
+    // creation (`capturedLabel`, consumed from `pendingCableLabelEvent` at
+    // capture time so a queued job can never pick up a LATER cable's
+    // event); the one thing evaluated fresh at fire time is the licence
+    // nil-guard, against whatever `knownLabelledCables` says AT THAT
+    // INSTANT.
+    //
+    // Named interleavings, walked through where each one is actually
+    // implemented:
+    //   - held batch vs charger post's presentation gap: NOT a real
+    //     interleaving. `lastDevicePostTime` / `deviceQueue` are entirely
+    //     separate from `lastChargerPostTime`; charger posts are never
+    //     held, queued, or delayed by this stage (`reconcileChargers`'s own
+    //     posting loop is untouched), so there is nothing here for a
+    //     charger post to race against.
+    //   - second device diff settling during an active hold: `resolveDevicePost`
+    //     calls `flushHeldDeviceBatch` FIRST, unconditionally, before
+    //     evaluating its own gate. See that function.
+    //   - `landDeferredDeviceDiff` landing into an active hold: no special
+    //     case needed. `landDeferredDeviceDiffNow` always ends by calling
+    //     `diffDevices`, which always ends by calling `resolveDevicePost`,
+    //     which always flushes first. A landed deferred diff is just
+    //     another settled batch arriving from this stage's point of view.
+    //   - cap expiry racing a labelled-cables update: both paths
+    //     (`scheduleHeldDeviceBatchDeadline`'s timer firing,
+    //     `updateLabelledCables`'s direction-matched flush) call the SAME
+    //     `flushHeldDeviceBatch(token:)`, which re-checks the token before
+    //     doing anything and clears `heldDeviceBatchDeadlineTask` /
+    //     `heldDeviceBatch` together as its first act. Whichever reaches it
+    //     first wins; the other's token has already moved on, so it's a
+    //     no-op. Exactly one flush either way.
+    //   - cap-expiry flush then an immediately-following diff (adversarial
+    //     A1, now closed): the cap-expiry flush enqueues its job exactly
+    //     like any other path, so `lastDevicePostTime` is set the moment it
+    //     actually fires, regardless of which code path produced it. A
+    //     brand-new `resolveDevicePost` call moments later enqueues its OWN
+    //     job into the SAME queue, which reads that just-updated
+    //     `lastDevicePostTime` and waits out the remainder of the spacing
+    //     window exactly as if the two posts had come from the same
+    //     `resolveDevicePost` call. There is no longer a code path that
+    //     posts without checking `lastDevicePostTime` first.
+    //   - third diff settling while a second is still queued (Codex 2, now
+    //     closed): `enqueueDevicePost` always appends to `deviceQueue` and
+    //     only ever starts ONE drain task at a time
+    //     (`deviceQueueTask == nil` guard in `drainDeviceQueueIfPossible`),
+    //     so a third job simply waits behind the second in the array. Strict
+    //     FIFO by construction: nothing can jump the queue, and nothing
+    //     drains two jobs on the same wait.
+    //   - licence lock mid-hold: `fireDevicePostJob` re-reads
+    //     `knownLabelledCables` (not any cached availability flag) at the
+    //     moment it actually applies a label, so a lock that lands between
+    //     hold-start and the job's actual fire drops the label even if
+    //     `pendingCableLabelEvent` still holds a stale match from before the
+    //     lock. `updateLabelledCables(_:)` also clears `pendingCableLabelEvent`
+    //     outright on a nil feed (gate-fixes finding, Codex 4), so a stale
+    //     event can't survive to be misapplied after a LATER unlock either.
+
+    /// The hold-stage entry point: called at the tail of EVERY `diffDevices`
+    /// run, whichever of the three landing paths reached it. Decides,
+    /// pure-first, whether this settled batch needs the cable-plausibility
+    /// hold at all, and either enqueues a post job straight away or parks it.
+    ///
+    /// Flush-never-drop (spec design 6, v2 blocker B): before doing
+    /// anything else, any batch STILL held from an earlier settle is
+    /// flushed (enqueued). Its content was already fully decided in SHAPE
+    /// (the exact groups to post); the label MATCH, if any, is resolved
+    /// right there in `flushHeldDeviceBatch` (capture-time binding,
+    /// gate-fixes P2), and the final NotificationContent composition
+    /// happens later, in `fireDevicePostJob`, at actual fire time. The held
+    /// batch's own content is therefore NEVER discarded, only ever
+    /// eventually posted labelled or unlabelled.
+    private func resolveDevicePost(
+        removedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        addedGroups: [USBDeviceChangeGrouper.ChangeGroup],
+        thunderboltInvolved: Bool,
+        previousLocationIDs: Set<UInt32>,
+        currentLocationIDs: Set<UInt32>,
+        singleDeviceBody: @escaping (UInt64) -> String?
+    ) {
+        flushHeldDeviceBatch(token: heldDeviceBatchToken)
+
+        let isReconnect = removedGroups.count == 1 && addedGroups.count == 1
+            && NotificationDecision.isReconnectPair(removed: removedGroups[0], added: addedGroups[0])
+
+        // "If the feature is unavailable (nil) or no saved cables exist
+        // anywhere, post immediately, exactly as today." Post-review fix:
+        // "no saved cables exist anywhere" is `knownHasSavedCables == false`,
+        // a fact the PROVIDER supplies (the saved-cables store's own
+        // count), never inferred from `knownLabelledCables` being empty.
+        // The old inference broke the feature's own flagship case: a user
+        // with exactly one saved cable, currently unplugged, has
+        // `knownLabelledCables == [:]` right up until that cable's
+        // e-marker resolves, which is the entire reason the hold exists.
+        // Reading that emptiness as "nothing saved anywhere" skipped the
+        // hold and posted unlabelled on every connect of a user's only
+        // saved cable. A LATER settle can still hold once the feature (or a
+        // saved cable) becomes available; this is a per-settle read, not a
+        // permanent switch.
+        let featureCouldEverLabel = knownLabelledCables != nil && knownHasSavedCables
+
+        // Reconnect pairs are gate-exempt from the hold (reviewer amendment
+        // 3): "a power-cycling device re-enumerating at the same locationID
+        // is not a cable event, the label structurally cannot resolve, and
+        // a fault-recovery notification must not wait." Never held, and
+        // never labelled either, for the same structural reason (see the
+        // stale-doc-comment fix on `deviceNotificationContents` for the
+        // full story on why this file used to claim otherwise).
+        guard !isReconnect else {
+            enqueueDevicePost(DevicePostJob(
+                removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
+                singleDeviceBody: singleDeviceBody, capturedLabel: nil
+            ))
+            return
+        }
+
+        let removedEligible = removedGroups.contains {
+            NotificationDecision.isPortLevelChange(group: $0, previousLocationIDs: previousLocationIDs, currentLocationIDs: currentLocationIDs)
+        }
+        let addedEligible = addedGroups.contains {
+            NotificationDecision.isPortLevelChange(group: $0, previousLocationIDs: previousLocationIDs, currentLocationIDs: currentLocationIDs)
+        }
+
+        guard featureCouldEverLabel, removedEligible || addedEligible else {
+            // No group in this batch is a port-level tree change (every
+            // change is inside an existing tree), or the feature could
+            // never label this settle anyway: enqueue with NO label
+            // eligibility at all, so `fireDevicePostJob` never even looks
+            // at `pendingCableLabelEvent` for this job.
+            enqueueDevicePost(DevicePostJob(
+                removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
+                singleDeviceBody: singleDeviceBody, capturedLabel: nil
+            ))
+            return
+        }
+
+        // A usable label MIGHT already be present. CAPTURE-TIME binding
+        // (gate-fixes P2, follow-up finding): the match against
+        // `pendingCableLabelEvent` is decided and the event CONSUMED right
+        // here, at the moment this job is created, not deferred to fire
+        // time. Binding at fire time instead (the original gate-fixes fix 1
+        // design) had a real bug: while THIS job sits queued behind the
+        // spacing floor, a DIFFERENT cable's event could arrive and
+        // overwrite the single, global `pendingCableLabelEvent` before this
+        // job's turn came, so it could fire carrying a stranger's name. A
+        // job now carries its OWN captured event (or none), fixed the
+        // instant it's created, so a later, unrelated event can never leak
+        // into it. Only the licence nil-guard (`knownLabelledCables`)
+        // remains a genuine fire-time check, in `fireDevicePostJob`: a lock
+        // can still legitimately erase a label between capture and fire,
+        // and correctly should.
+        if let event = pendingCableLabelEvent,
+           (event.wasAdded && addedEligible) || (!event.wasAdded && removedEligible) {
+            pendingCableLabelEvent = nil
+            enqueueDevicePost(DevicePostJob(
+                removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
+                singleDeviceBody: singleDeviceBody,
+                capturedLabel: DevicePostJob.CapturedLabel(name: event.name, wasAdded: event.wasAdded)
+            ))
+            return
+        }
+
+        // No label yet: hold. Every subsequent `updateLabelledCables` call
+        // re-evaluates via `tryFlushHeldDeviceBatchForPendingEvent`; at the
+        // cap, `scheduleHeldDeviceBatchDeadline` flushes (enqueues). The
+        // label is bound at the FLUSH, whichever path triggers it
+        // (`flushHeldDeviceBatch` matches and consumes the event into the
+        // job's `capturedLabel` right then); `fireDevicePostJob` only
+        // applies that captured label, subject to the fire-time licence
+        // nil-guard.
+        heldDeviceBatchToken += 1
+        let token = heldDeviceBatchToken
+        heldDeviceBatch = HeldDeviceBatch(
+            removedGroups: removedGroups,
+            addedGroups: addedGroups,
+            thunderboltInvolved: thunderboltInvolved,
+            singleDeviceBody: singleDeviceBody,
+            removedEligible: removedEligible,
+            addedEligible: addedEligible
+        )
+        scheduleHeldDeviceBatchDeadline(token: token)
+    }
+
+    /// Schedules the fixed, non-resetting 5.0s deadline for the batch just
+    /// held under `token`. Mirrors `scheduleAbsoluteDeadline`'s shape
+    /// (own timer, own token check on fire) but is otherwise fully
+    /// independent: this stage's timer is never re-scheduled by anything
+    /// (there is no gap-extension concept here, unlike the presentation gap
+    /// above the park/defer machinery), so "5.0s from hold-start" is always
+    /// the true worst case, never re-extended by further activity.
+    private func scheduleHeldDeviceBatchDeadline(token: Int) {
+        heldDeviceBatchDeadlineTask?.cancel()
+        heldDeviceBatchDeadlineTask = Task { @MainActor [weak self] in
+            guard let clock = self?.clock else { return }
+            try? await clock.sleep(for: Self.cablePlausibilityHoldWindow)
+            guard !Task.isCancelled, let self else { return }
+            self.flushHeldDeviceBatch(token: token)
+        }
+    }
+
+    /// Flushes (enqueues) the currently held batch, if `token` still
+    /// matches the live one (mirrors `shouldLandDeferredDiff`'s guard
+    /// shape). A no-op when nothing is held or `token` is stale (already
+    /// flushed by another path -- see the cap-vs-update interleaving in
+    /// this section's own doc comment).
+    ///
+    /// CAPTURE-TIME binding (gate-fixes P2, follow-up finding): this IS the
+    /// capture moment for a held batch, whichever of the three paths called
+    /// it (a new diff superseding it, `tryFlushHeldDeviceBatchForPendingEvent`
+    /// matching an event, or the cap deadline firing). `pendingCableLabelEvent`
+    /// is checked and CONSUMED right here, once, and the result is baked
+    /// into the `DevicePostJob` handed to `enqueueDevicePost`. Composing
+    /// content itself still happens later, in `fireDevicePostJob` at fire
+    /// time (only the licence nil-guard remains a fire-time check there):
+    /// what changed is that the label ITSELF -- which event, whose name --
+    /// is now fixed the instant this job is created, so it can never be
+    /// swapped out for a different cable's event that happens to arrive
+    /// while this job sits queued behind the spacing floor.
+    private func flushHeldDeviceBatch(token: Int) {
+        guard let batch = heldDeviceBatch, token == heldDeviceBatchToken else { return }
+        heldDeviceBatch = nil
+        heldDeviceBatchToken += 1
+        heldDeviceBatchDeadlineTask?.cancel()
+        heldDeviceBatchDeadlineTask = nil
+
+        var capturedLabel: DevicePostJob.CapturedLabel?
+        if let event = pendingCableLabelEvent {
+            if event.wasAdded, batch.addedEligible {
+                capturedLabel = DevicePostJob.CapturedLabel(name: event.name, wasAdded: true)
+                pendingCableLabelEvent = nil
+            } else if !event.wasAdded, batch.removedEligible {
+                capturedLabel = DevicePostJob.CapturedLabel(name: event.name, wasAdded: false)
+                pendingCableLabelEvent = nil
+            }
+        }
+
+        enqueueDevicePost(DevicePostJob(
+            removedGroups: batch.removedGroups,
+            addedGroups: batch.addedGroups,
+            thunderboltInvolved: batch.thunderboltInvolved,
+            singleDeviceBody: batch.singleDeviceBody,
+            capturedLabel: capturedLabel
+        ))
+    }
+
+    /// If a batch is currently held AND `pendingCableLabelEvent`'s
+    /// direction matches the side that batch is eligible on, flush
+    /// (enqueue) it right now. Called from `updateLabelledCables(_:)` every
+    /// time it computes a fresh event; a no-op when nothing is held or the
+    /// direction doesn't match (the event just sits in
+    /// `pendingCableLabelEvent`, still available to a LATER settle or a
+    /// later, matching push).
+    private func tryFlushHeldDeviceBatchForPendingEvent() {
+        guard let batch = heldDeviceBatch, let event = pendingCableLabelEvent else { return }
+        let matches = (event.wasAdded && batch.addedEligible) || (!event.wasAdded && batch.removedEligible)
+        guard matches else { return }
+        flushHeldDeviceBatch(token: heldDeviceBatchToken)
+    }
+
+    // MARK: - Device-post spacing floor (gate-fixes fix 1)
+
+    /// Ingredients for one `.device`-category post, held by the queue.
+    /// `NotificationContent` itself is still composed only at FIRE TIME
+    /// (see `fireDevicePostJob`): gate-fixes finding 3 requires that, since
+    /// which GROUPS to name and whether Thunderbolt was involved can't
+    /// change, but the label decision must reflect whatever is true the
+    /// INSTANT it actually posts. The label VALUE, however, is now fixed at
+    /// CAPTURE time (gate-fixes P2, follow-up finding): see `capturedLabel`.
+    private struct DevicePostJob {
+        let removedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let addedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let thunderboltInvolved: Bool
+        let singleDeviceBody: (UInt64) -> String?
+        /// The cable label ALREADY matched and consumed against
+        /// `pendingCableLabelEvent` at CAPTURE time (when this job was
+        /// created: `resolveDevicePost`'s "usable label already present"
+        /// branch, or `flushHeldDeviceBatch`), never re-evaluated later.
+        /// `nil` = no label for this job, either because it was never
+        /// eligible at all (reconnects, in-tree-only, feature-unavailable
+        /// batches -- structurally not cable-mediated, doesn't change
+        /// between capture and fire) or because no matching event existed
+        /// at the moment of capture (that's a genuinely different case
+        /// from "never eligible", but both read as `nil` here: a job with
+        /// no captured label just never gets one, full stop -- a LATER
+        /// event, for a DIFFERENT cable, belongs to whichever diff is
+        /// eligible for it when it arrives, never to this one).
+        ///
+        /// Binding at capture time, not fire time, is the fix: fire-time
+        /// binding (matching a live global `pendingCableLabelEvent` at the
+        /// moment this job finally posts) meant a DIFFERENT cable's event,
+        /// arriving while this job sat queued behind the spacing floor,
+        /// could overwrite the one global slot and get wrongly attributed
+        /// to this job when it finally fired -- the exact "wrong label"
+        /// failure class this feature must never produce. Capturing (and
+        /// consuming) the match once, at creation, makes that impossible:
+        /// a job's label is a value it owns, not a live read of shared
+        /// state.
+        let capturedLabel: CapturedLabel?
+
+        struct CapturedLabel {
+            let name: String
+            let wasAdded: Bool
+        }
+    }
+
+    /// FIFO queue of not-yet-posted `.device` jobs. Never pruned or
+    /// reordered: flush-never-drop holds for this queue too, so a job once
+    /// enqueued always eventually fires, exactly once, in the order it was
+    /// enqueued.
+    private var deviceQueue: [DevicePostJob] = []
+    /// Non-nil exactly while a drain task is scheduled (sleeping out the
+    /// spacing floor for the job at the front of `deviceQueue`, or about to
+    /// fire it). Doubles as the "only one drain task at a time" guard: a
+    /// job enqueued while this is non-nil just waits in the array, and
+    /// `drainDeviceQueueIfPossible` picks it up once the current task
+    /// finishes. This IS the FIFO/serialisation guarantee (gate-fixes
+    /// Codex finding 2): nothing can ever start a second, competing drain.
+    private var deviceQueueTask: Task<Void, Never>?
+    /// Clock-based, exactly like `lastChargerPostTime`: when the last
+    /// `.device` post actually went out through `postNotification`, or
+    /// `nil` before the first one this app launch. Read by
+    /// `drainDeviceQueueIfPossible` to compute the remaining wait before the
+    /// NEXT job may fire, and by `postNotification` itself to decide
+    /// `previousPostWasRecent` for the delivery directive (gate-fixes fix
+    /// 2). Set inside `postNotification`, not here: that's the single place
+    /// a `.device` post actually happens, mirroring exactly where
+    /// `lastChargerPostTime` is set for the charger side.
+    var lastDevicePostTime: ClockType.Instant?
+
+    /// Appends `job` to the queue and (re)starts the drain if nothing is
+    /// currently running. The single entry point every path in this file
+    /// that wants to post `.device` content goes through -- there is no
+    /// other way for a `.device` notification to reach `postNotification`
+    /// any more.
+    private func enqueueDevicePost(_ job: DevicePostJob) {
+        deviceQueue.append(job)
+        drainDeviceQueueIfPossible()
+    }
+
+    /// Releases the front of `deviceQueue`, respecting the spacing floor
+    /// against `lastDevicePostTime`. Two cases:
+    ///  - No wait needed (queue was empty long enough, or this is the very
+    ///    first `.device` post this launch): fires SYNCHRONOUSLY, inline,
+    ///    right here, no `Task` involved. This matters for existing
+    ///    behaviour and existing tests: several call sites post a device
+    ///    diff and assert on `posted` immediately afterward, with no
+    ///    `await` at all, and that has to keep working for the common
+    ///    "nothing else has posted recently" case.
+    ///  - A wait is needed: schedules exactly one `Task` (guarded by
+    ///    `deviceQueueTask == nil`) that sleeps out the remainder, fires the
+    ///    front job, then recurses to pick up whatever is next.
+    ///
+    /// Reuses `NotificationDecision.devicePostDelay`'s pure arithmetic (the
+    /// SAME "remainder of the window, or zero" rule `runNowOrDelayForRecentChargerPost`
+    /// already uses against `lastChargerPostTime`) rather than duplicating
+    /// it: the parameter name reads charger-specific, but the arithmetic
+    /// itself is generic (elapsed vs. a window), and this is exactly that
+    /// same computation against a different clock reading.
+    private func drainDeviceQueueIfPossible() {
+        guard deviceQueueTask == nil, !deviceQueue.isEmpty else { return }
+
+        let delay = NotificationDecision.devicePostDelay(
+            elapsedSinceLastChargerPost: lastDevicePostTime?.duration(to: clock.now),
+            presentationGap: deferredDeviceDiffPresentationGapWindow
+        )
+
+        guard delay > .zero else {
+            let job = deviceQueue.removeFirst()
+            fireDevicePostJob(job)
+            drainDeviceQueueIfPossible()
+            return
+        }
+
+        deviceQueueTask = Task { @MainActor [weak self] in
+            guard let clock = self?.clock else { return }
+            try? await clock.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.deviceQueueTask = nil
+            self.drainDeviceQueueIfPossible()
+        }
+    }
+
+    /// The ONE place `NotificationDecision.deviceNotificationContents` is
+    /// ever called for a `.device` post (gate-fixes fix 1): composition at
+    /// FIRE time, not enqueue time. Applies the job's OWN `capturedLabel`
+    /// (gate-fixes P2, follow-up finding): the LABEL VALUE was already
+    /// decided and consumed at capture time, so this never re-reads the
+    /// global `pendingCableLabelEvent` at all -- doing so would reopen the
+    /// exact bug capture-time binding closes (a different cable's event,
+    /// arriving while this job sat queued, stealing this job's slot).
+    ///
+    /// Licence nil-guard: the ONE fire-time check that remains, deliberately
+    /// (spec design 7). `knownLabelledCables` is read fresh, never cached
+    /// from capture time; if it currently reads `nil` (locked), the
+    /// captured label is dropped regardless of what it says. This is
+    /// correct to keep at fire time (unlike the label match itself): a lock
+    /// landing between capture and fire genuinely should erase a label that
+    /// was valid when captured, because Notification Centre must never show
+    /// Pro-only content once the licence is gone, however briefly.
+    ///
+    /// Multiple `NotificationContent` entries in one job (a merged
+    /// removed+added pair, or similar) post in a plain, UNSPACED loop here,
+    /// exactly as before this revision: the spacing floor governs the gap
+    /// BETWEEN jobs (settled diffs), never between the several notifications
+    /// one job's own composition can produce, which is what lets the
+    /// existing removed-before-added stacking-order trick keep working
+    /// (the LATER post of the pair is the one macOS actually shows).
+    private func fireDevicePostJob(_ job: DevicePostJob) {
+        var addedLabel: String?
+        var removedLabel: String?
+        if let captured = job.capturedLabel, knownLabelledCables != nil {
+            if captured.wasAdded {
+                addedLabel = captured.name
+            } else {
+                removedLabel = captured.name
+            }
+        }
+
+        let contents = NotificationDecision.deviceNotificationContents(
+            removedGroups: job.removedGroups,
+            addedGroups: job.addedGroups,
+            thunderboltInvolved: job.thunderboltInvolved,
+            addedCableLabel: addedLabel,
+            removedCableLabel: removedLabel,
+            singleDeviceBody: job.singleDeviceBody
+        )
         for content in contents {
             postNotification(category: .device, title: content.title, body: content.body)
         }
+    }
+
+    /// Public feed entry point (spec design 2): the app-side shim calls this
+    /// on EVERY publish of WhatCableDarwinBackend's PD identity stream
+    /// (`pdWatcher.$identities`), after recomputing the folded provider
+    /// snapshot. Exists in all builds; for a free/locked build the provider
+    /// returns `nil` on every call, so this is an idle no-op there (accepted
+    /// cost, spec design 2).
+    ///
+    /// Updates `knownLabelledCables` and `knownHasSavedCables` UNCONDITIONALLY,
+    /// independent of any device diff (see `knownLabelledCables`'s doc
+    /// comment for why). Computes a `pendingCableLabelEvent` only when both
+    /// the OLD and NEW attached maps are non-nil and differ by exactly one
+    /// cable ID (`NotificationDecision.cableLabelChange`); a transition
+    /// across availability (nil feed -> some, or some -> nil, i.e. a
+    /// licence lock or unlock) never itself produces an event; that guard
+    /// is what stops a licence change from reading as a cable connecting or
+    /// disconnecting.
+    ///
+    /// `feed` carries `hasSavedCables` alongside the attached map
+    /// (`NotificationDecision.CableLabelFeed`'s doc comment): this is the
+    /// post-review fix that stops an empty attached map (the normal state
+    /// right up until an unattributed cable's e-marker resolves) from being
+    /// misread as "no saved cables exist anywhere".
+    public func updateLabelledCables(_ feed: NotificationDecision.CableLabelFeed?) {
+        let previous = knownLabelledCables
+        knownLabelledCables = feed?.attachedLabelled
+        knownHasSavedCables = feed?.hasSavedCables ?? false
+
+        // Gate-fixes finding (Codex 4): a nil feed means availability was
+        // just LOST (licence locked, or every provider stopped answering).
+        // Any `pendingCableLabelEvent` still sitting here is, by
+        // definition, stale the instant that happens: it was computed from
+        // a comparison of two snapshots taken while the feature WAS
+        // available, and nothing about it describes anything true post-
+        // lock. Left uncleared, an unrelated change after a later UNLOCK
+        // could pick up this stale event and label a post with the wrong
+        // cable's name (the exact wrong-name scenario Codex described:
+        // lock, unlock, then an unrelated same-direction change must NOT
+        // inherit the pre-lock event). `fireDevicePostJob`'s own
+        // `knownLabelledCables != nil` guard already stops a stale event
+        // from being APPLIED while still locked; this clears it outright so
+        // it can never survive to be misapplied after a later unlock either.
+        guard let previous, let current = feed?.attachedLabelled else {
+            if feed == nil { pendingCableLabelEvent = nil }
+            return
+        }
+        guard let change = NotificationDecision.cableLabelChange(previous: previous, current: current) else { return }
+        pendingCableLabelEvent = change
+        tryFlushHeldDeviceBatchForPendingEvent()
     }
 
     private func snapshot(for device: USBDevice) -> USBDeviceChangeGrouper.Snapshot {
@@ -998,15 +1662,40 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         })
     }
 
+    /// The single place ANY notification actually leaves this module,
+    /// charger or device. Owns two related pieces of bookkeeping, both
+    /// read BEFORE being overwritten so they describe "the previous post
+    /// in this category", never this one:
+    ///  - `lastChargerPostTime` / `lastDevicePostTime`: when the previous
+    ///    same-category post went out, so `devicePostDelay` /
+    ///    `drainDeviceQueueIfPossible` can space the NEXT one out.
+    ///  - `previousPostWasRecent` (gate-fixes fix 2): whether that previous
+    ///    post is recent enough it might still be PENDING rather than
+    ///    delivered, threaded into the ledger so the delivery directive
+    ///    knows whether to also clear a pending request. With the device-
+    ///    post spacing floor (fix 1) guaranteeing `.device` posts are
+    ///    normally >= one window apart, this is normally `false` for
+    ///    device; the case it stays `true` for is two posts from the SAME
+    ///    job firing back-to-back inside `fireDevicePostJob`'s loop (there,
+    ///    `lastDevicePostTime` was JUST set by the first of the pair,
+    ///    moments before this call), which is exactly the case that still
+    ///    needs both lists populated.
     private func postNotification(category: NotificationCategory, title: String, body: String) {
-        // Recorded here, not in reconcileChargers, so it reflects when a
-        // charger post ACTUALLY went out through the sink, matching the
-        // "posts go out through the sink" framing `devicePostDelay` reasons
-        // about. Both-orders fix: see `lastChargerPostTime`'s doc comment.
-        if category == .charger {
-            lastChargerPostTime = clock.now
+        let elapsedSincePreviousPost: Duration? = {
+            switch category {
+            case .charger: return lastChargerPostTime?.duration(to: clock.now)
+            case .device: return lastDevicePostTime?.duration(to: clock.now)
+            }
+        }()
+        let previousPostWasRecent = elapsedSincePreviousPost.map { $0 < deferredDeviceDiffPresentationGapWindow } ?? false
+
+        // Both-orders fix: see `lastChargerPostTime`'s doc comment.
+        switch category {
+        case .charger: lastChargerPostTime = clock.now
+        case .device: lastDevicePostTime = clock.now
         }
-        let directive = deliveryLedger.nextDirective(for: category)
+
+        let directive = deliveryLedger.nextDirective(for: category, previousPostWasRecent: previousPostWasRecent)
         post(category, NotificationContent(title: title, body: body), directive)
     }
 }

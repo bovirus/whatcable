@@ -10,3 +10,4 @@
 "USB devices disconnected" = "USB 设备已断开";
 "Thunderbolt devices connected" = "Thunderbolt 设备已连接";
 "Thunderbolt devices disconnected" = "Thunderbolt 设备已断开";
+"%@ (%@)" = "%1$@（%2$@）";

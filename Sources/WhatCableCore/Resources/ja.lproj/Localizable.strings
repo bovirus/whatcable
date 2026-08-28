@@ -582,7 +582,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "検出されましたが、この接続では読み取れませんでした。ケーブルを接続し直してください。一部の充電器やドックでは読み取りがブロックされることがあります。";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "検出されましたが、この接続では読み取れませんでした。macOS は通常、3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
 "This port can't read cable details: USB-only, no Power Delivery." = "このポートはケーブル情報を読み取れません: USB のみで Power Delivery なし。";
-"No e-marker response. Cable details aren't available on this connection." = "e-marker からの応答がありません。この接続ではケーブル情報を利用できません。";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ の契約から、この充電器がこのケーブルを e-marker 搭載の 5 A 対応ケーブルとして扱ったことがわかります。そのため、充電はケーブルによって制限されていません。この Mac ではここで読み取ることができませんでした。ケーブルを別のデバイスに接続して詳細を確認してください。";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "e-marker からの応答がありません。この接続ではケーブル情報を利用できません。別のデバイスで読み取ってみてください。";
 "Reading cable details…" = "ケーブル情報を読み取り中…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "e-marker を読み取れませんでした。ケーブルに搭載されている可能性はあります。macOS は通常、3 A を超える場合か Thunderbolt 経由でのみ読み取ります。";
 "Passive (no signal-conditioning electronics)" = "パッシブ (信号処理回路なし)";

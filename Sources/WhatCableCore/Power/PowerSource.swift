@@ -16,7 +16,12 @@ public struct PowerOption: Hashable {
         String(format: "%.0fV", locale: .current, Double(voltageMV) / 1000)
     }
     public var ampsLabel: String {
-        String(format: "%.2fA", locale: .current, Double(maxCurrentMA) / 1000)
+        let formatter = NumberFormatter()
+        formatter.locale = .current
+        formatter.numberStyle = .decimal
+        formatter.maximumFractionDigits = 2
+        let amps = Double(maxCurrentMA) / 1000
+        return (formatter.string(from: NSNumber(value: amps)) ?? String(amps)) + "A"
     }
     public var wattsLabel: String {
         String(format: "%.0fW", locale: .current, Double(maxPowerMW) / 1000)

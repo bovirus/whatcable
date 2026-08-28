@@ -580,7 +580,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Mevcut, ancak bu bağlantıda okunmadı. Kabloyu yeniden takmayı deneyin; bazı şarj cihazları ve dokingler okumayı engeller.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Mevcut, ancak bu bağlantıda okunmadı. macOS bunu genellikle yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Bu bağlantı noktası kablo ayrıntılarını okuyamıyor: yalnızca USB, Power Delivery yok.";
-"No e-marker response. Cable details aren't available on this connection." = "E-marker yanıtı yok. Bu bağlantıda kablo ayrıntıları kullanılamıyor.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ sözleşmesi, şarj cihazının bu kabloyu e-marker'lı, 5 A kapasiteli bir kablo olarak değerlendirdiğini gösteriyor, bu nedenle şarj kablo tarafından sınırlandırılmıyor. Bu Mac burada kendi okumasını alamadı. Ayrıntılarını görmek için kabloyu başka bir cihaza bağlayın.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "E-marker yanıtı yok. Bu bağlantıda kablo ayrıntıları kullanılamıyor. Okumak için başka bir cihaz deneyin.";
 "Reading cable details…" = "Kablo ayrıntıları okunuyor…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker okunmadı. Kabloda bir tane olabilir; macOS bunu genellikle yalnızca 3 A üzerinde veya Thunderbolt üzerinden okur.";
 "Passive (no signal-conditioning electronics)" = "Pasif (sinyal düzenleme elektroniği yok)";

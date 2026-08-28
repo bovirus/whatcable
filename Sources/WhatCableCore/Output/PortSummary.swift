@@ -453,12 +453,15 @@ extension PortSummary {
                 // can't back. Unknown age (nil) skips this branch entirely
                 // and falls through to the post-window wording below.
                 emarkerSubtitle = String(localized: "Reading cable details…", bundle: _coreLocalizedBundle)
+            } else if negotiatedAbove3A {
+                // A >3A contract is strong evidence the charger read the
+                // e-marker (USB-PD requires it above 3A; cables rate only
+                // 3A or 5A), phrased as an observation since a non-compliant
+                // charger could skip the read. Owner-approved 2026-08-28.
+                let amps = chargingSource?.winning?.ampsLabel ?? ""
+                emarkerSubtitle = String(localized: "The \(amps) contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details.", bundle: _coreLocalizedBundle)
             } else if readConditionsMet {
-                // Was: "...so charging is capped at 3A (60W at 20V)." That
-                // claim was disproven by its own guard: this branch only
-                // fires when readConditionsMet is true, i.e. we already
-                // negotiated above 3A or have a live Thunderbolt link.
-                emarkerSubtitle = String(localized: "No e-marker response. Cable details aren't available on this connection.", bundle: _coreLocalizedBundle)
+                emarkerSubtitle = String(localized: "No e-marker response. Cable details aren't available on this connection. Try another device to read it.", bundle: _coreLocalizedBundle)
             } else {
                 emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }

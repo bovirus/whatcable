@@ -580,7 +580,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "있지만 이 연결에서는 읽지 못했습니다. 케이블을 다시 연결해 보십시오. 일부 충전기와 도크는 읽기를 차단합니다.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "있지만 이 연결에서는 읽지 못했습니다. macOS는 보통 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
 "This port can't read cable details: USB-only, no Power Delivery." = "이 포트는 케이블 정보를 읽을 수 없습니다: USB 전용, Power Delivery 없음.";
-"No e-marker response. Cable details aren't available on this connection." = "e-marker 응답이 없습니다. 이 연결에서는 케이블 정보를 사용할 수 없습니다.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ 계약을 보면 충전기가 이 케이블을 e-marker가 있는 5 A 지원 케이블로 처리했음을 알 수 있습니다. 따라서 충전은 케이블에 의해 제한되지 않습니다. 이 Mac에서는 여기서 직접 읽을 수 없었습니다. 케이블을 다른 기기에 연결하면 세부 정보를 볼 수 있습니다.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "e-marker 응답이 없습니다. 이 연결에서는 케이블 정보를 사용할 수 없습니다. 다른 기기에서 읽어 보십시오.";
 "Reading cable details…" = "케이블 정보를 읽는 중…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "e-marker를 읽지 못했습니다. 케이블에 있을 수 있습니다. macOS는 보통 3 A를 초과하거나 Thunderbolt를 통할 때만 읽습니다.";
 "Passive (no signal-conditioning electronics)" = "패시브 (신호 조정 회로 없음)";

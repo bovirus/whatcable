@@ -580,7 +580,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। केबल दोबारा लगाकर देखें; कुछ चार्जर और डॉक पढ़ने में रुकावट डाल सकते हैं।";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "मौजूद है, लेकिन इस कनेक्शन पर पढ़ा नहीं गया। macOS इसे आमतौर पर केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
 "This port can't read cable details: USB-only, no Power Delivery." = "यह पोर्ट केबल की जानकारी नहीं पढ़ सकता: केवल USB, कोई Power Delivery नहीं।";
-"No e-marker response. Cable details aren't available on this connection." = "e-marker से कोई प्रतिक्रिया नहीं मिली। इस कनेक्शन पर केबल की जानकारी उपलब्ध नहीं है।";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ अनुबंध दिखाता है कि चार्जर ने इस केबल को e-marker वाली, 5 A सक्षम केबल माना, इसलिए चार्जिंग केबल द्वारा सीमित नहीं है। यह Mac यहाँ खुद इसे पढ़ नहीं पाया। इसकी जानकारी देखने के लिए केबल को किसी अन्य डिवाइस से जोड़ें।";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "e-marker से कोई प्रतिक्रिया नहीं मिली। इस कनेक्शन पर केबल की जानकारी उपलब्ध नहीं है। इसे पढ़ने के लिए किसी अन्य डिवाइस पर आज़माएं।";
 "Reading cable details…" = "केबल की जानकारी पढ़ी जा रही है…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "कोई e-marker नहीं पढ़ा गया। केबल में एक हो सकता है; macOS इसे आमतौर पर केवल 3 A से ऊपर या Thunderbolt पर पढ़ता है।";
 "Passive (no signal-conditioning electronics)" = "पैसिव (कोई सिग्नल-कंडीशनिंग इलेक्ट्रॉनिक्स नहीं)";

@@ -581,7 +581,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ Փորձեք նորից միացնել մալուխը. որոշ լիցքավորիչներ և դոկեր կարող են արգելափակել ընթերցումը։";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "This port can't read cable details: USB-only, no Power Delivery." = "Այս պորտը չի կարող կարդալ մալուխի տվյալները՝ միայն USB, առանց Power Delivery-ի։";
-"No e-marker response. Cable details aren't available on this connection." = "E-marker-ից պատասխան չկա։ Այս միացման ժամանակ մալուխի տվյալները հասանելի չեն։";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ պայմանագիրը ցույց է տալիս, որ լիցքավորիչը այս մալուխը ընկալել է որպես e-marker ունեցող, 5 Ա հզորության մալուխ, ուստի լիցքավորումը մալուխով չի սահմանափակվում։ Այս Mac-ը այստեղ չկարողացավ ինքն այն կարդալ։ Միացրեք մալուխը այլ սարքի՝ մանրամասները տեսնելու համար։";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "E-marker-ից պատասխան չկա։ Այս միացման ժամանակ մալուխի տվյալները հասանելի չեն։ Փորձեք այլ սարք՝ այն կարդալու համար։";
 "Reading cable details…" = "Մալուխի տվյալները կարդացվում են…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker չի կարդացվել։ Մալուխը կարող է ունենալ այն. macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "Passive (no signal-conditioning electronics)" = "Պասիվ (առանց ազդանշանի մշակման էլեկտրոնիկայի)";

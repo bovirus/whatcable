@@ -580,7 +580,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Наявний, але не зчитаний під час цього підключення. Спробуйте перепідключити кабель; деякі зарядні пристрої та док-станції блокують зчитування.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Наявний, але не зчитаний під час цього підключення. macOS зазвичай зчитує його лише понад 3 А або через Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Цей порт не може зчитати дані кабелю: лише USB, без Power Delivery.";
-"No e-marker response. Cable details aren't available on this connection." = "Немає відповіді від e-marker. Дані кабелю недоступні для цього підключення.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "Контракт %@ показує, що зарядний пристрій сприйняв цей кабель як кабель з e-marker на 5 А, тому заряджання не обмежується кабелем. Цей Mac не зміг зчитати його тут сам. Підключіть кабель до іншого пристрою, щоб побачити дані.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "Немає відповіді від e-marker. Дані кабелю недоступні для цього підключення. Спробуйте інший пристрій, щоб зчитати його.";
 "Reading cable details…" = "Читання даних кабелю…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker не зчитано. Кабель може його мати; macOS зазвичай зчитує його лише понад 3 А або через Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Пасивний (без електроніки обробки сигналу)";

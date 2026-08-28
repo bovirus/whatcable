@@ -580,7 +580,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Ir, bet šajā savienojumā nav nolasīts. Mēģiniet kabeli pievienot vēlreiz; daži lādētāji un dokstacijas bloķē nolasīšanu.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Ir, bet šajā savienojumā nav nolasīts. macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Šis ports nevar nolasīt kabeļa datus: tikai USB, bez Power Delivery.";
-"No e-marker response. Cable details aren't available on this connection." = "Nav atbildes no e-marķiera. Kabeļa dati nav pieejami šajā savienojumā.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ līgums liecina, ka lādētājs šo kabeli uztvēra kā e-marķiera kabeli ar 5 A jaudu, tāpēc uzlādi kabelis neierobežo. Šis Mac šeit to nevarēja nolasīt pats. Pievienojiet kabeli citai ierīcei, lai redzētu tā datus.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "Nav atbildes no e-marķiera. Kabeļa dati nav pieejami šajā savienojumā. Mēģiniet citu ierīci, lai to nolasītu.";
 "Reading cable details…" = "Nolasa kabeļa datus…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marķieris nav nolasīts. Kabelim tāds var būt; macOS to parasti nolasa tikai virs 3 A vai caur Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Pasīvs (bez signāla apstrādes elektronikas)";

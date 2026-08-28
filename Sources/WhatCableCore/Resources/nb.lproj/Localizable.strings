@@ -581,7 +581,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Til stede, men ikke lest på denne tilkoblingen. Prøv å koble til kabelen på nytt; enkelte ladere og dokker blokkerer lesingen.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Til stede, men ikke lest på denne tilkoblingen. macOS leser den vanligvis bare over 3 A eller via Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "Denne porten kan ikke lese kabeldetaljer: kun USB, ingen Power Delivery.";
-"No e-marker response. Cable details aren't available on this connection." = "Ingen respons fra e-marker. Kabeldetaljer er ikke tilgjengelig på denne tilkoblingen.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@-kontrakten viser at laderen behandlet denne kabelen som en e-marker-kabel med 5 A-kapasitet, så ladingen begrenses ikke av kabelen. Denne Mac-en klarte ikke å lese den her selv. Koble kabelen til en annen enhet for å se detaljene.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "Ingen respons fra e-marker. Kabeldetaljer er ikke tilgjengelig på denne tilkoblingen. Prøv en annen enhet for å lese den.";
 "Reading cable details…" = "Leser kabeldetaljer…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "Ingen e-marker lest. Kabelen kan ha en; macOS leser den vanligvis bare over 3 A eller via Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passiv (ingen signalbehandlingselektronikk)";

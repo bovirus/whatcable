@@ -456,8 +456,8 @@ struct PortSummaryTests {
             let summary = PortSummary(port: port, sources: sources, connectionAge: age)
             let subtitle = summary.group(.emarker)?.subtitle
             #expect(
-                subtitle == "No e-marker response. Cable details aren't available on this connection.",
-                "age \(String(describing: age)): expected the corrected subtitle, got: \(String(describing: subtitle))"
+                subtitle == "The 4.8A contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details.",
+                "age \(String(describing: age)): expected the negotiated-above-3A subtitle, got: \(String(describing: subtitle))"
             )
             #expect(subtitle?.contains("3A") != true, "age \(String(describing: age)): must not claim a 3A cap, got: \(String(describing: subtitle))")
         }
@@ -468,7 +468,8 @@ struct PortSummaryTests {
         // Same as above but readConditionsMet is satisfied by a live
         // Thunderbolt link (hasTB), not a negotiated contract. No charging
         // source at all, so this also proves readConditionsMet doesn't
-        // require chargingSource.
+        // require chargingSource, and that it falls to the TB-only wording
+        // rather than the negotiatedAbove3A branch.
         let port = makePort(active: ["CIO"], supported: ["CC", "CIO"], emarker: false)
 
         for age in [2.0, 5.99] {
@@ -482,8 +483,8 @@ struct PortSummaryTests {
             let summary = PortSummary(port: port, connectionAge: age)
             let subtitle = summary.group(.emarker)?.subtitle
             #expect(
-                subtitle == "No e-marker response. Cable details aren't available on this connection.",
-                "age \(String(describing: age)): expected the corrected subtitle, got: \(String(describing: subtitle))"
+                subtitle == "No e-marker response. Cable details aren't available on this connection. Try another device to read it.",
+                "age \(String(describing: age)): expected the TB-only subtitle, got: \(String(describing: subtitle))"
             )
             #expect(subtitle?.contains("3A") != true, "age \(String(describing: age)): must not claim a 3A cap, got: \(String(describing: subtitle))")
         }

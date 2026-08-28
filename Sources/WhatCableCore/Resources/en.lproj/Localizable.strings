@@ -586,7 +586,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read.";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt.";
 "This port can't read cable details: USB-only, no Power Delivery." = "This port can't read cable details: USB-only, no Power Delivery.";
-"No e-marker response. Cable details aren't available on this connection." = "No e-marker response. Cable details aren't available on this connection.";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details.";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "No e-marker response. Cable details aren't available on this connection. Try another device to read it.";
 "Reading cable details…" = "Reading cable details…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.";
 "Passive (no signal-conditioning electronics)" = "Passive (no signal-conditioning electronics)";

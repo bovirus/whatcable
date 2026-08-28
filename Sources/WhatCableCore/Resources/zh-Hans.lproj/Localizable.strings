@@ -581,7 +581,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "存在，但本次连接未读取。请尝试重新插拔线缆；某些充电器和扩展坞会阻止读取。";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "存在，但本次连接未读取。macOS 通常仅在超过 3 A 或通过 Thunderbolt 时读取。";
 "This port can't read cable details: USB-only, no Power Delivery." = "此端口无法读取线缆信息：仅 USB，无 Power Delivery。";
-"No e-marker response. Cable details aren't available on this connection." = "e-marker 无响应。此连接无法获取线缆信息。";
+"The %@ contract shows the charger treated this as an e-marked, 5A-capable cable, so charging isn't limited by the cable. This Mac couldn't get its own read here. Connect the cable to another device to see its details." = "%@ 的协议表明充电器将此线缆识别为具备 e-marker、支持 5 A 的线缆，因此充电并未受到线缆限制。此 Mac 无法在此处自行读取。请将线缆连接到其他设备以查看详情。";
+"No e-marker response. Cable details aren't available on this connection. Try another device to read it." = "e-marker 无响应。此连接无法获取线缆信息。请尝试用其他设备读取。";
 "Reading cable details…" = "正在读取线缆信息…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "未读取到 e-marker。线缆可能有一个；macOS 通常仅在超过 3 A 或通过 Thunderbolt 时读取。";
 "Passive (no signal-conditioning electronics)" = "被动式（无信号调理电路）";

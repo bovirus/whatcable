@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import WhatCableCore
 
@@ -420,6 +421,213 @@ struct PortSummaryTests {
             summary.group(.emarker)?.lines.contains { $0.contains("Cable speed") } == true,
             "expected e-marker claims on a PD-capable port, got: \(summary.groups)"
         )
+    }
+
+    // MARK: - E-marker read window (age-gated wording)
+    //
+    // macOS reads the cable e-marker 5.0-5.6s after CC attach on a fixed
+    // schedule (research/emarker-read-timing.md). Before that, "no SOP' node"
+    // means "not read yet", not "no e-marker". `connectionAge` carries that
+    // fact in; these tests pin the branch that decides "Reading cable
+    // details..." vs. the post-window wording.
+    //
+    // Ages used throughout: 2.0 (young, well inside the window), 5.99
+    // (boundary, still reading: 5.99 < 6.0 is true), 6.0 (boundary, post-
+    // window: 6.0 < 6.0 is false, the window is a half-open interval
+    // [0, 6.0)), 7.0 (comfortably post-window), and nil (unknown age, which
+    // must always render post-window wording, never "Reading").
+
+    @Test("Reading window: above-3A readConditionsMet, age-gated wording")
+    func readingWindowAbove3A() {
+        // No SOP'/SOP'' identity at all. Charging above 3A makes
+        // readConditionsMet true, which is exactly the state that used to
+        // print the disproven "capped at 3A" claim.
+        let port = makePort(active: ["USB2"], supported: ["CC", "USB2"], emarker: false)
+        let sources = [usbPD(maxW: 96, winningW: 96)]
+
+        for age in [2.0, 5.99] {
+            let summary = PortSummary(port: port, sources: sources, connectionAge: age)
+            #expect(
+                summary.group(.emarker)?.subtitle == "Reading cable details…",
+                "age \(age): expected the reading subtitle, got: \(String(describing: summary.group(.emarker)))"
+            )
+        }
+        for age: TimeInterval? in [6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, sources: sources, connectionAge: age)
+            let subtitle = summary.group(.emarker)?.subtitle
+            #expect(
+                subtitle == "No e-marker response. Cable details aren't available on this connection.",
+                "age \(String(describing: age)): expected the corrected subtitle, got: \(String(describing: subtitle))"
+            )
+            #expect(subtitle?.contains("3A") != true, "age \(String(describing: age)): must not claim a 3A cap, got: \(String(describing: subtitle))")
+        }
+    }
+
+    @Test("Reading window: live-TB readConditionsMet, age-gated wording")
+    func readingWindowLiveTB() {
+        // Same as above but readConditionsMet is satisfied by a live
+        // Thunderbolt link (hasTB), not a negotiated contract. No charging
+        // source at all, so this also proves readConditionsMet doesn't
+        // require chargingSource.
+        let port = makePort(active: ["CIO"], supported: ["CC", "CIO"], emarker: false)
+
+        for age in [2.0, 5.99] {
+            let summary = PortSummary(port: port, connectionAge: age)
+            #expect(
+                summary.group(.emarker)?.subtitle == "Reading cable details…",
+                "age \(age): expected the reading subtitle, got: \(String(describing: summary.group(.emarker)))"
+            )
+        }
+        for age: TimeInterval? in [6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, connectionAge: age)
+            let subtitle = summary.group(.emarker)?.subtitle
+            #expect(
+                subtitle == "No e-marker response. Cable details aren't available on this connection.",
+                "age \(String(describing: age)): expected the corrected subtitle, got: \(String(describing: subtitle))"
+            )
+            #expect(subtitle?.contains("3A") != true, "age \(String(describing: age)): must not claim a 3A cap, got: \(String(describing: subtitle))")
+        }
+    }
+
+    @Test("Reading window: readConditionsMet false keeps the cautious wording post-window")
+    func readingWindowConditionsNotMet() {
+        // Below 3A, no Thunderbolt: readConditionsMet is false. Young age
+        // still reads "Reading"; post-window/nil falls to the EXISTING
+        // cautious wording, unchanged by this PR (only the readConditionsMet
+        // == true string was replaced).
+        let port = makePort(active: ["USB2"], supported: ["CC", "USB2"], emarker: false)
+
+        for age in [2.0, 5.99] {
+            let summary = PortSummary(port: port, connectionAge: age)
+            #expect(
+                summary.group(.emarker)?.subtitle == "Reading cable details…",
+                "age \(age): expected the reading subtitle, got: \(String(describing: summary.group(.emarker)))"
+            )
+        }
+        for age: TimeInterval? in [6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, connectionAge: age)
+            let subtitle = summary.group(.emarker)?.subtitle
+            #expect(
+                subtitle == "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.",
+                "age \(String(describing: age)): expected the unchanged cautious subtitle, got: \(String(describing: subtitle))"
+            )
+        }
+    }
+
+    @Test("Reading window: populated SOP' wins over 'Reading' at every age")
+    func readingWindowPopulatedEmarkerWinsAtEveryAge() {
+        let port = makePort(
+            active: ["USB3"],
+            supported: ["CC", "USB2", "USB3"],
+            superSpeed: true
+        )
+        let cable = USBPDSOP(
+            id: 99, endpoint: .sopPrime,
+            parentPortType: 0, parentPortNumber: 0,
+            vendorID: 0, productID: 0, bcdDevice: 0,
+            vdos: [(3 << 27), 0, 0, (0b10 << 5) | 0b011 | (1 << 13)], specRevision: 0
+        )
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, identities: [cable], connectionAge: age)
+            let group = summary.group(.emarker)
+            #expect(
+                group?.lines.contains { $0.contains("Cable speed") } == true,
+                "age \(String(describing: age)): expected cable details, got: \(String(describing: group))"
+            )
+            #expect(group?.subtitle == nil, "age \(String(describing: age)): a read e-marker carries no subtitle, got: \(String(describing: group))")
+        }
+    }
+
+    @Test("Reading window: SOP' present with empty VDOs keeps 'not read' wording at every age")
+    func readingWindowEmptyEmarkerKeepsNotReadAtEveryAge() {
+        // Regression pin: `hasEmarker` (endpoint present) takes priority over
+        // the age gate entirely, per spec (this branch is unchanged code).
+        let port = makePort(active: ["USB2"], supported: ["CC", "USB2"])
+        let cable = USBPDSOP(
+            id: 99, endpoint: .sopPrime,
+            parentPortType: 0, parentPortNumber: 0,
+            vendorID: 0, productID: 0, bcdDevice: 0,
+            vdos: [], specRevision: 0
+        )
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, identities: [cable], connectionAge: age)
+            let subtitle = summary.group(.emarker)?.subtitle
+            #expect(
+                subtitle?.contains("not read on this connection") == true,
+                "age \(String(describing: age)): expected the not-read subtitle, got: \(String(describing: subtitle))"
+            )
+            #expect(subtitle != "Reading cable details…", "age \(String(describing: age)): must not show the reading subtitle here")
+        }
+    }
+
+    @Test("Reading window: non-PD port keeps USB-only wording at every age")
+    func readingWindowNonPDPortAtEveryAge() {
+        let port = makePort(active: ["USB3"], supported: ["USB2", "USB3"], superSpeed: true)
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(port: port, connectionAge: age)
+            let subtitle = summary.group(.emarker)?.subtitle
+            #expect(
+                subtitle?.contains("can't read cable details") == true,
+                "age \(String(describing: age)): expected the USB-only subtitle, got: \(String(describing: subtitle))"
+            )
+        }
+    }
+
+    @Test("Reading window: MagSafe never shows an e-marker subtitle at any age")
+    func readingWindowMagSafeAtEveryAge() {
+        let magSafePort = USBCPort(
+            id: 1,
+            serviceName: "Port-MagSafe 3@1",
+            className: "AppleHPMInterfaceType11",
+            portDescription: "Port-MagSafe 3@1",
+            portTypeDescription: "MagSafe 3",
+            portNumber: 1,
+            connectionActive: true,
+            activeCable: nil, opticalCable: nil, usbActive: nil, superSpeedActive: nil,
+            usbModeType: nil, usbConnectString: nil,
+            transportsSupported: [],
+            transportsActive: ["CC"],
+            transportsProvisioned: ["CC"],
+            plugOrientation: nil, plugEventCount: nil, connectionCount: nil,
+            overcurrentCount: nil, pinConfiguration: [:], powerCurrentLimits: [],
+            firmwareVersion: nil, bootFlagsHex: nil, rawProperties: [:]
+        )
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(
+                port: magSafePort,
+                sources: [usbPD(maxW: 100, winningW: 100)],
+                connectionAge: age
+            )
+            #expect(
+                summary.group(.emarker) == nil,
+                "age \(String(describing: age)): MagSafe must not carry an e-marker group, got: \(String(describing: summary.group(.emarker)))"
+            )
+        }
+    }
+
+    @Test("Reading window: no payload / disconnected never enters the reading state")
+    func readingWindowNoPayloadNeverReads() {
+        // Disconnected port: no e-marker group at all, at any age.
+        let disconnected = makePort(connected: false)
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(port: disconnected, connectionAge: age)
+            #expect(
+                summary.group(.emarker) == nil,
+                "age \(String(describing: age)): disconnected port must not carry an e-marker group"
+            )
+            #expect(summary.subtitle != "Reading cable details…")
+        }
+
+        // Connected but nothing plugged in (no active transports, no
+        // partner): hasPayload is false, so no e-marker group either.
+        let empty = makePort(connected: true)
+        for age: TimeInterval? in [2.0, 5.99, 6.0, 7.0, nil] {
+            let summary = PortSummary(port: empty, connectionAge: age)
+            #expect(
+                summary.group(.emarker) == nil,
+                "age \(String(describing: age)): empty port must not carry an e-marker group"
+            )
+        }
     }
 
     @Test("Negotiated PDO appears in bullets")

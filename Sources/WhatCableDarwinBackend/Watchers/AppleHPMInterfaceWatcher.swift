@@ -42,6 +42,14 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
     // double-register when a port is rediscovered during a manual refresh.
     private var interestNotifications: [UInt64: io_object_t] = [:]
 
+    // Tracks per-port connection-session age (issue: honest "Reading cable
+    // details..." wording during the ~5s e-marker read window). Pure type,
+    // fed the rebuilt port list on every `refresh()`. Monotonic clock via
+    // mach uptime, never `Date` (wall-clock jumps would corrupt the age).
+    private let sessionTracker = PortConnectionSessionTracker(
+        now: { Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000 }
+    )
+
     public init() {}
 
     public func start() {
@@ -77,6 +85,29 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
             notifyPort = nil
         }
         ports.removeAll()
+        sessionTracker.reset()
+    }
+
+    /// Seconds since the current physical connection on this port was
+    /// stamped, or nil when unknown (never observed active with a known
+    /// start, or the port is currently inactive). See
+    /// `PortConnectionSessionTracker` for the full transition rules.
+    public func connectionAge(for portID: UInt64) -> TimeInterval? {
+        sessionTracker.connectionAge(for: portID)
+    }
+
+    /// The monotonic instant the current session was stamped at. For a
+    /// caller that wants to recompute age itself on every render rather than
+    /// consume a sampled snapshot that goes stale between renders.
+    public func connectionAttachInstant(for portID: UInt64) -> TimeInterval? {
+        sessionTracker.attachInstant(for: portID)
+    }
+
+    /// Changes only when the port's session is genuinely (re)stamped, never
+    /// on a churn round-trip reuse. Intended for keying a SwiftUI
+    /// `.task(id:)` expiry timer so it restarts on a real replug only.
+    public func connectionSessionGeneration(for portID: UInt64) -> Int? {
+        sessionTracker.sessionGeneration(for: portID)
     }
 
     /// Re-walk the registry. Property changes (cable plug/unplug) don't fire
@@ -130,6 +161,15 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
         // attribution churn flips `connectionActive` on its own, and an
         // active-first sort reordered the card list on every flip.
         rebuilt.sort(by: AppleHPMInterface.stableOrder)
+
+        // Feed the tracker on every refresh, even when the publish below is
+        // skipped: a session-token-only change already makes `rebuilt !=
+        // ports` today (see `AppleHPMInterface`'s synthesized `Hashable`
+        // conformance, which includes `plugEventCount`/`connectionCount`),
+        // but calling this unconditionally doesn't depend on that staying
+        // true if the struct's equality ever narrows.
+        sessionTracker.observe(rebuilt)
+
         if rebuilt != ports { ports = rebuilt }
     }
 
@@ -149,6 +189,47 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
         // Stable order (serviceName only). See `refresh()` above and
         // `AppleHPMInterface.stableOrder`.
         ports.sort(by: AppleHPMInterface.stableOrder)
+
+        // Feed the tracker here too, not just from `refresh()`. Without
+        // this, a port whose FIRST observation ever arrives via `refresh()`
+        // (triggered by a cable plug's interest notification) looks to the
+        // tracker like "already active on first sight": the
+        // already-active-on-first-observation rule then leaves its age
+        // unknown for the whole connection, so "Reading cable details..."
+        // never shows for a cable plugged before `refresh()` had run once.
+        // Seeding an INACTIVE baseline here means the later plug is a real
+        // false -> true transition, which stamps normally.
+        //
+        // Safety of passing a possibly-PARTIAL array here: `drain(_:)` is
+        // called once per candidate class, and `ports` (this property, not
+        // the local `found`) already holds the running merge of every class
+        // drained so far this call chain. `observe(_:)` prunes tracker
+        // state for ids missing from what it's given, so the question is
+        // whether a partial `ports` array can ever drop state a concurrent
+        // `refresh()` still needs. It can't:
+        //   - `AppleHPMInterfaceWatcher` is `@MainActor` and neither
+        //     `drain(_:)` nor `refresh()` suspends internally (no `await`
+        //     in either body), so Swift's cooperative executor never
+        //     interleaves them mid-function; each call runs to completion
+        //     before the next starts.
+        //   - During `start()`'s initial burst, `drain(_:)` runs
+        //     synchronously once per class in a plain `for` loop with no
+        //     suspension point, so no `refresh()` (which is only ever
+        //     scheduled via an async `Task` off an interest-notification
+        //     callback) can run between those calls and observe a
+        //     mid-burst array.
+        //   - The tracker itself starts empty on `init()` and is cleared by
+        //     `stop()`, so at the very first `observe(_:)` call in any
+        //     watcher lifetime there is no existing state to prune away by
+        //     mistake; a partial array can only ever add first-observation
+        //     entries for the ports found so far, never lose ones from
+        //     ports not yet drained.
+        //   - Once startup finishes, a later `drain(_:)` call only fires
+        //     for a brand-new match (e.g. a hot-plugged controller); by
+        //     then `ports` already holds the full previously-known set
+        //     (from prior `refresh()`/`drain()` calls) plus the new find,
+        //     so it's the full current picture, not a partial one.
+        sessionTracker.observe(ports)
     }
 
     /// Subscribe to property/state changes on a port controller. The kernel

@@ -38,6 +38,10 @@ final class WidgetDataWriter {
     private var cancellables = Set<AnyCancellable>()
     private var writeTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
+    /// Pending write scheduled for when the last port still inside the
+    /// e-marker read window exits it. Nil when nothing written this pass was
+    /// inside the window. See `scheduleExpiryWriteIfNeeded(remaining:)`.
+    private var expiryWriteTask: Task<Void, Never>?
     private var lastSnapshot: WidgetSnapshot?
     private var lastReloadSignature: ReloadSignature?
     private var isStarted = false
@@ -46,6 +50,15 @@ final class WidgetDataWriter {
     /// `writeToDefaults` for why tests need this rather than the write's own
     /// success/failure.
     private(set) var writeAttemptCount = 0
+    /// Test-observable count of calls to `scheduleExpiryWriteIfNeeded`,
+    /// incremented on every call regardless of `remaining` or of whether the
+    /// caller's structural dedup goes on to skip the write. Exists to pin the
+    /// ordering fix in `performScheduledWrite()`: this bookkeeping must run
+    /// even when the write itself gets deduped away, or a replug during the
+    /// e-marker read window that renders an identical subtitle to the cached
+    /// one would leave a stale expiry task pending. See
+    /// `WidgetDataWriterExpiryOrderingTests`.
+    private(set) var scheduleExpiryWriteCallCountForTesting = 0
 
     private var contributorCancellables = Set<AnyCancellable>()
 
@@ -69,6 +82,24 @@ final class WidgetDataWriter {
         )
     }
 
+    /// The delay before the widget cache should get a fresh write, given the
+    /// live connection ages of the ports in a snapshot just built. Pure seam
+    /// so the "which port's expiry governs the wait" arithmetic is testable
+    /// without a live `WatcherHub` (`WidgetDataWriterExpiryWriteTests`).
+    ///
+    /// Returns the LARGEST remaining time among ports still inside
+    /// `PortSummary.emarkerReadWindow` (the youngest connection, spec
+    /// section 4): scheduling at that instant guarantees every reading-state
+    /// port in this snapshot has resolved to its post-window verdict by the
+    /// time the rewrite fires. Returns `nil` when no port is inside the
+    /// window, meaning nothing needs a rewrite.
+    nonisolated static func readingWindowRemaining(ages: [TimeInterval?]) -> TimeInterval? {
+        ages.compactMap { age -> TimeInterval? in
+            guard let age, age < PortSummary.emarkerReadWindow else { return nil }
+            return PortSummary.emarkerReadWindow - age
+        }.max()
+    }
+
 
     /// Checks whether any WhatCable widget is currently on the user's
     /// desktop. Injectable so tests can stub the result without a live
@@ -82,6 +113,15 @@ final class WidgetDataWriter {
     /// own logic only ever reads `presenceState` through the gate methods
     /// above; this exists purely so a test can assert what got cached.
     var presenceStateForTesting: WidgetPresenceState { presenceState }
+
+    /// Test-only seam: sets `lastSnapshot` directly, so a test can simulate
+    /// "this exact snapshot is already cached" without needing a real App
+    /// Group write to succeed first (`writeToDefaults` always fails in the
+    /// sandboxed test process; see `writeAttemptCount`'s doc comment). Used
+    /// to drive `performScheduledWrite()` into its structural-dedup branch.
+    func primeLastSnapshotForTesting(_ snapshot: WidgetSnapshot) {
+        lastSnapshot = snapshot
+    }
     /// Bumped at the start of every `refreshPresence()` call, before the
     /// `await`. Lets a call whose result comes back late discard itself
     /// instead of overwriting a newer result.
@@ -259,6 +299,38 @@ final class WidgetDataWriter {
         }
     }
 
+    /// Schedules a rewrite for when the reading-window ports in the snapshot
+    /// just written resolve to their post-window verdict, so the cached file
+    /// never freezes a premature "No e-marker response" claim (or the old
+    /// "Reading..." state past its actual expiry). `remaining` is
+    /// `readingWindowRemaining(ages:)`'s result for the snapshot just built:
+    /// `nil` when nothing in it is inside the window, in which case any
+    /// previously pending expiry write is cancelled outright since it would
+    /// now be scheduling against stale data.
+    ///
+    /// Called on every `performScheduledWrite()` / `forceWrite()` pass
+    /// UNCONDITIONALLY, including when the structural-signature dedup goes
+    /// on to skip the write itself (see the call site's comment): a replug
+    /// during the read window restamps the session and produces a fresh
+    /// age even when the rendered subtitle happens to be byte-identical to
+    /// what is already cached ("Reading cable details..." both times), so
+    /// this bookkeeping cannot wait for a write to actually happen.
+    private func scheduleExpiryWriteIfNeeded(remaining: TimeInterval?) {
+        scheduleExpiryWriteCallCountForTesting += 1
+        expiryWriteTask?.cancel()
+        expiryWriteTask = nil
+        guard let remaining else { return }
+        // Small epsilon past the window boundary, mirroring the menu bar
+        // card's expiry wait, so the rewrite lands just after macOS's own
+        // read schedule rather than exactly on it.
+        let delay = remaining + 0.1
+        expiryWriteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.scheduleWrite()
+        }
+    }
+
     /// The debounced write's actual body: the presence gate, the
     /// structural-only dedup, the write, and the conditional WidgetKit
     /// reload. Extracted from `scheduleWrite()`'s `Task` so tests can call it
@@ -269,7 +341,22 @@ final class WidgetDataWriter {
     func performScheduledWrite() -> Bool {
         guard presenceState.shouldWrite else { return false }
 
-        let snapshot = buildSnapshot()
+        let (snapshot, readingWindowRemaining) = buildSnapshot()
+
+        // Rescheduled from every fresh age computation, BEFORE the
+        // structural-signature dedup below, and unconditionally on the
+        // outcome of that dedup. A replug during the read window restamps
+        // the tracker (a fresh session, fresh age) but can render an
+        // IDENTICAL subtitle to the one already on disk ("Reading cable
+        // details..." both times), so the dedup below returns early and
+        // skips the write. If scheduling waited until after that early
+        // return, the previous session's now-stale pending task would fire
+        // into the same dedup, itself do nothing, and leave the cache
+        // showing "Reading..." until the next 60s heartbeat instead of the
+        // new session's own, earlier expiry. Only the WRITE and RELOAD stay
+        // gated on the dedup; this bookkeeping does not touch the cache
+        // file or WidgetKit.
+        scheduleExpiryWriteIfNeeded(remaining: readingWindowRemaining)
 
         // Skip the write if nothing STRUCTURAL changed. Pro power
         // telemetry polls at 1 Hz and its readings wobble by tenths of a
@@ -313,7 +400,15 @@ final class WidgetDataWriter {
     /// to installed. Callers are responsible for the presence gate; this
     /// always writes when called.
     private func forceWrite() {
-        let snapshot = buildSnapshot()
+        let (snapshot, readingWindowRemaining) = buildSnapshot()
+        // Scheduled from the freshly computed remaining regardless of
+        // whether this particular write succeeds below, mirroring
+        // `performScheduledWrite()`: the expiry bookkeeping reflects the
+        // current live age, not this call's write outcome. A later
+        // `scheduleWrite()` firing from it rebuilds the snapshot fresh
+        // anyway, so there is nothing stale to propagate even if
+        // `writeToDefaults` fails here.
+        scheduleExpiryWriteIfNeeded(remaining: readingWindowRemaining)
         guard writeToDefaults(snapshot) else { return }
         lastSnapshot = snapshot
         // The heartbeat is the deliberate periodic reload, so resync the
@@ -325,7 +420,16 @@ final class WidgetDataWriter {
     }
 
 
-    private func buildSnapshot() -> WidgetSnapshot {
+    /// Builds the snapshot to write, plus the delay (if any) before the next
+    /// write should fire to resolve a port still inside the e-marker read
+    /// window (see `readingWindowRemaining(ages:)`).
+    ///
+    /// Internal, not private: `WidgetDataWriterExpiryOrderingTests` calls
+    /// this directly to prime `lastSnapshot` (via
+    /// `primeLastSnapshotForTesting(_:)`) with a REAL structural signature,
+    /// so it can drive `performScheduledWrite()` into its dedup branch
+    /// without needing a live App Group write to succeed first.
+    func buildSnapshot() -> (snapshot: WidgetSnapshot, readingWindowRemaining: TimeInterval?) {
         let batteryResult = AppleSmartBatteryReader.read()
         let batteryFull = batteryResult.battery?.fullyCharged
         let batteryCharging = batteryResult.battery?.isCharging
@@ -369,12 +473,25 @@ final class WidgetDataWriter {
             )
         }
 
+        // Collected alongside the entries below, one per port, so the expiry
+        // rewrite can be scheduled from the same live ages the snapshot's
+        // subtitles were actually rendered with.
+        var portAges: [TimeInterval?] = []
+
         let entries: [WidgetSnapshot.PortEntry] = portWatcher.ports.map { port in
             let (attributed, devices) = Self.deviceInputs(
                 for: port, devices: deviceWatcher.devices, thunderboltSwitches: tbWatcher.switches
             )
             let sources = powerWatcher.sources(for: port)
             let identities = pdWatcher.identities(for: port)
+            // Live age from the same session tracker the menu bar card uses,
+            // so the widget cache never freezes a premature no-e-marker
+            // verdict for a connection still inside the read window (spec
+            // section 4). `WidgetDataWriter` runs in the host app with
+            // `WatcherHub` access, unlike the widget extension's own
+            // one-shot live read, which stays nil.
+            let connectionAge = portWatcher.connectionAge(for: port.id)
+            portAges.append(connectionAge)
 
             let isLive = WhatCableCore.isPortLive(
                 port: port,
@@ -405,7 +522,8 @@ final class WidgetDataWriter {
                 chargerWattageSource: wattageSource,
                 batteryFullyCharged: batteryFull,
                 batteryIsCharging: batteryCharging,
-                adapter: adapter
+                adapter: adapter,
+                connectionAge: connectionAge
             )
 
             let status = WidgetSnapshot.Status(from: summary.status)
@@ -506,7 +624,8 @@ final class WidgetDataWriter {
             recentSystemPower: recentSystemPower
         )
 
-        return WidgetSnapshot(ports: entries + builtInDisplayEntries, powerState: powerState)
+        let snapshot = WidgetSnapshot(ports: entries + builtInDisplayEntries, powerState: powerState)
+        return (snapshot, Self.readingWindowRemaining(ages: portAges))
     }
 
     @discardableResult

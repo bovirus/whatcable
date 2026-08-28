@@ -15,6 +15,12 @@ public struct PortSummary {
         case unknown
     }
 
+    /// macOS reads the cable e-marker 5.0-5.6s after attach on a fixed
+    /// schedule (research/emarker-read-timing.md, measured 2026-08-28).
+    /// Until this much time has passed, "no SOP' node" means "not read
+    /// yet", not "no e-marker".
+    public static let emarkerReadWindow: TimeInterval = 6.0
+
     public let status: Status
     public let headline: String
     public let subtitle: String
@@ -96,7 +102,15 @@ extension PortSummary {
         chargerWattageSource: ChargerWattageSource = .unknown,
         batteryFullyCharged: Bool? = nil,
         batteryIsCharging: Bool? = nil,
-        adapter: AdapterInfo? = nil
+        adapter: AdapterInfo? = nil,
+        // Nonnegative elapsed MONOTONIC seconds since CC attach. nil means
+        // unknown: one-shot surfaces (CLI, widget extension), or the first
+        // observation of a connection that was already active when the
+        // observer started (app relaunch mid-connection). Exactly
+        // `emarkerReadWindow` is post-window (`age < window` is the reading
+        // test). Unknown age must never produce the reading state; it always
+        // renders post-window wording.
+        connectionAge: TimeInterval? = nil
     ) {
         let connected = isConnectedOverride ?? (port.connectionActive == true)
         let active = port.transportsActive
@@ -433,8 +447,18 @@ extension PortSummary {
         } else if hasPayload && !isMagSafe {
             if !pdCapable {
                 emarkerSubtitle = String(localized: "This port can't read cable details: USB-only, no Power Delivery.", bundle: _coreLocalizedBundle)
+            } else if let connectionAge, connectionAge < Self.emarkerReadWindow {
+                // Still inside the read window: macOS hasn't necessarily run
+                // Discover Identity yet, so "no e-marker" would be a claim we
+                // can't back. Unknown age (nil) skips this branch entirely
+                // and falls through to the post-window wording below.
+                emarkerSubtitle = String(localized: "Reading cable details…", bundle: _coreLocalizedBundle)
             } else if readConditionsMet {
-                emarkerSubtitle = String(localized: "No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V).", bundle: _coreLocalizedBundle)
+                // Was: "...so charging is capped at 3A (60W at 20V)." That
+                // claim was disproven by its own guard: this branch only
+                // fires when readConditionsMet is true, i.e. we already
+                // negotiated above 3A or have a live Thunderbolt link.
+                emarkerSubtitle = String(localized: "No e-marker response. Cable details aren't available on this connection.", bundle: _coreLocalizedBundle)
             } else {
                 emarkerSubtitle = String(localized: "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)
             }

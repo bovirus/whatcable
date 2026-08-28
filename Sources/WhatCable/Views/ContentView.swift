@@ -391,7 +391,9 @@ struct ContentView: View {
                                 adapter: adapter,
                                 anotherPortActivelyCharging: port.portKey.map { key in chargingPortKeys.contains { $0 != key } } ?? false,
                                 connectionDiagnostic: faultTracker.diagnostic(for: port.portKey),
-                                federatedIdentities: federatedIdentities
+                                federatedIdentities: federatedIdentities,
+                                connectionAttachInstant: portWatcher.connectionAttachInstant(for: port.id),
+                                connectionSessionGeneration: portWatcher.connectionSessionGeneration(for: port.id)
                             )
                             // Reduced opacity is the only visible trace of
                             // the fade: a charger-only port whose power
@@ -986,8 +988,27 @@ struct PortCard: View {
     /// is connected but not the active source on M1 Pro/Max/Ultra, where macOS
     /// publishes no USB-C PowerSource node (issue #459).
     var federatedIdentities: [FederatedIdentity] = []
+    /// The monotonic instant (same clock as `DispatchTime.now().uptimeNanoseconds`)
+    /// this port's current connection session was stamped, from
+    /// `AppleHPMInterfaceWatcher.connectionAttachInstant(for:)`. `nil` means
+    /// unknown (no session stamped yet, or the observer never saw the start of
+    /// this connection). Deliberately an INSTANT, not a sampled age: a sampled
+    /// number frozen at render time would stay "young" forever on re-render.
+    /// `connectionAge` below is recomputed from this fresh on every render.
+    var connectionAttachInstant: TimeInterval?
+    /// The session token for this port's current connection
+    /// (`AppleHPMInterfaceWatcher.connectionSessionGeneration(for:)`). Changes
+    /// only on a genuine (re)stamp, never on churn reuse. Used to key the
+    /// expiry `.task(id:)` below so a replug on an already-visible card
+    /// restarts the wait.
+    var connectionSessionGeneration: Int?
 
     @State private var reportingCable: USBPDSOP?
+    /// Bumped by the expiry task below to force a body recompute once the
+    /// e-marker read window has elapsed, without any new watcher publication.
+    /// Never read directly; SwiftUI invalidates the view on any `@State`
+    /// write regardless of whether the value itself is consulted in `body`.
+    @State private var emarkerWindowExpiryTick = 0
     /// Whether the connected-devices list shows hubs.
     ///
     /// Off by default. Hubs are ~47% of devices in the probe corpus and a
@@ -1012,8 +1033,63 @@ struct PortCard: View {
             chargerWattageSource: chargerWattageSource,
             batteryFullyCharged: batteryFullyCharged,
             batteryIsCharging: batteryIsCharging,
-            adapter: adapter
+            adapter: adapter,
+            connectionAge: connectionAge
         )
+    }
+
+    /// The current monotonic instant, same clock as
+    /// `AppleHPMInterfaceWatcher`'s attach-instant stamps
+    /// (`DispatchTime`'s `uptimeNanoseconds`), so subtracting one from the
+    /// other yields a real elapsed duration unaffected by wall-clock jumps.
+    private static func monotonicNow() -> TimeInterval {
+        Double(DispatchTime.now().uptimeNanoseconds) / 1_000_000_000
+    }
+
+    /// Elapsed time since this port's current connection session was
+    /// stamped, recomputed fresh on every render from `connectionAttachInstant`.
+    /// `nil` when the instant is unknown, which `PortSummary` treats as "age
+    /// unknown" and renders post-window wording for.
+    private var connectionAge: TimeInterval? {
+        connectionAttachInstant.map { instant in
+            max(0, Self.monotonicNow() - instant)
+        }
+    }
+
+    /// Identity for the expiry `.task(id:)` below. Includes the port id so
+    /// distinct ports never share a task, and the session generation so a
+    /// genuine replug of an already-visible card (same `ForEach` identity,
+    /// unchanged port id) restarts the wait: the generation is the session
+    /// token from `PortConnectionSessionTracker`, and it only changes on a
+    /// real (re)stamp, never on #536 churn reuse.
+    private struct EmarkerWindowTaskID: Hashable {
+        let portID: UInt64
+        let generation: Int?
+    }
+
+    private var emarkerWindowTaskID: EmarkerWindowTaskID {
+        EmarkerWindowTaskID(portID: port.id, generation: connectionSessionGeneration)
+    }
+
+    /// Waits out the remainder of the e-marker read window for THIS
+    /// connection session, then bumps `emarkerWindowExpiryTick` so `body`
+    /// recomputes `summary` and falls out of "Reading cable details…".
+    ///
+    /// Keyed by `.task(id: emarkerWindowTaskID)` below: SwiftUI cancels and
+    /// restarts this task whenever the id changes (a replug bumping the
+    /// generation, or the card being removed), so there's no manual timer
+    /// bookkeeping and no risk of a stale wait firing against a later
+    /// session.
+    private func waitForEmarkerWindowExpiry() async {
+        guard let instant = connectionAttachInstant else { return }
+        let age = max(0, Self.monotonicNow() - instant)
+        guard age < PortSummary.emarkerReadWindow else { return }
+        // Small epsilon past the window boundary so the re-render lands
+        // just after macOS's own schedule, not exactly on it.
+        let remaining = PortSummary.emarkerReadWindow - age + 0.1
+        try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+        guard !Task.isCancelled else { return }
+        emarkerWindowExpiryTick &+= 1
     }
 
     /// The host root switch for this port, if it maps to one.
@@ -1335,6 +1411,15 @@ struct PortCard: View {
         }
         .padding(14)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+        // Re-renders the card once this connection session's e-marker read
+        // window elapses, so "Reading cable details…" doesn't get stuck
+        // forever without a fresh watcher publication. Keyed by port id +
+        // session generation: a replug on an already-visible card changes
+        // the generation, which cancels the old wait and starts a new one;
+        // unmounting the card cancels it automatically.
+        .task(id: emarkerWindowTaskID) {
+            await waitForEmarkerWindowExpiry()
+        }
         .sheet(item: $reportingCable) { cable in
             // Wrapped so the sheet's own window picks up the opacity slider too
             // (sheets are separate child windows, not covered by the parent's

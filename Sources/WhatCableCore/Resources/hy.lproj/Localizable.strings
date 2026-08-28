@@ -581,7 +581,8 @@
 "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ Փորձեք նորից միացնել մալուխը. որոշ լիցքավորիչներ և դոկեր կարող են արգելափակել ընթերցումը։";
 "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt." = "Առկա է, բայց այս միացման ժամանակ չի կարդացվել։ macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "This port can't read cable details: USB-only, no Power Delivery." = "Այս պորտը չի կարող կարդալ մալուխի տվյալները՝ միայն USB, առանց Power Delivery-ի։";
-"No e-marker. This cable doesn't advertise its capabilities, so charging is capped at 3A (60W at 20V)." = "E-marker չկա։ Այս մալուխը չի հայտարարում իր հնարավորությունները, ուստի լիցքավորումը սահմանափակված է 3 Ա-ով (60 Վտ 20 Վ-ի դեպքում)։";
+"No e-marker response. Cable details aren't available on this connection." = "E-marker-ից պատասխան չկա։ Այս միացման ժամանակ մալուխի տվյալները հասանելի չեն։";
+"Reading cable details…" = "Մալուխի տվյալները կարդացվում են…";
 "No e-marker read. The cable may have one; macOS usually reads it above 3A or over Thunderbolt." = "E-marker չի կարդացվել։ Մալուխը կարող է ունենալ այն. macOS-ը սովորաբար կարդում է այն միայն 3 Ա-ից բարձր կամ Thunderbolt-ի միջոցով։";
 "Passive (no signal-conditioning electronics)" = "Պասիվ (առանց ազդանշանի մշակման էլեկտրոնիկայի)";
 "%@ isn't in our bundled vendor list" = "%1$@-ը մեր ներկառուցված արտադրողների ցանկում չկա";

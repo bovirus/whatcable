@@ -13,6 +13,7 @@ struct ContentView: View {
     @ObservedObject private var trmWatcher = WatcherHub.shared.trmWatcher
     @ObservedObject private var displayWatcher = WatcherHub.shared.displayWatcher
     @EnvironmentObject private var refresh: RefreshSignal
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject private var settings = AppSettings.shared
     @ObservedObject private var updates = UpdateChecker.shared
     /// Whether this Mac has no internal battery (desktop). A hardware fact that
@@ -208,7 +209,62 @@ struct ContentView: View {
         // Drop history for any port key that's dropped out of the registry
         // entirely (review finding: FIX 3), not just lost its signals.
         portVisibilityTracker.reconcile(keeping: Set(ports.map(\.serviceName)))
-        if next != portVisibilityStates { portVisibilityStates = next }
+        if next != portVisibilityStates {
+            // Per-task-review finding (round 1, important): wrapping the
+            // WHOLE dictionary write in one `withAnimation` bundled every
+            // port's state change into a single transaction, so two
+            // unrelated ports changing state on the same tick animated
+            // together, which violates "no global animation on
+            // watcher-driven values". Gated now: only wrap the write in an
+            // animated transaction when it ACTUALLY changes `visiblePorts`
+            // membership (a port entering/leaving `.hidden`, the only thing
+            // this state drives that needs `CardMotion.exit` to fire for the
+            // `ForEach` insertion/removal, spec: "Parent-owned retention and
+            // removal"). Per-port opacity dimming no longer lives at this
+            // level at all (moved into `SettlingPortCardHost` itself, its
+            // own narrowly scoped `.animation(value: settlingVisibility)`,
+            // per the same review round's other finding), so the common
+            // #536 opacity-only churn case now applies unanimated, same as
+            // before this whole feature existed.
+            //
+            // This doesn't perfectly scope to a single port when two
+            // DIFFERENT ports both flip visible membership in the exact
+            // same tick (a single `@State` dictionary write is one
+            // transaction; it can't be split key-by-key), but that's the
+            // rare case, and it's the one where sharing a transaction is
+            // arguably correct anyway (both really are transitioning in the
+            // same frame).
+            //
+            // Per-branch-review finding (round 2, Codex gate, finding 3):
+            // this used to compare raw `.hidden`-ness directly, which fires
+            // regardless of `settings.hideEmptyPorts` even though a
+            // `.live`/`.hidden` flip can't actually change `ForEach`
+            // membership when that setting is off (`mainContent` falls
+            // through to the unfiltered `portWatcher.ports` in that mode).
+            //
+            // Round 3 (Codex gate, "issue 2"): the round-2 fix still walked
+            // per-key over CURRENT `ports` only, comparing `isVisible` on
+            // each port's OLD vs NEW state. That treats a missing OLD entry
+            // as "visible" (via `isVisible`'s own `nil` fallback), so a
+            // port's FIRST appearance was never flagged as a membership
+            // change, and a port's total DISAPPEARANCE from the registry
+            // was invisible to a walk scoped to `ports` (the port to detect
+            // it on is exactly the one no longer there to iterate over).
+            // `membershipChanged` now builds the actual OLD and NEW
+            // VISIBLE-PORT ID SETS and compares them for set inequality,
+            // which catches both by construction (see that function's doc
+            // comment).
+            let membershipChanged = SettlingCardVisibleMembership.membershipChanged(
+                old: portVisibilityStates, new: next, hideEmptyPorts: settings.hideEmptyPorts
+            )
+            if membershipChanged {
+                withAnimation(CardMotion.animation(reduceMotion: reduceMotion)) {
+                    portVisibilityStates = next
+                }
+            } else {
+                portVisibilityStates = next
+            }
+        }
     }
 
     /// The two halves `PortVisibilityTracker` needs, delegating to
@@ -371,17 +427,19 @@ struct ContentView: View {
                                 chargerSourceCount: chargerSourceCount,
                                 adapter: adapter
                             )
-                            PortCard(
+                            let generation = portWatcher.connectionSessionGeneration(for: port.id)
+                            let structurallyScopedDevices = structurallyScopedByPort[port.serviceName] ?? []
+                            SettlingPortCardHost(
                                 port: port,
                                 devices: matchingDevices(for: port),
                                 tunnelledDevices: port.serviceName == tunnelledGroup.hostPortServiceName ? tunnelledGroup.devices : [],
-                                structuralTunnelledDevices: structurallyScopedByPort[port.serviceName] ?? [],
+                                structuralTunnelledDevices: structurallyScopedDevices,
                                 powerSources: portSources,
                                 identities: pdWatcher.identities(for: port),
                                 thunderboltSwitches: tbWatcher.switches,
                                 usb3Transports: usb3Watcher.transports(for: port),
                                 trmTransports: trmWatcher.transports.filter { $0.canonicallyMatches(port: port) },
-                                isLive: isPortLive(port, structurallyScopedDevices: structurallyScopedByPort[port.serviceName] ?? []),
+                                isLive: isPortLive(port, structurallyScopedDevices: structurallyScopedDevices),
                                 showAdvanced: showAdvanced,
                                 cioCapability: trmWatcher.cioCapabilities.first { $0.canonicallyMatches(port: port) },
                                 displayPorts: displayWatcher.statuses.filter { $0.status.canonicallyMatches(port: port) }.map(\.status),
@@ -393,14 +451,44 @@ struct ContentView: View {
                                 connectionDiagnostic: faultTracker.diagnostic(for: port.portKey),
                                 federatedIdentities: federatedIdentities,
                                 connectionAttachInstant: portWatcher.connectionAttachInstant(for: port.id),
-                                connectionSessionGeneration: portWatcher.connectionSessionGeneration(for: port.id)
+                                connectionSessionGeneration: generation,
+                                retainedAttachInstant: portWatcher.connectionRetainedAttachInstant(for: port.id),
+                                settlingVisibility: SettlingCardVisibilityResolver.resolve(
+                                    portVisibilityStates[port.serviceName],
+                                    isPortLiveNow: isPortLive(port, structurallyScopedDevices: structurallyScopedDevices)
+                                )
                             )
-                            // Reduced opacity is the only visible trace of
-                            // the fade: a charger-only port whose power
-                            // attribution just flapped away stays in place
-                            // instead of disappearing, so #536's churn reads
-                            // as a flicker rather than the list reshuffling.
-                            .opacity(portVisibilityStates[port.serviceName] == .fading ? 0.5 : 1.0)
+                            // Generation-scoped identity (spec: "the old
+                            // machine is discarded whole" on a genuine
+                            // replug). `ForEach` alone keys on `port.id`,
+                            // which is stable across a replug, so this `.id`
+                            // is what actually tears down and recreates the
+                            // host's `@State` phase machine.
+                            .id(SettlingCardIdentity(portID: port.id, generation: generation))
+                            // Parent-owned insertion/removal (spec:
+                            // "Parent-owned retention and removal"): when
+                            // "Hide empty ports" drops a port out of
+                            // `visiblePorts` entirely, THIS transition (not
+                            // the child's internal `.fading`) owns the exit,
+                            // since the child is unmounted before it could
+                            // ever run one.
+                            .transition(CardMotion.exit(reduceMotion: reduceMotion))
+                            // The reduced-opacity dimming for a charger-only
+                            // port whose power attribution just flapped away
+                            // (#536) is now applied INSIDE SettlingPortCardHost
+                            // itself (`SettlingCardOpacity.effectiveOpacity`,
+                            // combined with the card's own exit fade). Moved
+                            // there by per-task-review finding (round 1): a
+                            // single `.opacity(...)` modifier here, driven by
+                            // the shared `portVisibilityStates` dictionary,
+                            // both coupled unrelated ports into one animated
+                            // transaction on any tick where any port's state
+                            // changed, and raced independently against the
+                            // child's own internal exit fade (two separate
+                            // transactions matched only by a shared duration
+                            // could skew and momentarily brighten old live
+                            // content past its dimmed value). Nothing left to
+                            // apply here.
                         }
                         // Tunnelled devices normally nest inside their host
                         // port's card (above). Fall back to a flat card when the

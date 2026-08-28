@@ -203,6 +203,41 @@ public final class PortConnectionSessionTracker {
         return state.startedAt
     }
 
+    /// The monotonic instant the current session was stamped at, RETAINED
+    /// across a transient inactive interval (unlike `attachInstant(for:)`,
+    /// which returns nil the moment the port goes inactive).
+    ///
+    /// Why this exists: the settling-card state machine (spec
+    /// "settling-card") mounts its `.loading` placeholder at the moment a
+    /// port becomes visible, but issue #536's churn can flip
+    /// `connectionActive` false for a beat on the SAME session before it
+    /// flips back true, with no real unplug happening. `attachInstant(for:)`
+    /// deliberately returns nil during that gap (it answers "is this session
+    /// live right now"), which would make a loading card lose its deadline
+    /// and restart the spinner on every churn flip. This accessor answers a
+    /// different question: "what was the retained start of the most recent
+    /// session, active or not", so a generation-scoped deadline computed
+    /// from it survives the transient dip.
+    ///
+    /// Dead-session caveat: a young retained instant does not mean the
+    /// session is still alive. A real unplug also leaves the stamp in place
+    /// (see `observe(_:)`'s true -> false branch), so a card that mounts
+    /// just after a genuine unplug can read a recent instant here for a
+    /// session that has already ended. This accessor does not gate on
+    /// liveness; the caller (the presentation trigger, spec "Trigger"
+    /// section) is responsible for checking the authoritative
+    /// visibility/liveness state before treating the returned instant as the
+    /// start of a live session.
+    ///
+    /// Returns nil for a never-stamped session (first observation arrived
+    /// already active, so age is unknown), after `reset()`, or once the
+    /// port id has been pruned (no longer observed). Replaced whenever
+    /// `observe(_:)` restamps the session (a genuine new plug or a coalesced
+    /// rapid replug), same as `attachInstant(for:)`.
+    public func retainedAttachInstant(for portID: UInt64) -> TimeInterval? {
+        sessions[portID]?.startedAt
+    }
+
     /// Changes only when the session is (re)stamped: a genuine new plug or a
     /// coalesced rapid replug, never a churn round-trip reuse or a steady
     /// true -> true observation. Task 3 keys a SwiftUI `.task(id:)` off this

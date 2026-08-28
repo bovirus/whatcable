@@ -110,6 +110,19 @@ public final class AppleHPMInterfaceWatcher: ObservableObject {
         sessionTracker.sessionGeneration(for: portID)
     }
 
+    /// The monotonic instant the current session was stamped at, RETAINED
+    /// across a transient inactive interval (unlike
+    /// `connectionAttachInstant(for:)`, which returns nil the moment the
+    /// port goes inactive). See
+    /// `PortConnectionSessionTracker.retainedAttachInstant(for:)` for the
+    /// full rationale and the dead-session caveat: a young retained instant
+    /// can belong to a session that has already ended, so the caller must
+    /// gate on the authoritative visibility/liveness state before treating
+    /// it as a live session's start.
+    public func connectionRetainedAttachInstant(for portID: UInt64) -> TimeInterval? {
+        sessionTracker.retainedAttachInstant(for: portID)
+    }
+
     /// Re-walk the registry. Property changes (cable plug/unplug) don't fire
     /// match notifications, so callers poll this on demand. Builds the new
     /// list in a local array and assigns once, so observers see a single

@@ -294,6 +294,116 @@ struct PortConnectionSessionTrackerTests {
         #expect(seededTracker.connectionAge(for: 1) == 5, "age must advance now that it's known")
     }
 
+    // MARK: - retainedAttachInstant(for:): retained across transient inactive
+
+    /// Stamped, currently active: the retained accessor must agree with the
+    /// active-only accessor. Both read the same underlying stamp while the
+    /// port is live.
+    @Test("Retained instant matches the active accessor's value while the port is active")
+    func retainedInstantMatchesActiveAccessorWhileActive() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 1)])
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 1)])
+        clock.advance(by: 3)
+
+        #expect(tracker.retainedAttachInstant(for: 1) == tracker.attachInstant(for: 1))
+        #expect(tracker.retainedAttachInstant(for: 1) == 0)
+    }
+
+    /// Stamped, transiently inactive (a #536 churn dip on the same token):
+    /// the active-only accessor goes nil, but the retained accessor must
+    /// still return the original stamp. This is the whole reason the
+    /// accessor exists: a settling-card timer must not lose its deadline
+    /// during a churn dip.
+    @Test("Retained instant survives a transient inactive interval that the active accessor loses")
+    func retainedInstantSurvivesTransientInactive() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 7)])
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 7)])
+        clock.advance(by: 4)
+
+        // Attribution churn: same token drops out for a moment.
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 7)])
+
+        #expect(tracker.attachInstant(for: 1) == nil, "sanity: the active-only accessor loses the stamp")
+        #expect(tracker.retainedAttachInstant(for: 1) == 0, "the retained accessor must keep the original stamp")
+    }
+
+    /// Never-stamped session: first observation arrived already active (a
+    /// relaunch mid-connection), so age has been unknown from the start.
+    /// The retained accessor must report the same "unknown", not
+    /// manufacture a stamp.
+    @Test("Retained instant is nil for a never-stamped (first-observation-active) session")
+    func retainedInstantNilForNeverStamped() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 5)])
+        clock.advance(by: 30)
+
+        #expect(tracker.retainedAttachInstant(for: 1) == nil)
+    }
+
+    /// A vanished port id is pruned from tracked state entirely. The
+    /// retained accessor must return nil for it, same as the active-only
+    /// accessor, not stale state from before the prune.
+    @Test("Retained instant is nil for a pruned port id")
+    func retainedInstantNilForPrunedID() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 1)])
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 1)])
+        clock.advance(by: 20)
+        #expect(tracker.retainedAttachInstant(for: 1) == 0, "sanity: the retained instant is the stamp, not the elapsed age")
+
+        // Port entry id disappears from the registry entirely.
+        tracker.observe([])
+
+        #expect(tracker.retainedAttachInstant(for: 1) == nil)
+    }
+
+    /// reset() clears all tracked session state, the retained stamp
+    /// included.
+    @Test("Retained instant is nil after reset()")
+    func retainedInstantNilAfterReset() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 1)])
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 1)])
+        clock.advance(by: 5)
+        #expect(tracker.retainedAttachInstant(for: 1) == 0)
+
+        tracker.reset()
+        #expect(tracker.retainedAttachInstant(for: 1) == nil)
+    }
+
+    /// A genuine new session (different token) restamps: the retained
+    /// accessor must return the NEW instant, not the old one.
+    @Test("Retained instant is replaced by a new session's restamp")
+    func retainedInstantReplacedByNewSessionRestamp() {
+        let clock = FakeClock()
+        let tracker = makeTracker(clock)
+
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 1)])
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 1)])
+        #expect(tracker.retainedAttachInstant(for: 1) == 0)
+
+        clock.advance(by: 10)
+        tracker.observe([makePort(id: 1, connectionActive: false, plugEventCount: 1)])
+        clock.advance(by: 2)
+
+        // Different token on the return: a genuine new plug.
+        tracker.observe([makePort(id: 1, connectionActive: true, plugEventCount: 2)])
+
+        #expect(tracker.retainedAttachInstant(for: 1) == 12, "must reflect the new session's stamp, not the old one")
+    }
+
     // MARK: - Monotonic clock only, never Date
 
     @Test("The tracker source file never references Date")

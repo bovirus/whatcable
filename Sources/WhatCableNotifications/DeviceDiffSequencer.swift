@@ -530,6 +530,19 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         let removedEligible: Bool
         /// Same for the ADDED side.
         let addedEligible: Bool
+
+        // fix2 (device-post queue reconciliation): the same diff ingredients
+        // `DevicePostJob` carries, threaded through so a batch that flushes
+        // into the queue (hold-cap expiry, or a superseding new diff) hands
+        // its job everything a later queue merge needs. Values, not a
+        // captured closure over live state: the whole point is that a
+        // coalesced job's reconciliation reads what was TRUE at each
+        // endpoint, not whatever `knownDevices` happens to say later.
+        let previousSnapshots: [USBDeviceChangeGrouper.Snapshot]
+        let currentSnapshots: [USBDeviceChangeGrouper.Snapshot]
+        let previousTBSwitchIDs: Set<Int64>
+        let currentTBSwitchIDs: Set<Int64>
+        let bodyMap: [UInt64: String]
     }
 
     /// `nil` when nothing is held. `.some` from the moment `resolveDevicePost`
@@ -1303,8 +1316,6 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
 
         let previousSnapshots = Array(knownDevices.values)
         let currentSnapshots = current.map(snapshot(for:))
-        let previousLocationIDs = Set(previousSnapshots.map(\.locationID))
-        let currentLocationIDs = Set(currentSnapshots.map(\.locationID))
         knownDevices = Dictionary(
             currentSnapshots.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -1321,47 +1332,151 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         // reopen the exact bug that snapshot exists to close.
         let previousTBSwitchIDs = knownTBSwitchIDs
         knownTBSwitchIDs = tbSwitchIDs
-        let thunderboltInvolved = NotificationDecision.thunderboltInvolved(
-            previous: previousTBSwitchIDs,
-            current: tbSwitchIDs
-        )
 
         // Terminal path (fix1, spec design 1): notifications are off, so
         // this settle will never reach `resolveDevicePost` at all. Clear
         // this episode's own event here, its only terminal point in that
         // case, so a stale owned event can never survive to be misread once
         // notifications come back on.
-        guard notifyOnChanges() else { clearEventIfOwnedBy(episodeID); return }
+        //
+        // fix2 design 6: an off-settle ALSO sweeps every pending/held
+        // device job (queue and hold alike), on top of the episode clear
+        // above. The baseline just advanced unconditionally, above, so it
+        // correctly serves as the acknowledged/suppressed state: nothing
+        // queued fires while disabled, and nothing catches up once
+        // notifications come back on. See
+        // `cancelPendingDeviceWorkForNotificationsOff()`'s own doc comment
+        // for the asymmetry this policy accepts (a plain settings toggle,
+        // with no settle observing it, leaves already-pending work alone).
+        guard notifyOnChanges() else {
+            clearEventIfOwnedBy(episodeID)
+            cancelPendingDeviceWorkForNotificationsOff()
+            return
+        }
 
-        let (addedGroups, removedGroups) = USBDeviceChangeGrouper.diff(
-            previous: previousSnapshots,
-            current: currentSnapshots
+        // fix2 design 1: the map a coalesced job's fire-time reconciliation
+        // reads bodies from (LATEST wins on a merge). Built here, same as
+        // the old `currentByID` it replaces, recovering a device's body by
+        // identity (rootID), never by name: two hubs of the same model
+        // report the same product name.
+        let bodyMap = deviceBodyMap(for: current)
+        let derivation = Self.deriveDeviceDelta(
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: currentSnapshots,
+            previousTBSwitchIDs: previousTBSwitchIDs,
+            currentTBSwitchIDs: tbSwitchIDs,
+            bodyMap: bodyMap
         )
 
         // Diagnostic: reconstruct the same reconnect-gate check
         // `deviceNotificationContents` runs below, so the log line reflects
         // what actually decides "Reconnected" vs "Disconnected"+"Connected".
-        let reconnectGateFired = removedGroups.count == 1 && addedGroups.count == 1
-            && NotificationDecision.isReconnectPair(removed: removedGroups[0], added: addedGroups[0])
-        log("diffDevices: addedGroups=\(addedGroups.count) removedGroups=\(removedGroups.count) addedRoots=\(addedGroups.map(\.rootName).joined(separator: ", ")) removedRoots=\(removedGroups.map(\.rootName).joined(separator: ", ")) reconnectGateFired=\(reconnectGateFired)")
+        let reconnectGateFired = derivation.removedGroups.count == 1 && derivation.addedGroups.count == 1
+            && NotificationDecision.isReconnectPair(removed: derivation.removedGroups[0], added: derivation.addedGroups[0])
+        log("diffDevices: addedGroups=\(derivation.addedGroups.count) removedGroups=\(derivation.removedGroups.count) addedRoots=\(derivation.addedGroups.map(\.rootName).joined(separator: ", ")) removedRoots=\(derivation.removedGroups.map(\.rootName).joined(separator: ", ")) reconnectGateFired=\(reconnectGateFired)")
 
-        // Recover the full USBDevice for the speed/vendor body of a
-        // single-member group by identity (rootID), not by name: two hubs of
-        // the same model report the same product name, so name matching
-        // could pick the wrong one.
-        let currentByID = Dictionary(current.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let singleDeviceBody: (UInt64) -> String? = { rootID in
-            currentByID[rootID].map { "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")" }
-        }
         resolveDevicePost(
-            removedGroups: removedGroups,
-            addedGroups: addedGroups,
-            thunderboltInvolved: thunderboltInvolved,
-            previousLocationIDs: previousLocationIDs,
-            currentLocationIDs: currentLocationIDs,
-            singleDeviceBody: singleDeviceBody,
-            episodeID: episodeID
+            removedGroups: derivation.removedGroups,
+            addedGroups: derivation.addedGroups,
+            thunderboltInvolved: derivation.thunderboltInvolved,
+            previousLocationIDs: derivation.previousLocationIDs,
+            currentLocationIDs: derivation.currentLocationIDs,
+            singleDeviceBody: derivation.singleDeviceBody,
+            episodeID: episodeID,
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: currentSnapshots,
+            previousTBSwitchIDs: previousTBSwitchIDs,
+            currentTBSwitchIDs: tbSwitchIDs,
+            bodyMap: bodyMap
         )
+    }
+
+    /// rootID (a `USBDevice.id`) to its speed/vendor body string, for
+    /// `deriveDeviceDelta`'s `singleDeviceBody` lookup. Shared by every
+    /// caller that needs one (`diffDevices`, and any coalesced job at fire
+    /// time reads its OWN stored map instead of calling this again).
+    private func deviceBodyMap(for devices: [USBDevice]) -> [UInt64: String] {
+        Dictionary(
+            devices.map { ($0.id, "\($0.speedLabel)\($0.vendorName.map { " · \($0)" } ?? "")") },
+            uniquingKeysWith: { first, _ in first }
+        )
+    }
+
+    /// Ingredients + result of one endpoint-to-endpoint device diff (fix2
+    /// design 3). Pure: takes only values, touches no baseline, needs no
+    /// `self`. `diffDevices` (every settle) and a coalesced job's fire-time
+    /// reconciliation (`fireDevicePostJob`) both call this SAME function, so
+    /// the two can never drift apart. Not `private`: a sequencer test proves
+    /// derivation parity against an independently hand-derived expectation.
+    struct DeviceDeltaDerivation {
+        let addedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let removedGroups: [USBDeviceChangeGrouper.ChangeGroup]
+        let previousLocationIDs: Set<UInt32>
+        let currentLocationIDs: Set<UInt32>
+        let thunderboltInvolved: Bool
+        let singleDeviceBody: (UInt64) -> String?
+    }
+
+    static func deriveDeviceDelta(
+        previousSnapshots: [USBDeviceChangeGrouper.Snapshot],
+        currentSnapshots: [USBDeviceChangeGrouper.Snapshot],
+        previousTBSwitchIDs: Set<Int64>,
+        currentTBSwitchIDs: Set<Int64>,
+        bodyMap: [UInt64: String]
+    ) -> DeviceDeltaDerivation {
+        let (addedGroups, removedGroups) = USBDeviceChangeGrouper.diff(
+            previous: previousSnapshots,
+            current: currentSnapshots
+        )
+        return DeviceDeltaDerivation(
+            addedGroups: addedGroups,
+            removedGroups: removedGroups,
+            previousLocationIDs: Set(previousSnapshots.map(\.locationID)),
+            currentLocationIDs: Set(currentSnapshots.map(\.locationID)),
+            thunderboltInvolved: NotificationDecision.thunderboltInvolved(
+                previous: previousTBSwitchIDs,
+                current: currentTBSwitchIDs
+            ),
+            singleDeviceBody: { rootID in bodyMap[rootID] }
+        )
+    }
+
+    /// fix2 design 6: sweeps every pending or held device job the moment a
+    /// settle OBSERVES notifications off, on top of the episode-event clear
+    /// the caller already did. Clearing `deviceQueue` outright is safe
+    /// because a sleeping drain task just wakes to an empty queue and
+    /// returns (`drainDeviceQueueIfPossible`'s own `!deviceQueue.isEmpty`
+    /// guard); nothing needs cancelling there. The held half is a
+    /// deliberate, small behaviour change from before this fix: a batch
+    /// held when notifications get switched off used to still post at its
+    /// 5s cap regardless; under this policy an off-settle suppresses it too,
+    /// consistent with suppressing the queue.
+    ///
+    /// Asymmetry, on purpose: toggling notifications off in Settings, with
+    /// no device settle ever observing the off state before it flips back
+    /// on, leaves any already-pending job to fire, unchanged from today.
+    /// Only a settle that reads `notifyOnChanges() == false` sweeps -- this
+    /// function has no independent trigger of its own.
+    private func cancelPendingDeviceWorkForNotificationsOff() {
+        deviceQueue.removeAll()
+
+        guard heldDeviceBatch != nil else { return }
+        heldDeviceBatch = nil
+        // Belt-and-braces (adversarial fix-round finding, confirmed by
+        // deliberately dropping these two lines and watching the suite stay
+        // green): individually inert given `heldDeviceBatch = nil` above.
+        // `flushHeldDeviceBatch`'s own `guard let batch = heldDeviceBatch`
+        // already refuses to do anything once that is nil, whatever the
+        // stale deadline task's captured token says and whether or not that
+        // task is ever actually cancelled. Kept anyway, matching this
+        // file's documented pattern elsewhere (see
+        // `deferredDeviceDiffPresentationGapGeneration`'s doc comment): a
+        // future refactor that loosens the `heldDeviceBatch` guard should
+        // not silently start relying on these two having been dropped.
+        heldDeviceBatchToken += 1
+        heldDeviceBatchDeadlineTask?.cancel()
+        heldDeviceBatchDeadlineTask = nil
+        closeHeldEpisode()
     }
 
     // MARK: - Saved-cable label hold (issue #570 part B)
@@ -1545,7 +1660,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         previousLocationIDs: Set<UInt32>,
         currentLocationIDs: Set<UInt32>,
         singleDeviceBody: @escaping (UInt64) -> String?,
-        episodeID: UInt64
+        episodeID: UInt64,
+        previousSnapshots: [USBDeviceChangeGrouper.Snapshot],
+        currentSnapshots: [USBDeviceChangeGrouper.Snapshot],
+        previousTBSwitchIDs: Set<Int64>,
+        currentTBSwitchIDs: Set<Int64>,
+        bodyMap: [UInt64: String]
     ) {
         flushHeldDeviceBatch(token: heldDeviceBatchToken)
 
@@ -1578,7 +1698,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         guard !isReconnect else {
             enqueueDevicePost(DevicePostJob(
                 removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
-                singleDeviceBody: singleDeviceBody, capturedLabel: nil
+                singleDeviceBody: singleDeviceBody, capturedLabel: nil,
+                previousSnapshots: previousSnapshots, currentSnapshots: currentSnapshots,
+                previousTBSwitchIDs: previousTBSwitchIDs, currentTBSwitchIDs: currentTBSwitchIDs, bodyMap: bodyMap
             ))
             // Terminal path (fix1): reconnects never hold, so this is this
             // episode's only chance to resolve. Clear its event here.
@@ -1601,7 +1723,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             // at `pendingCableLabelEvent` for this job.
             enqueueDevicePost(DevicePostJob(
                 removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
-                singleDeviceBody: singleDeviceBody, capturedLabel: nil
+                singleDeviceBody: singleDeviceBody, capturedLabel: nil,
+                previousSnapshots: previousSnapshots, currentSnapshots: currentSnapshots,
+                previousTBSwitchIDs: previousTBSwitchIDs, currentTBSwitchIDs: currentTBSwitchIDs, bodyMap: bodyMap
             ))
             // Terminal path (fix1): a batch with no port-level group, or
             // where the feature could never label it anyway, never holds.
@@ -1647,7 +1771,9 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             enqueueDevicePost(DevicePostJob(
                 removedGroups: removedGroups, addedGroups: addedGroups, thunderboltInvolved: thunderboltInvolved,
                 singleDeviceBody: singleDeviceBody,
-                capturedLabel: DevicePostJob.CapturedLabel(name: event.name, wasAdded: event.wasAdded)
+                capturedLabel: DevicePostJob.CapturedLabel(name: event.name, wasAdded: event.wasAdded),
+                previousSnapshots: previousSnapshots, currentSnapshots: currentSnapshots,
+                previousTBSwitchIDs: previousTBSwitchIDs, currentTBSwitchIDs: currentTBSwitchIDs, bodyMap: bodyMap
             ))
             // Terminal path (fix1): matched and posted, never held.
             clearEventIfOwnedBy(episodeID)
@@ -1670,7 +1796,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             thunderboltInvolved: thunderboltInvolved,
             singleDeviceBody: singleDeviceBody,
             removedEligible: removedEligible,
-            addedEligible: addedEligible
+            addedEligible: addedEligible,
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: currentSnapshots,
+            previousTBSwitchIDs: previousTBSwitchIDs,
+            currentTBSwitchIDs: currentTBSwitchIDs,
+            bodyMap: bodyMap
         )
         // Not a terminal path (fix1): holding is the SAME episode, still
         // in flight. The id moves from "settling/parked" to "held" (any
@@ -1750,7 +1881,12 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             addedGroups: batch.addedGroups,
             thunderboltInvolved: batch.thunderboltInvolved,
             singleDeviceBody: batch.singleDeviceBody,
-            capturedLabel: capturedLabel
+            capturedLabel: capturedLabel,
+            previousSnapshots: batch.previousSnapshots,
+            currentSnapshots: batch.currentSnapshots,
+            previousTBSwitchIDs: batch.previousTBSwitchIDs,
+            currentTBSwitchIDs: batch.currentTBSwitchIDs,
+            bodyMap: batch.bodyMap
         ))
     }
 
@@ -1808,19 +1944,94 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         /// consuming) the match once, at creation, makes that impossible:
         /// a job's label is a value it owns, not a live read of shared
         /// state.
-        let capturedLabel: CapturedLabel?
+        ///
+        /// `var`, not `let` (fix2): a coalescing merge (`mergeIntoTail`)
+        /// unconditionally drops this, tail's and the incoming job's alike
+        /// -- see design 5 on `coalesced`'s own doc comment.
+        var capturedLabel: CapturedLabel?
+
+        // fix2 (device-post queue reconciliation, spec design 1): the exact
+        // ingredients `USBDeviceChangeGrouper.diff` and
+        // `NotificationDecision.thunderboltInvolved` were computed from.
+        // `removedGroups`/`addedGroups`/`thunderboltInvolved` above stay
+        // exactly as they always were and are what a NON-coalesced job
+        // fires from, unchanged; these are read only by a job that becomes
+        // `coalesced`, whose fire-time reconciliation re-derives its delta
+        // from them instead of trusting groups precomputed against a
+        // baseline that a LATER merged settle has since moved past.
+        let previousSnapshots: [USBDeviceChangeGrouper.Snapshot]
+        /// `var`: a merge overwrites this with the incoming job's current
+        /// side (design 2, "takes the new job's current side... LATEST
+        /// wins"). `previousSnapshots` above never changes on a merge: the
+        /// tail keeps its OWN baseline throughout.
+        var currentSnapshots: [USBDeviceChangeGrouper.Snapshot]
+        let previousTBSwitchIDs: Set<Int64>
+        var currentTBSwitchIDs: Set<Int64>
+        /// rootID to body string. `var`: a merge overwrites this with the
+        /// incoming job's map (test 13, "latest body wins").
+        var bodyMap: [UInt64: String]
+
+        /// True once this job has absorbed a later settle's data through a
+        /// queue merge (design 2: "front AND tail exist... merge the new
+        /// job into the tail"). `fireDevicePostJob` checks this FIRST: a
+        /// coalesced job ignores `removedGroups`/`addedGroups` above
+        /// entirely (design 3) and re-derives its delta from
+        /// `previousSnapshots`/`currentSnapshots` at the moment it actually
+        /// fires, through `DeviceDiffSequencer.deriveDeviceDelta`, the SAME
+        /// pure function `diffDevices` itself calls on every settle -- so
+        /// the normal path and the coalesced path can never compute the
+        /// delta two different ways.
+        var coalesced = false
+        /// (rootLocationID, rootName) pairs recorded as REMOVED by any job
+        /// folded into this one across the coalesced span (design 4): the
+        /// candidate pool for reconnect synthesis when the endpoint-derived
+        /// delta comes out empty. Mirrors the identity evidence
+        /// `NotificationDecision.isReconnectPair` already requires (same
+        /// physical port, same name), just accumulated across more than one
+        /// settle instead of read off a single removed/added pair.
+        var removedFlapSignatures: Set<FlapSignature> = []
+        /// EVERY root identity (removed OR added) observed at each location
+        /// anywhere in the coalesced span, tail's own included at first
+        /// merge. This is the taint veto's evidence: if a location's
+        /// signatures here include more than one distinct `rootName`, a
+        /// DIFFERENT device occupied that port partway through the span, so
+        /// a "removed" signature there is not safe to read as the same
+        /// device returning. See `synthesizedReconnectGroups(for:)`.
+        var allObservedSignatures: Set<FlapSignature> = []
 
         struct CapturedLabel {
             let name: String
             let wasAdded: Bool
         }
+
+        /// A root's physical-port identity, for flap-signature bookkeeping.
+        /// Same two fields `NotificationDecision.isReconnectPair` compares
+        /// (`rootLocationID`/`rootName`), named for what they mean here.
+        struct FlapSignature: Hashable {
+            let locationID: UInt32
+            let rootName: String
+        }
     }
 
-    /// FIFO queue of not-yet-posted `.device` jobs. Never pruned or
-    /// reordered: flush-never-drop holds for this queue too, so a job once
-    /// enqueued always eventually fires, exactly once, in the order it was
-    /// enqueued.
+    /// Bounded queue of not-yet-posted `.device` jobs: at most one in-flight
+    /// FRONT (index 0, sleeping out the spacing floor or about to fire)
+    /// plus one pending reconciliation TAIL (index 1). Never pruned:
+    /// flush-never-drop holds, so a job once enqueued always eventually
+    /// fires (posting real content, or, for a coalesced job whose delta
+    /// resolves to nothing, firing nothing but still being consumed off the
+    /// queue). fix2 (device-post queue reconciliation): a strict,
+    /// uncoalescing FIFO here could grow unbounded under sustained device
+    /// flapping (~1 job enqueued per settle window against ~1 released per
+    /// presentation gap), replaying stale notifications long after the
+    /// churn ended. `enqueueDevicePost` is what enforces the <= 2 bound
+    /// structurally, by merging into the tail instead of appending a third.
+    /// See `mergeIntoTail(_:)`.
     private var deviceQueue: [DevicePostJob] = []
+    /// Test-observable queue depth, mirroring `isChargerSettlePending`'s own
+    /// reasoning for not staying `private`: a sequencer test asserts the
+    /// structural <= 2 bound directly, not just inferred from post counts
+    /// and timing.
+    var deviceQueueDepthForTesting: Int { deviceQueue.count }
     /// Non-nil exactly while a drain task is scheduled (sleeping out the
     /// spacing floor for the job at the front of `deviceQueue`, or about to
     /// fire it). Doubles as the "only one drain task at a time" guard: a
@@ -1840,14 +2051,90 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// `lastChargerPostTime` is set for the charger side.
     var lastDevicePostTime: ClockType.Instant?
 
-    /// Appends `job` to the queue and (re)starts the drain if nothing is
+    /// Appends `job` to the queue (or merges it into the tail, once a front
+    /// and a tail already exist) and (re)starts the drain if nothing is
     /// currently running. The single entry point every path in this file
     /// that wants to post `.device` content goes through -- there is no
     /// other way for a `.device` notification to reach `postNotification`
     /// any more.
     private func enqueueDevicePost(_ job: DevicePostJob) {
-        deviceQueue.append(job)
+        if deviceQueue.count >= 2 {
+            mergeIntoTail(job)
+        } else {
+            deviceQueue.append(job)
+        }
         drainDeviceQueueIfPossible()
+    }
+
+    /// fix2 design 2: the queue invariant. A front and a tail both already
+    /// exist (`deviceQueue.count >= 2`), so `job` does not get its own
+    /// slot: it is folded into the existing tail instead, which absorbs
+    /// every further settle until the front finally releases and the tail
+    /// becomes the new front.
+    ///
+    /// The tail keeps its OWN previous side (its baseline, from whenever it
+    /// was first created) and takes `job`'s current side, TB-switch set,
+    /// and body map -- latest wins, design 1/2. Flap signatures union
+    /// (design 4): on the FIRST merge for this tail, its own precomputed
+    /// removed/added groups are folded in too (nothing has been recorded
+    /// for it before now), and `job`'s groups are folded in on every merge.
+    /// Any captured label, on either side, is unconditionally dropped
+    /// (design 5): see `DevicePostJob.capturedLabel`'s doc comment for why
+    /// a coalesced post is never labelled.
+    private func mergeIntoTail(_ job: DevicePostJob) {
+        guard var tail = deviceQueue.popLast() else {
+            // Defensive: `count >= 2` at the call site guarantees a tail
+            // exists. If it somehow doesn't, this job still needs a slot.
+            deviceQueue.append(job)
+            return
+        }
+        let firstMergeForThisTail = !tail.coalesced
+        tail.coalesced = true
+
+        // Taint evidence, from the SNAPSHOTS, not the groups (Codex P2 fix).
+        // `USBDeviceChangeGrouper` folds a changed device beneath a
+        // simultaneously changed ancestor: a device that arrives nested
+        // under a brand-new parent shows up only in that parent's
+        // `memberNames`, never as its own `ChangeGroup` root, so group-based
+        // folding alone never learns that device's (location, name) identity
+        // at all. Concretely: endpoint has A at location X; an intermediate
+        // settle adds a new ancestor H with B nested beneath it, also at X;
+        // a later settle returns to A. Groups record A and H, never B, so
+        // the taint check below would miss B entirely and let a false
+        // "Reconnected: A" through. Snapshot arrays carry every device,
+        // nested ones included, which is exactly what the group-based fold
+        // loses -- so fold the INTERMEDIATE endpoint about to be
+        // overwritten (`tail.currentSnapshots`, still the pre-merge value
+        // here) and the incoming job's own previous side, BEFORE overwriting
+        // `tail.currentSnapshots` below. `removedFlapSignatures` stays
+        // group-based on purpose: removal evidence (what actually LEFT) is
+        // exactly what a `ChangeGroup`'s `removed` side already encodes, and
+        // the synthesis candidate must still come from an actual departure,
+        // not merely "something was here".
+        for snapshot in tail.currentSnapshots {
+            tail.allObservedSignatures.insert(DevicePostJob.FlapSignature(locationID: snapshot.locationID, rootName: snapshot.name))
+        }
+        for snapshot in job.previousSnapshots {
+            tail.allObservedSignatures.insert(DevicePostJob.FlapSignature(locationID: snapshot.locationID, rootName: snapshot.name))
+        }
+
+        tail.currentSnapshots = job.currentSnapshots
+        tail.currentTBSwitchIDs = job.currentTBSwitchIDs
+        tail.bodyMap = job.bodyMap
+
+        for group in tail.removedGroups + job.removedGroups {
+            tail.removedFlapSignatures.insert(DevicePostJob.FlapSignature(locationID: group.rootLocationID, rootName: group.rootName))
+        }
+        for group in tail.removedGroups + tail.addedGroups + job.removedGroups + job.addedGroups {
+            tail.allObservedSignatures.insert(DevicePostJob.FlapSignature(locationID: group.rootLocationID, rootName: group.rootName))
+        }
+
+        tail.capturedLabel = nil
+
+        if firstMergeForThisTail {
+            log("enqueueDevicePost: device-post queue at its bound (front + tail); coalescing further settles into the tail")
+        }
+        deviceQueue.append(tail)
     }
 
     /// Releases the front of `deviceQueue`, respecting the spacing floor
@@ -1919,27 +2206,161 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// existing removed-before-added stacking-order trick keep working
     /// (the LATER post of the pair is the one macOS actually shows).
     private func fireDevicePostJob(_ job: DevicePostJob) {
-        var addedLabel: String?
-        var removedLabel: String?
-        if let captured = job.capturedLabel, knownLabelledCables != nil {
-            if captured.wasAdded {
-                addedLabel = captured.name
-            } else {
-                removedLabel = captured.name
+        guard job.coalesced else {
+            var addedLabel: String?
+            var removedLabel: String?
+            if let captured = job.capturedLabel, knownLabelledCables != nil {
+                if captured.wasAdded {
+                    addedLabel = captured.name
+                } else {
+                    removedLabel = captured.name
+                }
             }
+
+            let contents = NotificationDecision.deviceNotificationContents(
+                removedGroups: job.removedGroups,
+                addedGroups: job.addedGroups,
+                thunderboltInvolved: job.thunderboltInvolved,
+                addedCableLabel: addedLabel,
+                removedCableLabel: removedLabel,
+                singleDeviceBody: job.singleDeviceBody
+            )
+            for content in contents {
+                postNotification(category: .device, title: content.title, body: content.body)
+            }
+            return
         }
 
+        // fix2 design 3: a coalesced job ignores its stored (stale, from
+        // whichever settle first created the tail) `removedGroups`/
+        // `addedGroups` and reconciles at fire time instead: re-derive the
+        // delta from the endpoint snapshots, through the SAME pure function
+        // `diffDevices` calls on every ordinary settle, so the two paths
+        // can never drift. It must NOT re-enter `resolveDevicePost`'s
+        // hold/eligibility logic: a coalesced job is past all of that
+        // gating already; this only composes and posts.
+        let derivation = Self.deriveDeviceDelta(
+            previousSnapshots: job.previousSnapshots,
+            currentSnapshots: job.currentSnapshots,
+            previousTBSwitchIDs: job.previousTBSwitchIDs,
+            currentTBSwitchIDs: job.currentTBSwitchIDs,
+            bodyMap: job.bodyMap
+        )
+
+        var removedGroups = derivation.removedGroups
+        var addedGroups = derivation.addedGroups
+
+        if removedGroups.isEmpty, addedGroups.isEmpty {
+            guard let synthesized = synthesizedReconnectGroups(for: job) else {
+                // fix2 design 3: nothing to post (absent -> A -> absent, or
+                // an empty delta that doesn't clear design 4's synthesis
+                // bar). Deliberately does NOT call `postNotification`, so
+                // `lastDevicePostTime` is left untouched: the next real job
+                // must space against the last ACTUAL post, not against a
+                // job that fired nothing.
+                log("fireDevicePostJob: coalesced job's endpoint delta is empty and no reconnect qualifies; firing nothing")
+                return
+            }
+            removedGroups = [synthesized.removed]
+            addedGroups = [synthesized.added]
+        }
+
+        // fix2 design 5: coalesced posts are unlabelled, full stop. A name
+        // must never transfer onto a synthesized aggregate: `capturedLabel`
+        // carries no root/episode provenance that would let it prove the
+        // transition was untouched, and equality of the final groups
+        // doesn't prove that either. Already dropped at every merge
+        // (`mergeIntoTail`); passing `nil` here too keeps that rule visible
+        // at the one place composition actually happens, rather than
+        // relying solely on the merge-time drop.
         let contents = NotificationDecision.deviceNotificationContents(
-            removedGroups: job.removedGroups,
-            addedGroups: job.addedGroups,
-            thunderboltInvolved: job.thunderboltInvolved,
-            addedCableLabel: addedLabel,
-            removedCableLabel: removedLabel,
-            singleDeviceBody: job.singleDeviceBody
+            removedGroups: removedGroups,
+            addedGroups: addedGroups,
+            thunderboltInvolved: derivation.thunderboltInvolved,
+            addedCableLabel: nil,
+            removedCableLabel: nil,
+            singleDeviceBody: derivation.singleDeviceBody
         )
         for content in contents {
             postNotification(category: .device, title: content.title, body: content.body)
         }
+    }
+
+    /// fix2 design 4: a coalesced job whose endpoint-derived delta is empty
+    /// may still represent a real drop-and-return the endpoint diff cannot
+    /// see (the device's registry id changed across the flap, so the same
+    /// physical device reads as two different ids at the two endpoints).
+    /// Synthesizes a reconnect pair ONLY on an exact, untainted identity
+    /// match; returns `nil` (and logs) on anything less certain, per
+    /// Codex's conservative rule: several qualifying signatures never
+    /// invent an aggregate presentation or pick an arbitrary root.
+    ///
+    /// Qualifying (per signature): the SAME (location, name) pair must
+    /// appear in BOTH endpoint snapshots (so the device genuinely existed
+    /// at that port both before and after the coalesced span) AND be
+    /// recorded as removed by some job folded into this one (so something
+    /// actually left that port in between -- otherwise there was no flap to
+    /// describe at all, just an unrelated pair of endpoints that happen to
+    /// match). Untainted: no DIFFERENT `rootName` was ever observed at that
+    /// same location anywhere in the span (`allObservedSignatures`) -- the
+    /// veto that kills the A -> B -> A false positive, where A's own
+    /// removal is real evidence but B's occupancy in between means the
+    /// return is not safely "the same device", it is a coincidence of the
+    /// endpoint reads matching.
+    private func synthesizedReconnectGroups(
+        for job: DevicePostJob
+    ) -> (removed: USBDeviceChangeGrouper.ChangeGroup, added: USBDeviceChangeGrouper.ChangeGroup)? {
+        // The `currentSnapshots` conjunct (belt-and-braces, adversarial
+        // fix-round finding): this function only ever runs when the caller
+        // has already confirmed the endpoint-derived delta is EMPTY (see
+        // `fireDevicePostJob`'s `removedGroups.isEmpty, addedGroups.isEmpty`
+        // gate), which the reviewer believes makes this conjunct
+        // structurally unreachable-false -- an empty delta already implies
+        // every `previousSnapshots` entry has a matching `currentSnapshots`
+        // entry by id, so a signature present in `previousSnapshots` should
+        // already be present in `currentSnapshots` too. THEORETICAL, not
+        // proven (no test isolates this conjunct alone), so it stays as an
+        // explicit, conservative check rather than being trimmed on the
+        // strength of that reasoning.
+        let qualifying = job.removedFlapSignatures.filter { signature in
+            job.previousSnapshots.contains { $0.locationID == signature.locationID && $0.name == signature.rootName }
+                && job.currentSnapshots.contains { $0.locationID == signature.locationID && $0.name == signature.rootName }
+        }
+
+        guard qualifying.count == 1, let signature = qualifying.first else {
+            if qualifying.count > 1 {
+                log("fireDevicePostJob: \(qualifying.count) reconnect-synthesis signatures qualify; staying silent rather than guessing which root")
+            }
+            return nil
+        }
+
+        let tainted = job.allObservedSignatures.contains {
+            $0.locationID == signature.locationID && $0.rootName != signature.rootName
+        }
+        guard !tainted else {
+            log("fireDevicePostJob: reconnect synthesis vetoed; a different device occupied location \(signature.locationID) during the coalesced span")
+            return nil
+        }
+
+        guard
+            let previousDevice = job.previousSnapshots.first(where: { $0.locationID == signature.locationID && $0.name == signature.rootName }),
+            let currentDevice = job.currentSnapshots.first(where: { $0.locationID == signature.locationID && $0.name == signature.rootName })
+        else { return nil }
+
+        // `ChangeGroup.init` is `internal` to `WhatCableCore` (no public-API
+        // change outside this module, spec design 7): build the two
+        // single-device groups through `USBDeviceChangeGrouper.diff` itself
+        // instead, isolating each side against an empty counterpart so
+        // every device in the one-element list reads as changed, regardless
+        // of whether `previousDevice.id` and `currentDevice.id` happen to
+        // coincide (id equality is exactly what made this delta read as
+        // empty at the endpoints in the first place).
+        guard
+            let removed = USBDeviceChangeGrouper.diff(previous: [previousDevice], current: []).removed.first,
+            let added = USBDeviceChangeGrouper.diff(previous: [], current: [currentDevice]).added.first
+        else { return nil }
+
+        return (removed: removed, added: added)
     }
 
     /// Public feed entry point (spec design 2): the app-side shim calls this

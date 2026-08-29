@@ -10,4 +10,3 @@
 "USB devices disconnected" = "USB aygıtları çıkarıldı";
 "Thunderbolt devices connected" = "Thunderbolt aygıtları bağlandı";
 "Thunderbolt devices disconnected" = "Thunderbolt aygıtları çıkarıldı";
-"%@ (%@)" = "%1$@ (%2$@)";

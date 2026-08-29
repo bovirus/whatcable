@@ -328,14 +328,13 @@ public enum NotificationDecision {
         return nil
     }
 
-    /// Appends the saved-cable label suffix via ONE shared localised
-    /// composition key, rather than duplicating every title key with the
-    /// label baked in. `nil` returns `title` unchanged, so every existing
-    /// call site (none of which pass a label) produces byte-identical
-    /// output to before this feature.
-    private static func applyCableLabel(_ title: String, _ cableLabel: String?) -> String {
-        guard let cableLabel else { return title }
-        return String(localized: "\(title) (\(cableLabel))", bundle: _notificationsLocalizedBundle)
+    /// The saved-cable name, verbatim, for the subtitle slot. `nil` (or the
+    /// empty string) returns "" so every existing call site (none of which
+    /// pass a label) produces a `NotificationContent` with an empty
+    /// subtitle, same as before this feature added the parameter. No
+    /// localisation here: this is the user's own saved name, not app copy.
+    private static func cableLabelSubtitle(_ cableLabel: String?) -> String {
+        cableLabel ?? ""
     }
 
     /// The cable-plausibility gate behind the notification hold (issue #570
@@ -480,14 +479,11 @@ public enum NotificationDecision {
         cableLabel: String? = nil,
         singleDeviceBody: (UInt64) -> String?
     ) -> NotificationContent {
-        let title = applyCableLabel(
-            String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle),
-            cableLabel
-        )
+        let title = String(localized: "Reconnected: \(added.rootName)", bundle: _notificationsLocalizedBundle)
         let body = added.memberNames.isEmpty
             ? (singleDeviceBody(added.rootID) ?? "")
             : added.memberNames.joined(separator: "\n")
-        return NotificationContent(title: title, body: body)
+        return NotificationContent(title: title, subtitle: cableLabelSubtitle(cableLabel), body: body)
     }
 
     /// Decides what to post for one settled batch of added groups. A dock
@@ -515,20 +511,17 @@ public enum NotificationDecision {
         singleDeviceBody: (UInt64) -> String?
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = applyCableLabel(
-                String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
-                cableLabel
-            )
+            let title = String(localized: "Connected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
             let body = group.memberNames.isEmpty
                 ? (singleDeviceBody(group.rootID) ?? "")
                 : group.memberNames.joined(separator: "\n")
-            return [NotificationContent(title: title, body: body)]
+            return [NotificationContent(title: title, subtitle: cableLabelSubtitle(cableLabel), body: body)]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
             let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices connected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices connected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: baseTitle, subtitle: cableLabelSubtitle(cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }
@@ -549,17 +542,14 @@ public enum NotificationDecision {
         cableLabel: String? = nil
     ) -> [NotificationContent] {
         if groups.count == 1, let group = groups.first {
-            let title = applyCableLabel(
-                String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle),
-                cableLabel
-            )
-            return [NotificationContent(title: title, body: group.memberNames.joined(separator: "\n"))]
+            let title = String(localized: "Disconnected: \(group.rootName)", bundle: _notificationsLocalizedBundle)
+            return [NotificationContent(title: title, subtitle: cableLabelSubtitle(cableLabel), body: group.memberNames.joined(separator: "\n"))]
         } else if groups.count > 1 {
             let allNames = groups.flatMap { [$0.rootName] + $0.memberNames }
             let baseTitle = thunderboltInvolved
                 ? String(localized: "Thunderbolt devices disconnected", bundle: _notificationsLocalizedBundle)
                 : String(localized: "USB devices disconnected", bundle: _notificationsLocalizedBundle)
-            return [NotificationContent(title: applyCableLabel(baseTitle, cableLabel), body: allNames.joined(separator: "\n"))]
+            return [NotificationContent(title: baseTitle, subtitle: cableLabelSubtitle(cableLabel), body: allNames.joined(separator: "\n"))]
         }
         return []
     }

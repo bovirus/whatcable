@@ -10,4 +10,3 @@
 "USB devices disconnected" = "USBデバイスが切断されました";
 "Thunderbolt devices connected" = "Thunderboltデバイスが接続されました";
 "Thunderbolt devices disconnected" = "Thunderboltデバイスが切断されました";
-"%@ (%@)" = "%1$@（%2$@）";

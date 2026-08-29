@@ -2228,7 +2228,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
                 singleDeviceBody: job.singleDeviceBody
             )
             for content in contents {
-                postNotification(category: .device, title: content.title, body: content.body)
+                postNotification(category: .device, title: content.title, subtitle: content.subtitle, body: content.body)
             }
             return
         }
@@ -2284,7 +2284,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
             singleDeviceBody: derivation.singleDeviceBody
         )
         for content in contents {
-            postNotification(category: .device, title: content.title, body: content.body)
+            postNotification(category: .device, title: content.title, subtitle: content.subtitle, body: content.body)
         }
     }
 
@@ -2505,7 +2505,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         let contents = NotificationDecision.chargerNotificationContents(addedLabels: addedLabels, removedLabels: removedLabels)
         chargerPostedContent = !contents.isEmpty
         for content in contents {
-            postNotification(category: .charger, title: content.title, body: content.body)
+            postNotification(category: .charger, title: content.title, subtitle: content.subtitle, body: content.body)
         }
     }
 
@@ -2541,7 +2541,7 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     ///    `lastDevicePostTime` was JUST set by the first of the pair,
     ///    moments before this call), which is exactly the case that still
     ///    needs both lists populated.
-    private func postNotification(category: NotificationCategory, title: String, body: String) {
+    private func postNotification(category: NotificationCategory, title: String, subtitle: String = "", body: String) {
         let elapsedSincePreviousPost: Duration? = {
             switch category {
             case .charger: return lastChargerPostTime?.duration(to: clock.now)
@@ -2557,6 +2557,6 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         }
 
         let directive = deliveryLedger.nextDirective(for: category, previousPostWasRecent: previousPostWasRecent)
-        post(category, NotificationContent(title: title, body: body), directive)
+        post(category, NotificationContent(title: title, subtitle: subtitle, body: body), directive)
     }
 }

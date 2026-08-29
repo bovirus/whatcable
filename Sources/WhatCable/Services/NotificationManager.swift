@@ -388,11 +388,12 @@ final class NotificationManager {
 
         let mutableContent = UNMutableNotificationContent()
         mutableContent.title = content.title
+        if !content.subtitle.isEmpty { mutableContent.subtitle = content.subtitle }
         if !content.body.isEmpty { mutableContent.body = content.body }
         mutableContent.sound = nil
 
         let bodyLineCount = content.body.isEmpty ? 0 : content.body.split(separator: "\n").count
-        NotificationManager.log.info("postNotification: identifier=\(directive.identifier, privacy: .public) removeDelivered=\(directive.removeDeliveredIdentifiers.joined(separator: ", "), privacy: .public) removePending=\(directive.removePendingIdentifiers.joined(separator: ", "), privacy: .public) title=\(content.title, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
+        NotificationManager.log.info("postNotification: identifier=\(directive.identifier, privacy: .public) removeDelivered=\(directive.removeDeliveredIdentifiers.joined(separator: ", "), privacy: .public) removePending=\(directive.removePendingIdentifiers.joined(separator: ", "), privacy: .public) title=\(content.title, privacy: .public) subtitle=\(content.subtitle, privacy: .public) bodyLines=\(bodyLineCount, privacy: .public)")
 
         // Executes the directive's removals, BEFORE the add below. One
         // notification per category standing in Notification Centre at any

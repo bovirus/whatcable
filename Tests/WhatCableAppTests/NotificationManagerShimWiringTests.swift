@@ -215,14 +215,23 @@ final class NotificationManagerDeliveryExecutionTests: XCTestCase {
         enum Call: Equatable {
             case remove([String])
             case removePending([String])
-            case add(String)
+            // Findings 1: records the full posted content (title, subtitle,
+            // body), not just the identifier, so a test can prove the
+            // subtitle actually reaches the request `notificationSink`
+            // builds, not merely that SOME request was added.
+            case add(identifier: String, title: String, subtitle: String, body: String)
             case getDelivered
         }
 
         private(set) var calls: [Call] = []
 
         func add(_ request: UNNotificationRequest, withCompletionHandler completionHandler: (@Sendable (Error?) -> Void)?) {
-            calls.append(.add(request.identifier))
+            calls.append(.add(
+                identifier: request.identifier,
+                title: request.content.title,
+                subtitle: request.content.subtitle,
+                body: request.content.body
+            ))
             completionHandler?(nil)
         }
 
@@ -305,7 +314,10 @@ final class NotificationManagerDeliveryExecutionTests: XCTestCase {
             // case also records; it's asserted here purely because it's
             // part of the real, observed call sequence, not because this
             // test cares about it.
-            [.remove(["device-event-1"]), .removePending(["device-event-0"]), .getDelivered, .add("device-event-2")],
+            [
+                .remove(["device-event-1"]), .removePending(["device-event-0"]), .getDelivered,
+                .add(identifier: "device-event-2", title: "Connected: Test Device", subtitle: "", body: ""),
+            ],
             "the delivered removal must use removeDeliveredIdentifiers and the pending removal must use its OWN, separate removePendingIdentifiers list, both before the add, and the add must use the directive's own identifier"
         )
     }
@@ -334,8 +346,78 @@ final class NotificationManagerDeliveryExecutionTests: XCTestCase {
 
         XCTAssertEqual(
             recording.calls,
-            [.remove(["device-event-2"]), .getDelivered, .add("device-event-3")],
+            [
+                .remove(["device-event-2"]), .getDelivered,
+                .add(identifier: "device-event-3", title: "Connected: Test Device", subtitle: "", body: ""),
+            ],
             "no .removePending call at all when removePendingIdentifiers is empty"
+        )
+    }
+
+    /// Finding 1: proves the subtitle actually reaches the
+    /// `UNNotificationRequest` the real `notificationSink` builds, not just
+    /// that `NotificationDecision` computed one correctly (that's already
+    /// covered by the module's own tests, which never touch
+    /// `UNMutableNotificationContent` at all). Drives the real closure
+    /// directly, the same way `testDefaultSinkExecutesRemovalsBeforeAdd`
+    /// does above.
+    ///
+    /// Red-proof: comment out `notificationSink`'s
+    /// `mutableContent.subtitle = content.subtitle` line and this goes red.
+    @MainActor
+    func testDefaultSinkSetsSubtitleOnTheRequestWhenPresent() {
+        let manager = NotificationManager.shared
+        let recording = RecordingCenter()
+        manager.center = recording
+
+        let directive = NotificationManager.DeliveryDirective(
+            identifier: "device-event-4",
+            removeDeliveredIdentifiers: [],
+            removePendingIdentifiers: []
+        )
+        manager.notificationSink(
+            .device,
+            NotificationManager.NotificationContent(title: "Connected: Cable Device", subtitle: "Apple TB 1m", body: "10 Gbps"),
+            directive
+        )
+
+        XCTAssertEqual(
+            recording.calls,
+            [
+                .getDelivered,
+                .add(identifier: "device-event-4", title: "Connected: Cable Device", subtitle: "Apple TB 1m", body: "10 Gbps"),
+            ],
+            "a non-empty subtitle must reach the posted request's own content, unchanged"
+        )
+    }
+
+    /// The companion negative case: an empty subtitle (the normal, no-label
+    /// case) must leave the request's `subtitle` empty, not carry over a
+    /// stray default. Same real closure, same fake center.
+    @MainActor
+    func testDefaultSinkLeavesSubtitleEmptyWhenAbsent() {
+        let manager = NotificationManager.shared
+        let recording = RecordingCenter()
+        manager.center = recording
+
+        let directive = NotificationManager.DeliveryDirective(
+            identifier: "device-event-5",
+            removeDeliveredIdentifiers: [],
+            removePendingIdentifiers: []
+        )
+        manager.notificationSink(
+            .device,
+            NotificationManager.NotificationContent(title: "Connected: Test Device", body: ""),
+            directive
+        )
+
+        XCTAssertEqual(
+            recording.calls,
+            [
+                .getDelivered,
+                .add(identifier: "device-event-5", title: "Connected: Test Device", subtitle: "", body: ""),
+            ],
+            "no label -> the request's subtitle stays empty"
         )
     }
 

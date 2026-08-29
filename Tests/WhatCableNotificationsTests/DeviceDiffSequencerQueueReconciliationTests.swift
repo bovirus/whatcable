@@ -561,8 +561,10 @@ final class DeviceDiffSequencerQueueReconciliationTests: XCTestCase {
         await drainQueueFully(clock, window: .milliseconds(100))
 
         XCTAssertEqual(posted.entries.count, 3)
-        XCTAssertEqual(posted.entries[1].1.title, "Connected: Plug A (Cable A)")
-        XCTAssertEqual(posted.entries[2].1.title, "Connected: Plug B (Cable B)", "must keep its OWN label: never merged, so never coalesced-and-unlabelled")
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Plug A")
+        XCTAssertEqual(posted.entries[1].1.subtitle, "Cable A")
+        XCTAssertEqual(posted.entries[2].1.title, "Connected: Plug B", "must keep its OWN label: never merged, so never coalesced-and-unlabelled")
+        XCTAssertEqual(posted.entries[2].1.subtitle, "Cable B")
     }
 
     // MARK: - Test 9: a labelled job merged into a tail fires unlabelled
@@ -635,6 +637,7 @@ final class DeviceDiffSequencerQueueReconciliationTests: XCTestCase {
         XCTAssertEqual(posted.entries[1].1.title, "Connected: Keyboard")
         XCTAssertEqual(posted.entries[2].1.title, "USB devices connected", "coalesced: merged multi-root title, no cable label anywhere")
         XCTAssertFalse(posted.entries[2].1.title.contains("Cable A"), "the tail's own captured label must not survive the merge")
+        XCTAssertEqual(posted.entries[2].1.subtitle, "", "coalesced merge drops the label entirely: the subtitle must be empty, not just absent from the title")
     }
 
     // MARK: - Test 10/11: notifications-off sweeps pending device work
@@ -829,7 +832,8 @@ final class DeviceDiffSequencerQueueReconciliationTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 1)
-        XCTAssertEqual(posted.entries[0].1.title, "Connected: New Device (Fresh Cable)", "a properly closed held episode must not swallow the next event")
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: New Device", "a properly closed held episode must not swallow the next event")
+        XCTAssertEqual(posted.entries[0].1.subtitle, "Fresh Cable")
     }
 
     // MARK: - Test 13: latest body wins

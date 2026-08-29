@@ -127,7 +127,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 1)
-        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Cable Device (Apple TB 1m)")
+        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Cable Device")
+        XCTAssertEqual(posted.entries.first?.1.subtitle, "Apple TB 1m")
     }
 
     // MARK: - Hold-then-label
@@ -159,7 +160,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 1)
-        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Cable Device (Apple TB 1m)")
+        XCTAssertEqual(posted.entries.first?.1.title, "Connected: Cable Device")
+        XCTAssertEqual(posted.entries.first?.1.subtitle, "Apple TB 1m")
 
         await clock.advance(by: .seconds(10))
     }
@@ -371,6 +373,7 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
 
         XCTAssertEqual(posted.entries.count, 1, "unavailable feature must post immediately, no hold")
         XCTAssertEqual(posted.entries.first?.1.title, "Connected: Cable Device")
+        XCTAssertEqual(posted.entries.first?.1.subtitle, "", "free build: no label source at all, so the subtitle must never carry one")
         XCTAssertNil(sequencer.knownLabelledCables)
     }
 
@@ -519,7 +522,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 2)
-        XCTAssertEqual(posted.entries[1].1.title, "Disconnected: Late Cable Device (Apple TB 2m)", "the disconnect must still label correctly from the live baseline, unpoisoned by the earlier unlabelled connect")
+        XCTAssertEqual(posted.entries[1].1.title, "Disconnected: Late Cable Device", "the disconnect must still label correctly from the live baseline, unpoisoned by the earlier unlabelled connect")
+        XCTAssertEqual(posted.entries[1].1.subtitle, "Apple TB 2m")
     }
 
     // MARK: - Licence mid-hold
@@ -548,6 +552,7 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
 
         XCTAssertEqual(posted.entries.count, 1)
         XCTAssertEqual(posted.entries[0].1.title, "Connected: Cable Device", "locked at flush time: no stale name may survive to the post")
+        XCTAssertEqual(posted.entries[0].1.subtitle, "", "locked mid-hold: no stale name may leak into the subtitle either")
     }
 
     /// Unlock mid-hold: a fresh non-nil snapshot flowing through
@@ -576,7 +581,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 1)
-        XCTAssertEqual(posted.entries[0].1.title, "Connected: Cable Device (Apple TB 1m)", "unlocking mid-hold must still allow a label to land")
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Cable Device", "unlocking mid-hold must still allow a label to land")
+        XCTAssertEqual(posted.entries[0].1.subtitle, "Apple TB 1m")
     }
 
     // MARK: - Device-post spacing floor (gate-fixes fix 1)
@@ -740,6 +746,7 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
             posted.entries[1].1.title, "Connected: Second Device",
             "no label: the lock landed before this job actually fired, and fire-time composition re-checks the licence guard fresh"
         )
+        XCTAssertEqual(posted.entries[1].1.subtitle, "", "queued job locked before firing: subtitle must stay empty too")
     }
 
     // MARK: - Wrong-name regression (gate-fixes fix 3, closes Codex 4)
@@ -877,6 +884,7 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
             posted.entries[1].1.title, "Connected: Device A",
             "must post UNLABELLED: Device A's job captured no event before \"Cable B\" ever existed"
         )
+        XCTAssertEqual(posted.entries[1].1.subtitle, "", "an unrelated cable's label sitting unconsumed must never leak into Device A's subtitle")
     }
 
     /// The positive twin: Device A's job DOES capture its own matching
@@ -943,9 +951,10 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
 
         XCTAssertEqual(posted.entries.count, 2)
         XCTAssertEqual(
-            posted.entries[1].1.title, "Connected: Device A (Cable A)",
+            posted.entries[1].1.title, "Connected: Device A",
             "Device A's own captured event must survive, uncorrupted by the later unrelated one"
         )
+        XCTAssertEqual(posted.entries[1].1.subtitle, "Cable A")
 
         // Let "Cable B"'s grace event expire: well past `deviceSettleWindow`
         // (1500ms default) since it arrived, with no episode ever opening
@@ -1053,7 +1062,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 1, "the newly-opened episode must claim the grace event and post immediately, not hold")
-        XCTAssertEqual(posted.entries[0].1.title, "Connected: Early Plug (Early Cable)")
+        XCTAssertEqual(posted.entries[0].1.title, "Connected: Early Plug")
+        XCTAssertEqual(posted.entries[0].1.subtitle, "Early Cable")
     }
 
     /// New episode during hold: an OLDER batch (Device A, still eligible)
@@ -1119,7 +1129,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 2)
-        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B (Cable For B)", "B must get its own event, not A")
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B", "B must get its own event, not A")
+        XCTAssertEqual(posted.entries[1].1.subtitle, "Cable For B")
 
         await clock.advance(by: .seconds(10))
     }
@@ -1194,7 +1205,8 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
 
         XCTAssertEqual(posted.entries.count, 2)
-        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B (Cable Y)", "B must get its own event")
+        XCTAssertEqual(posted.entries[1].1.title, "Connected: Device B", "B must get its own event")
+        XCTAssertEqual(posted.entries[1].1.subtitle, "Cable Y")
 
         await clock.advance(by: .seconds(10))
     }
@@ -1313,6 +1325,7 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
         await flush(clock)
         XCTAssertEqual(posted.entries.count, 1)
         XCTAssertEqual(posted.entries[0].1.title, "Reconnected: Flapping Device", "reconnects never label, structurally")
+        XCTAssertEqual(posted.entries[0].1.subtitle, "", "reconnects never label, structurally: the subtitle must stay empty too")
 
         sequencer.knownDevices[reconnected.id] = snapshot(for: reconnected)
         sequencer.runNowOrDelayForRecentChargerPost([reconnected, portLevelDevice(id: 3, bus: 0x06, name: "Unrelated Plug")])
@@ -1424,9 +1437,10 @@ final class DeviceDiffSequencerCableLabelHoldTests: XCTestCase {
 
         XCTAssertEqual(posted.entries.count, 1)
         XCTAssertEqual(
-            posted.entries[0].1.title, "Connected: Cable Device (Cable A)",
+            posted.entries[0].1.title, "Connected: Cable Device",
             "the episode opened (and claimed the grace event) at the FIRST publish of the burst, so the label survives the burst-extended settle"
         )
+        XCTAssertEqual(posted.entries[0].1.subtitle, "Cable A")
     }
 
     /// P1-b: superseding a parked diff must not leak its event into the

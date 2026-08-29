@@ -152,22 +152,31 @@ final class NotificationCableLabelDecisionTests: XCTestCase {
     // MARK: - Composition: byte-identical when no label
 
     /// `deviceNotificationContents` with no cable label produces the exact
-    /// same title as before this feature (no "(<name>)" suffix appended).
+    /// same title as before this feature, and an empty subtitle.
+    ///
+    /// Red-proof: hardcode `cableLabelSubtitle` to return a non-empty
+    /// placeholder and this goes red.
     func testDeviceContentsUnchangedWithNoCableLabel() {
         let added = onlyChangeGroup(previous: [], current: [snap(id: 1, loc: 0x0210_0000, name: "Test Hub")])
         let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: [], addedGroups: [added], singleDeviceBody: { _ in nil }
         )
         XCTAssertEqual(contents.first?.title, "Connected: Test Hub")
+        XCTAssertEqual(contents.first?.subtitle, "")
     }
 
-    /// With a cable label, the title carries the "%@ (%@)" composition.
-    func testDeviceContentsCarriesCableLabelWhenProvided() {
+    /// With a cable label, the title stays plain (single line, no
+    /// truncation risk) and the name lands verbatim in the subtitle.
+    ///
+    /// Red-proof: swap the label argument so subtitle is asserted against
+    /// the wrong string and this goes red.
+    func testDeviceContentsCarriesCableLabelInSubtitleWhenProvided() {
         let added = onlyChangeGroup(previous: [], current: [snap(id: 1, loc: 0x0210_0000, name: "Test Hub")])
         let contents = NotificationDecision.deviceNotificationContents(
             removedGroups: [], addedGroups: [added], addedCableLabel: "Apple TB 1m", singleDeviceBody: { _ in nil }
         )
-        XCTAssertEqual(contents.first?.title, "Connected: Test Hub (Apple TB 1m)")
+        XCTAssertEqual(contents.first?.title, "Connected: Test Hub")
+        XCTAssertEqual(contents.first?.subtitle, "Apple TB 1m")
     }
 
     // MARK: - Fixture helpers

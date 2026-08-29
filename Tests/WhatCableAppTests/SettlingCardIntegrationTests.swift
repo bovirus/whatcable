@@ -105,6 +105,58 @@ struct SettlingCardIntegrationTests {
         #expect(SettlingCardVisibilityResolver.resolve(.fading, isPortLiveNow: false) == .transientFadingGrace)
     }
 
+    // MARK: - Mount-time visibility resolution (issue #585, task 3)
+
+    /// The bug this exists to close: `portVisibilityStates` is a separate
+    /// `@State` dictionary that lags one `.onChange` behind a generation
+    /// change, so plugging into an already-visible empty port can construct
+    /// a fresh `SettlingPortCardHost` while the dictionary still holds the
+    /// OLD `.hidden` entry from when the port was empty. `.resolve` (the
+    /// plain lookup) would fold that straight to `.ended`, and the fresh
+    /// machine's trigger would then start `.settled` instead of `.loading`,
+    /// skipping the spinner-then-reveal choreography (PR #579).
+    /// `.resolveAtMount` is the fix: a stale `.hidden` entry is overridden
+    /// by a live-now signal, exactly like a `nil` lookup.
+    ///
+    /// Mutation watched failing: called `.resolve` directly instead of
+    /// `.resolveAtMount` (i.e. the pre-fix behaviour). Went red here (this
+    /// case resolved `.ended` instead of `.live`), the very stuck-spinner
+    /// symptom the fix closes; restored.
+    @Test("A stale .hidden entry with the port live now resolves to .live, not .ended")
+    func staleHiddenWithLiveNowResolvesToLive() {
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(.hidden, isPortLiveNow: true) == .live)
+    }
+
+    /// The negative case: `.hidden` with the live signal ALSO false stays
+    /// `.ended`, exactly as `.resolve` already does. This is the
+    /// dead-session race `.resolve`'s plain `nil` branch closes, and
+    /// `.resolveAtMount` must not reopen it.
+    @Test("A .hidden entry with the port not live now still resolves to .ended")
+    func hiddenWithoutLiveNowResolvesToEnded() {
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(.hidden, isPortLiveNow: false) == .ended)
+    }
+
+    /// `.fading` carries the #536 charger-grace policy and must never be
+    /// second-guessed by a same-frame live signal, unlike `.hidden`.
+    @Test("A .fading entry with the port live now still resolves to .transientFadingGrace")
+    func fadingWithLiveNowStaysTransientFadingGrace() {
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(.fading, isPortLiveNow: true) == .transientFadingGrace)
+    }
+
+    /// `.live` is unaffected: mirrors `.resolve`'s own known-state arm.
+    @Test("A .live entry resolves to .live regardless of the live-now signal")
+    func liveEntryStaysLive() {
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(.live, isPortLiveNow: false) == .live)
+    }
+
+    /// `nil` (no verdict yet) is unaffected: mirrors `.resolve`'s `nil` arm
+    /// exactly, both directions.
+    @Test("A nil entry resolves exactly like .resolve's nil arm, both directions")
+    func nilEntryMatchesPlainResolve() {
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(nil, isPortLiveNow: true) == .live)
+        #expect(SettlingCardVisibilityResolver.resolveAtMount(nil, isPortLiveNow: false) == .ended)
+    }
+
     // MARK: - Opacity race (per-task-review finding, round 1, critical)
 
     /// The invariant the reviewer named directly, scoped to where it
@@ -179,6 +231,47 @@ struct SettlingCardIntegrationTests {
         // opacity function happens to never actually see paired with live
         // content.
         #expect(SettlingCardContentPlan.plan(phase: .settled, hasRevealed: true) == .liveBody)
+    }
+
+    /// Orchestrator review finding, issue #585: `.retained` must match the
+    /// SAME dimming rule `.loading`/`.settled` already use
+    /// (`visibility == .live ? full : dimmed`), not its own "full unless
+    /// transientFadingGrace" mapping. The owner's requirement is that the
+    /// retained disconnected card is visually IDENTICAL to a launch-time
+    /// disconnected card (phase `.settled`, visibility `.ended`, opacity
+    /// `dimmed`). Content already matches after task 1's fix; this closes
+    /// the remaining opacity gap, where `.retained` + `.ended` rendered at
+    /// `full` instead of `dimmed`, brighter than the launch-time card
+    /// showing the exact same content.
+    ///
+    /// Mutation watched failing: this test was run against the PRE-FIX
+    /// `.retained` arm (`visibility == .transientFadingGrace ? dimmed :
+    /// full`), which maps `.ended` to `full`. Went red (expected `dimmed`,
+    /// got `full`); restored by matching `.retained` to the `.loading`/
+    /// `.settled` rule.
+    @Test("Retained with ended visibility resolves to dimmed, matching a launch-time disconnected card")
+    func retainedWithEndedVisibilityIsDimmed() {
+        let retainedOpacity = SettlingCardOpacity.effectiveOpacity(visibility: .ended, phase: .retained)
+        let launchTimeOpacity = SettlingCardOpacity.effectiveOpacity(visibility: .ended, phase: .settled)
+        #expect(retainedOpacity == SettlingCardOpacity.dimmed)
+        #expect(retainedOpacity == launchTimeOpacity, "retained must render identically to a launch-time disconnected card")
+    }
+
+    /// `.retained` + `.transientFadingGrace` still resolves to `dimmed`
+    /// (unchanged behaviour, now reached via the shared rule instead of a
+    /// `.retained`-only special case).
+    @Test("Retained with transient-fading-grace visibility stays dimmed")
+    func retainedWithTransientFadingGraceStaysDimmed() {
+        #expect(SettlingCardOpacity.effectiveOpacity(visibility: .transientFadingGrace, phase: .retained) == SettlingCardOpacity.dimmed)
+    }
+
+    /// `.retained` + `.live` still resolves to `full` (momentary: real
+    /// visibility recovery flips `phase` away from `.retained` via
+    /// `SettlingCardPhaseEntryRecovery` before this frame would ever be
+    /// seen for long, but the mapping itself is unchanged for that case).
+    @Test("Retained with live visibility stays full")
+    func retainedWithLiveVisibilityStaysFull() {
+        #expect(SettlingCardOpacity.effectiveOpacity(visibility: .live, phase: .retained) == SettlingCardOpacity.full)
     }
 
     // MARK: - Deadline task arming (Codex gate, round 2, finding 1)

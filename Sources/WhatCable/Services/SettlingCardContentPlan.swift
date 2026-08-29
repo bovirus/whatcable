@@ -86,6 +86,53 @@ public enum SettlingCardVisibilityResolver {
             return isPortLiveNow() ? .live : .ended
         }
     }
+
+    /// Resolves visibility for a settling card's `SettlingPortCardHost` row.
+    /// Identical to `resolve` except for one addition: a stale `.hidden`
+    /// entry is overridden by a live-now signal (issue #585, symptom 2).
+    ///
+    /// Correction (adversarial review): this does NOT run only at mount.
+    /// `settlingVisibility` is a plain `let` at the `ContentView` call site,
+    /// recomputed on EVERY body evaluation of that row, not just the one
+    /// that constructs a fresh `SettlingCardIdentity`. The name describes
+    /// the bug this closes, not the calling frequency.
+    ///
+    /// `portVisibilityStates` is a separate `@State` dictionary updated only
+    /// in `ContentView`'s `.onChange` handlers, which run AFTER the body
+    /// evaluation that reads `portWatcher.ports` and derives the new
+    /// `SettlingCardIdentity` generation. Plugging into an already-visible
+    /// EMPTY port bumps the generation on that same evaluation, but
+    /// `portVisibilityStates[port.serviceName]` still holds the OLD
+    /// `.hidden` entry from when the port had nothing in it; the dictionary
+    /// hasn't caught up yet. Feeding that stale `.hidden` straight into
+    /// `resolve` folds it to `.ended`, so the fresh machine's trigger sees
+    /// visibility already ended, its "port is live" condition fails, and it
+    /// starts `.settled` instead of `.loading`: the spinner-then-reveal
+    /// choreography (PR #579) never runs, and the old incremental fill-in
+    /// shows instead. That is the frame this override exists to fix; on
+    /// every OTHER render it is harmless, not merely unneeded, because
+    /// `portVisibilityStates` catching up (or the port genuinely going live)
+    /// makes the override a no-op path to the same answer `resolve` would
+    /// already give, and any extra `sessionResumed` this causes downstream
+    /// (`SettlingPortCardHost`'s `onChange(of: settlingVisibility)`) is
+    /// itself a no-op everywhere except `phase == .retained`
+    /// (`SettlingCardReducer`'s totality: `.sessionResumed` only moves
+    /// `.retained`).
+    ///
+    /// Only `.hidden` is special-cased. `.live` and `.fading` carry real
+    /// policy (the #536 charger-grace window) that a same-frame live signal
+    /// must never second-guess; a `.hidden` entry with the live signal ALSO
+    /// false stays `.ended`, exactly as `resolve` already does (the
+    /// dead-session race the plain `nil` branch closes).
+    public static func resolveAtMount(
+        _ state: PortVisibilityState?,
+        isPortLiveNow: Bool
+    ) -> SettlingCardVisibility {
+        if case .hidden = state, isPortLiveNow {
+            return resolve(nil, isPortLiveNow: isPortLiveNow)
+        }
+        return resolve(state, isPortLiveNow: isPortLiveNow)
+    }
 }
 
 // MARK: - Opacity
@@ -136,17 +183,17 @@ public enum SettlingCardOpacity {
         switch phase {
         case .fading:
             return hidden
-        case .retained:
-            // Fade already complete; parent's steady-state mapping resumes
-            // (spec: "today's parent opacity mapping stands" for
-            // `.retained`'s CONTENT-only branch). `.transientFadingGrace`
-            // here is an edge case (a churn bringing the port back to life
-            // mid-fade isn't modelled as an event), kept dimmed to match
-            // the pre-fix behaviour for that visibility state; harmless
-            // either way since `.retained`'s content plan never shows live
-            // content regardless of `visibility`.
-            return visibility == .transientFadingGrace ? dimmed : full
-        case .loading, .settled:
+        case .retained, .loading, .settled:
+            // `.retained` shares the `.loading`/`.settled` rule (owner
+            // ruling, issue #585): task 1 made `.retained` render the SAME
+            // content as a launch-time disconnected card (phase `.settled`,
+            // visibility `.ended`), so it must also render at the SAME
+            // opacity, `dimmed`, not `full`. The old `.retained`-only
+            // mapping (`visibility == .transientFadingGrace ? dimmed :
+            // full`) predated that fix, back when `.retained` showed its
+            // own separate placeholder rather than the real card; folding
+            // it into this shared arm removes the special case rather than
+            // duplicating the rule.
             // Capped at `dimmed` the instant the AUTHORITATIVE visibility
             // says anything other than confirmed-live, even before this
             // machine's own `phase` has caught up via its `onChange`-driven

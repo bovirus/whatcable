@@ -288,7 +288,43 @@ struct SettlingPortCardHost: View {
                     connectionSessionGeneration: connectionSessionGeneration
                 )
             case .retained:
-                SettlingCardRetainedPlaceholder(portLabel: snapshottedPortLabel)
+                // The real disconnected card (owner ruling, issue #585, task
+                // 1): every session-derived input is suppressed so this is
+                // structurally the SAME card a launch-time empty port
+                // renders (`PortCard`'s own `summary` falls back to
+                // "Nothing connected" once `devices`/`powerSources`/
+                // `identities` are all empty and `isLive` is false, exactly
+                // like `ContentView.nothingConnectedState`), not a
+                // hand-maintained lookalike that can drift from it. Fixes
+                // the bug where `.retained` (a PERMANENT steady state for a
+                // visible empty port, see the doc comment above) rendered a
+                // minimal placeholder forever instead: no Diagnostics
+                // button, no technical-details toggle, nothing the real
+                // disconnected card offers.
+                PortCard(
+                    port: port,
+                    devices: [],
+                    tunnelledDevices: [],
+                    structuralTunnelledDevices: [],
+                    powerSources: [],
+                    identities: [],
+                    thunderboltSwitches: [],
+                    usb3Transports: [],
+                    trmTransports: [],
+                    isLive: false,
+                    showAdvanced: showAdvanced,
+                    cioCapability: nil,
+                    displayPorts: [],
+                    chargerWattageSource: .unknown,
+                    batteryFullyCharged: nil,
+                    batteryIsCharging: nil,
+                    adapter: nil,
+                    anotherPortActivelyCharging: false,
+                    connectionDiagnostic: nil,
+                    federatedIdentities: [],
+                    connectionAttachInstant: nil,
+                    connectionSessionGeneration: nil
+                )
             }
         }
         .transition(CardMotion.reveal(reduceMotion: reduceMotion))
@@ -478,36 +514,6 @@ private struct SettlingCardPlaceholder: View {
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(String(localized: "Reading cable details…", bundle: _coreLocalizedBundle))
-            }
-            Spacer()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
-    }
-}
-
-/// The `.retained` disconnected-card content. Spec: "Parent-owned retention
-/// and removal": "renders the DISCONNECTED-card content with live-input
-/// rendering suppressed". Reuses the existing "Nothing connected" wording
-/// (already localized in every catalogue, `ContentView.nothingConnectedState`
-/// uses the same string) rather than adding a new one.
-private struct SettlingCardRetainedPlaceholder: View {
-    let portLabel: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "cable.connector.slash")
-                .scaledFont(.title2)
-                .foregroundStyle(.secondary)
-                .frame(width: 36)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(portLabel)
-                    .scaledFont(.caption)
-                    .foregroundStyle(.secondary)
-                Text(String(localized: "Nothing connected", bundle: _appLocalizedBundle))
-                    .scaledFont(.callout)
-                    .foregroundStyle(.secondary)
             }
             Spacer()
         }

@@ -429,6 +429,11 @@ struct ContentView: View {
                             )
                             let generation = portWatcher.connectionSessionGeneration(for: port.id)
                             let structurallyScopedDevices = structurallyScopedByPort[port.serviceName] ?? []
+                            // Computed once and reused for both `isLive` and
+                            // the visibility resolution below (issue #585,
+                            // task 3), instead of calling `isPortLive` twice
+                            // per row.
+                            let portIsLive = isPortLive(port, structurallyScopedDevices: structurallyScopedDevices)
                             SettlingPortCardHost(
                                 port: port,
                                 devices: matchingDevices(for: port),
@@ -439,7 +444,7 @@ struct ContentView: View {
                                 thunderboltSwitches: tbWatcher.switches,
                                 usb3Transports: usb3Watcher.transports(for: port),
                                 trmTransports: trmWatcher.transports.filter { $0.canonicallyMatches(port: port) },
-                                isLive: isPortLive(port, structurallyScopedDevices: structurallyScopedDevices),
+                                isLive: portIsLive,
                                 showAdvanced: showAdvanced,
                                 cioCapability: trmWatcher.cioCapabilities.first { $0.canonicallyMatches(port: port) },
                                 displayPorts: displayWatcher.statuses.filter { $0.status.canonicallyMatches(port: port) }.map(\.status),
@@ -453,9 +458,18 @@ struct ContentView: View {
                                 connectionAttachInstant: portWatcher.connectionAttachInstant(for: port.id),
                                 connectionSessionGeneration: generation,
                                 retainedAttachInstant: portWatcher.connectionRetainedAttachInstant(for: port.id),
-                                settlingVisibility: SettlingCardVisibilityResolver.resolve(
+                                // `.resolveAtMount`, not the plain `.resolve`
+                                // (issue #585, task 3): `portVisibilityStates` is a
+                                // separate `@State` dictionary that only
+                                // catches up to a fresh generation one
+                                // `.onChange` later, so a stale `.hidden`
+                                // entry here would wrongly fold to `.ended`
+                                // and skip the settling spinner on this same
+                                // body evaluation. See that function's doc
+                                // comment for the full mechanism.
+                                settlingVisibility: SettlingCardVisibilityResolver.resolveAtMount(
                                     portVisibilityStates[port.serviceName],
-                                    isPortLiveNow: isPortLive(port, structurallyScopedDevices: structurallyScopedDevices)
+                                    isPortLiveNow: portIsLive
                                 )
                             )
                             // Generation-scoped identity (spec: "the old
@@ -1310,17 +1324,26 @@ struct PortCard: View {
                     }
                 }
                 Spacer()
-                let ctx = PortCardContext(
-                    portKey: port.portKey,
-                    portNumber: port.portNumber,
-                    serviceName: port.serviceName,
-                    portTypeDescription: port.portTypeDescription,
-                    pinConfiguration: port.pinConfiguration,
-                    plugOrientation: port.plugOrientation
-                )
-                ForEach(Array(PluginRegistry.shared.portCardTrailingBuilders.enumerated()), id: \.offset) { _, builder in
-                    if let view = builder(ctx) {
-                        view
+                // Diagnostics (and any other trailing plugin button) only
+                // makes sense once a cable is actually connected (owner
+                // ruling, issue #585, task 2: "no need for diagnostics to
+                // show until there is a cable connected"). Gating on `isLive`
+                // hides it on every disconnected card, launch-time empty
+                // ports included, not just the `.retained` steady state task
+                // 1 fixes above.
+                if isLive {
+                    let ctx = PortCardContext(
+                        portKey: port.portKey,
+                        portNumber: port.portNumber,
+                        serviceName: port.serviceName,
+                        portTypeDescription: port.portTypeDescription,
+                        pinConfiguration: port.pinConfiguration,
+                        plugOrientation: port.plugOrientation
+                    )
+                    ForEach(Array(PluginRegistry.shared.portCardTrailingBuilders.enumerated()), id: \.offset) { _, builder in
+                        if let view = builder(ctx) {
+                            view
+                        }
                     }
                 }
             }
@@ -1486,7 +1509,12 @@ struct PortCard: View {
                 .padding(.leading, 48)
             }
 
-            if showAdvanced {
+            // Owner ruling, issue #585: "clearly the technical details
+            // section should be gated on isLive regardless if this is a new
+            // or old issue". Same reasoning as the trailing Diagnostics
+            // button gate above: raw port details make no sense on a
+            // disconnected card, launch-time empty or retained alike.
+            if showAdvanced && isLive {
                 Divider()
                 AdvancedPortDetails(
                     port: port,

@@ -543,6 +543,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "Є e-marker, але без унікального ID (ID продукту не задано)";
 "Has an e-marker, but the maker never programmed an ID" = "Є e-marker, але виробник так і не задав ID";
 "This cable has no e-marker, so it can't be tracked." = "У цього кабелю немає e-marker, тому його не можна відстежувати.";
+"This cable can't be tracked" = "Цей кабель не можна відстежувати";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Збігається зі збереженим кабелем %@. Два екземпляри однієї моделі неможливо розрізнити, тому їхня історія об'єднається, якщо ви збережете і цей.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "У цього кабелю немає e-marker, тому для нього не можна записати нічого нового. Наявна історія залишається доступною.";
 "Can't add this cable" = "Не вдається додати цей кабель";

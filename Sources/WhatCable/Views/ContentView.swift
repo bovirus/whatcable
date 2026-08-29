@@ -1311,39 +1311,50 @@ struct PortCard: View {
                     .scaledFont(.title2)
                     .foregroundStyle(summary.iconColor)
                     .frame(width: 36)
+                // Split into three rows instead of one HStack (issue #584):
+                // trailing labels (the Diagnostics button, cable-tracking
+                // control) used to share a row with the headline/subtitle,
+                // so a long trailing label (worst case, the no-e-marker
+                // tracking message) squeezed the title into a mid-phrase
+                // wrap. Putting the port name + trailing controls on their
+                // own row means they can never constrain the headline or
+                // subtitle width, which now each get the full card width.
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(port.portDescription ?? port.serviceName)
-                        .scaledFont(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(port.portDescription ?? port.serviceName)
+                            .scaledFont(.caption)
+                            .foregroundStyle(.secondary)
+                            .layoutPriority(1)
+                        Spacer()
+                        // Diagnostics (and any other trailing plugin button) only
+                        // makes sense once a cable is actually connected (owner
+                        // ruling, issue #585, task 2: "no need for diagnostics to
+                        // show until there is a cable connected"). Gating on `isLive`
+                        // hides it on every disconnected card, launch-time empty
+                        // ports included, not just the `.retained` steady state task
+                        // 1 fixes above.
+                        if isLive {
+                            let ctx = PortCardContext(
+                                portKey: port.portKey,
+                                portNumber: port.portNumber,
+                                serviceName: port.serviceName,
+                                portTypeDescription: port.portTypeDescription,
+                                pinConfiguration: port.pinConfiguration,
+                                plugOrientation: port.plugOrientation
+                            )
+                            ForEach(Array(PluginRegistry.shared.portCardTrailingBuilders.enumerated()), id: \.offset) { _, builder in
+                                if let view = builder(ctx) {
+                                    view
+                                }
+                            }
+                        }
+                    }
                     Text(summary.headline)
                         .scaledFont(.title3, weight: .bold)
                     if !summary.subtitle.isEmpty {
                         Text(summary.subtitle)
                             .scaledFont(.callout)
                             .foregroundStyle(.secondary)
-                    }
-                }
-                Spacer()
-                // Diagnostics (and any other trailing plugin button) only
-                // makes sense once a cable is actually connected (owner
-                // ruling, issue #585, task 2: "no need for diagnostics to
-                // show until there is a cable connected"). Gating on `isLive`
-                // hides it on every disconnected card, launch-time empty
-                // ports included, not just the `.retained` steady state task
-                // 1 fixes above.
-                if isLive {
-                    let ctx = PortCardContext(
-                        portKey: port.portKey,
-                        portNumber: port.portNumber,
-                        serviceName: port.serviceName,
-                        portTypeDescription: port.portTypeDescription,
-                        pinConfiguration: port.pinConfiguration,
-                        plugOrientation: port.plugOrientation
-                    )
-                    ForEach(Array(PluginRegistry.shared.portCardTrailingBuilders.enumerated()), id: \.offset) { _, builder in
-                        if let view = builder(ctx) {
-                            view
-                        }
                     }
                 }
             }

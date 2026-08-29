@@ -548,6 +548,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "Has an e-marker, but no unique ID (product ID not set)";
 "Has an e-marker, but the maker never programmed an ID" = "Has an e-marker, but the maker never programmed an ID";
 "This cable has no e-marker, so it can't be tracked." = "This cable has no e-marker, so it can't be tracked.";
+"This cable can't be tracked" = "This cable can't be tracked";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available.";
 "Can't add this cable" = "Can't add this cable";

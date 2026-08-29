@@ -544,6 +544,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "Ունի e-marker, բայց եզակի ID չկա (արտադրանքի ID-ն սահմանված չէ)";
 "Has an e-marker, but the maker never programmed an ID" = "Ունի e-marker, բայց արտադրողը երբեք ID չի ծրագրավորել";
 "This cable has no e-marker, so it can't be tracked." = "Այս մալուխն e-marker չունի, ուստի այն չի կարող հետևվել։";
+"This cable can't be tracked" = "Այս մալուխը չի կարող հետևվել";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Համընկնում է ձեր պահված մալուխի հետ՝ %@։ Նույն մոդելի երկու օրինակները հնարավոր չէ տարբերել, ուստի եթե սա նույնպես պահեք, նրանց պատմությունը կմիավորվի։";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Այս մալուխն e-marker չունի, ուստի դրա համար ոչինչ նոր չի կարող գրանցվել։ Դրա եղած պատմությունը մնում է հասանելի։";
 "Can't add this cable" = "Հնարավոր չէ ավելացնել այս մալուխը";

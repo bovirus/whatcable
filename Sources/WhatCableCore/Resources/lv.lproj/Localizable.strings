@@ -543,6 +543,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "Ir e-markeris, bet nav unikāla ID (produkta ID nav iestatīts)";
 "Has an e-marker, but the maker never programmed an ID" = "Ir e-markeris, bet ražotājs nekad nav ieprogrammējis ID";
 "This cable has no e-marker, so it can't be tracked." = "Šim kabelim nav e-markera, tāpēc to nevar izsekot.";
+"This cable can't be tracked" = "Šo kabeli nevar izsekot";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Sakrīt ar jūsu saglabāto kabeli %@. Divus viena modeļa eksemplārus nevar atšķirt, tāpēc, saglabājot arī šo, to vēsture tiks apvienota.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Šim kabelim nav e-markera, tāpēc tam nevar reģistrēt neko jaunu. Esošā vēsture joprojām ir pieejama.";
 "Can't add this cable" = "Šo kabeli nevar pievienot";

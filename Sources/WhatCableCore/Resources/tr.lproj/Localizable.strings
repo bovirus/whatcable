@@ -543,6 +543,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "e-marker var, ama benzersiz kimliği yok (ürün kimliği ayarlanmamış)";
 "Has an e-marker, but the maker never programmed an ID" = "e-marker var, ama üretici hiç kimlik programlamamış";
 "This cable has no e-marker, so it can't be tracked." = "Bu kabloda e-marker yok, bu yüzden takip edilemez.";
+"This cable can't be tracked" = "Bu kablo takip edilemez";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Kayıtlı kablonuz %@ ile eşleşiyor. Aynı modelin iki adedi birbirinden ayırt edilemez, bu yüzden bunu da kaydederseniz geçmişleri birleşir.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Bu kabloda e-marker yok, bu yüzden onun için yeni bir şey kaydedilemez. Mevcut geçmişi kullanılabilir olmaya devam ediyor.";
 "Can't add this cable" = "Bu kablo eklenemiyor";

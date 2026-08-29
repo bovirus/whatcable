@@ -543,6 +543,7 @@
 "Has an e-marker, but no unique ID (product ID not set)" = "Ma e-marker, ale bez unikalnego ID (nie ustawiono ID produktu)";
 "Has an e-marker, but the maker never programmed an ID" = "Ma e-marker, ale producent nigdy nie zaprogramował żadnego ID";
 "This cable has no e-marker, so it can't be tracked." = "Ten kabel nie ma e-markera, więc nie można go śledzić.";
+"This cable can't be tracked" = "Tego kabla nie można śledzić";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Pasuje do zapisanego kabla %@. Dwóch egzemplarzy tego samego modelu nie da się odróżnić, więc ich historia zostanie połączona, jeśli zapiszesz też ten.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Ten kabel nie ma e-markera, więc nie można rejestrować dla niego niczego nowego. Dotychczasowa historia pozostaje dostępna.";
 "Can't add this cable" = "Nie można dodać tego kabla";

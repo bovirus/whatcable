@@ -199,15 +199,25 @@ final class NotificationManager {
         // threaded through below).
         sweepDeliveredNotificationsOwnedFromEarlierLaunches()
 
-        // Prime baseline on the next runloop tick so we don't fire a flurry
-        // of "connected" notifications for things already plugged in at launch.
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            self.sequencer.primeBaseline(
-                devices: WatcherHub.shared.deviceWatcher.devices,
-                chargerSources: WatcherHub.shared.powerWatcher.sources
-            )
-        }
+        // Prime baseline synchronously, before the Combine subscriptions
+        // below, so we don't fire a flurry of "connected" notifications for
+        // things already plugged in at launch. Each `@Published` sink below
+        // replays its current value the moment it's subscribed to; with the
+        // baseline already primed to those same values, that replay diffs as
+        // a no-op instead of a fresh connect.
+        //
+        // This used to prime on the next runloop tick (`DispatchQueue.main.async`)
+        // to dodge a startup ordering problem: on M1 Pro/Max/Ultra the
+        // charger power source doesn't exist until `powerWatcher.refresh()`
+        // has run synthesis, and priming before that refresh happened primed
+        // against an empty charger list (issue #568). `WatcherHub.start()`
+        // now performs that refresh synchronously before this shim's own
+        // `start()` runs, so the async hop is no longer needed and priming
+        // can happen right here, in order.
+        sequencer.primeBaseline(
+            devices: WatcherHub.shared.deviceWatcher.devices,
+            chargerSources: WatcherHub.shared.powerWatcher.sources
+        )
 
         WatcherHub.shared.deviceWatcher.$devices
             .sink { [weak self] _ in self?.sequencer.scheduleDeviceDiff() }

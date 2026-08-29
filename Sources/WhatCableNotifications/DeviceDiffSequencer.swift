@@ -882,9 +882,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
 
     /// Sets the baseline device/charger state without diffing against it, so
     /// the app doesn't fire a flurry of "connected" notifications for things
-    /// already plugged in at launch. The app-side shim calls this once, on
-    /// the next runloop tick after `start()`, exactly mirroring the original
-    /// `DispatchQueue.main.async` priming block.
+    /// already plugged in at launch. The app-side shim calls this once,
+    /// synchronously, during its own `start()`, before subscribing to any of
+    /// the watcher publishers, relying on `WatcherHub.start()` having already
+    /// performed its own initial refresh (issue #568) so the values read here
+    /// already reflect current reality, synthesised charger sources included.
     public func primeBaseline(devices: [USBDevice], chargerSources: [PowerSource]) {
         let baselineSnapshots = devices.map(snapshot(for:))
         knownDevices = Dictionary(

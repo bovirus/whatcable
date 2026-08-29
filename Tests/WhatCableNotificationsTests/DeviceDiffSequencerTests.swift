@@ -33,6 +33,19 @@ final class DeviceDiffSequencerTests: XCTestCase {
         )
     }
 
+    /// Minimal single-port charger fixture with a winning 30W contract, so
+    /// `chargerLabels(for:)` resolves it to "30W negotiated" (matching the
+    /// label convention the other tests in this file already use for
+    /// `knownChargerLabels`).
+    private func fakeChargerSource(id: UInt64 = 1) -> PowerSource {
+        PowerSource(
+            id: id, name: "USB-PD",
+            parentPortType: 2, parentPortNumber: 1,
+            options: [],
+            winning: PowerOption(voltageMV: 20000, maxCurrentMA: 1500, maxPowerMW: 30000)
+        )
+    }
+
     /// A sequencer wired to `clock`, an always-empty live device/charger
     /// read (every test drives `knownDevices`/`knownChargerLabels` directly
     /// instead, exactly as the original wiring tests did against the real,
@@ -44,13 +57,14 @@ final class DeviceDiffSequencerTests: XCTestCase {
     private func makeSequencer(
         clock: ManualClock,
         posted: PostedLog,
+        currentChargerSources: @escaping () -> [PowerSource] = { [] },
         currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
         notifyOnChanges: @escaping () -> Bool = { true }
     ) -> DeviceDiffSequencer<ManualClock> {
         DeviceDiffSequencer(
             clock: clock,
             currentDevices: { [] },
-            currentChargerSources: { [] },
+            currentChargerSources: currentChargerSources,
             currentDownstreamTBSwitchIDs: currentDownstreamTBSwitchIDs,
             notifyOnChanges: notifyOnChanges,
             post: { category, content, _ in posted.entries.append((category, content)) },
@@ -837,6 +851,78 @@ final class DeviceDiffSequencerTests: XCTestCase {
             posted.entries.first?.1.title,
             "Thunderbolt devices disconnected",
             "a TB switch disappearing during the park window must not undo the batch's Thunderbolt label"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    // MARK: - 14 & 15: issue #568, the baseline prime must already agree with
+    // the first live charger read, so app launch on existing charger power
+    // never reads as a fresh connect.
+
+    /// `diffSources(_:)` ignores its argument and re-reads
+    /// `currentChargerSources()` fresh, after the settle window, so this
+    /// (and the test below) drive the charger side through a mutable box the
+    /// injected closure reads, exactly like `MutableBox` is already used for
+    /// `currentDownstreamTBSwitchIDs` above.
+    ///
+    /// This test is the "fixed" case: the baseline was primed WITH the same
+    /// charger source the live closure keeps returning (mirroring
+    /// `WatcherHub.start()`'s new initial refresh landing before
+    /// `NotificationManager`'s synchronous prime). A settle that finds
+    /// nothing changed must post nothing.
+    func testPrimingWithTheLiveChargerAlreadyPresentPostsNothingOnTheFirstSettle() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let chargerBox = MutableBox<[PowerSource]>([fakeChargerSource()])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentChargerSources: { chargerBox.value }
+        )
+
+        sequencer.primeBaseline(devices: [], chargerSources: chargerBox.value)
+        sequencer.diffSources([])
+        await flush(clock)
+        await clock.advance(by: DeviceDiffSequencer<ManualClock>.defaultChargerSettleWindow)
+        await flush(clock)
+
+        XCTAssertTrue(
+            posted.entries.isEmpty,
+            "a charger present at both prime time and the first live read must not post a phantom connect"
+        )
+        await clock.advance(by: .seconds(10))
+    }
+
+    /// The "bug reproduced" case: the baseline was primed EMPTY (as it would
+    /// be if `NotificationManager` primed before `WatcherHub` had a chance to
+    /// refresh, the pre-#568-fix ordering), and the live closure only starts
+    /// returning the charger source after priming, standing in for the
+    /// synthesis path that only exists once `powerWatcher.refresh()` has run.
+    /// The subsequent settle must read this as a genuine connect and post
+    /// exactly one "Charger connected".
+    func testPrimingEmptyThenTheChargerAppearingPostsOneConnectedNotification() async {
+        let clock = ManualClock()
+        let posted = PostedLog()
+        let chargerBox = MutableBox<[PowerSource]>([])
+        let sequencer = makeSequencer(
+            clock: clock,
+            posted: posted,
+            currentChargerSources: { chargerBox.value }
+        )
+
+        sequencer.primeBaseline(devices: [], chargerSources: chargerBox.value)
+        chargerBox.value = [fakeChargerSource()]
+        sequencer.diffSources([])
+        await flush(clock)
+        await clock.advance(by: DeviceDiffSequencer<ManualClock>.defaultChargerSettleWindow)
+        await flush(clock)
+
+        XCTAssertEqual(posted.entries.count, 1)
+        XCTAssertEqual(posted.entries.first?.0, .charger)
+        XCTAssertEqual(
+            posted.entries.first?.1.title,
+            "Charger connected",
+            "an empty baseline followed by the charger appearing on the first live read must post Charger connected"
         )
         await clock.advance(by: .seconds(10))
     }

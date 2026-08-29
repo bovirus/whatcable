@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import os.log
 
 /// Single owner of the app's IOKit watchers. Lives in the backend (not the app
 /// target) so both the menu bar app and the Pro plugin can share one set of
@@ -9,6 +10,8 @@ import Combine
 @MainActor
 public final class WatcherHub {
     public static let shared = WatcherHub()
+
+    private static let log = Logger(subsystem: "uk.whatcable.whatcable", category: "watcher-hub")
 
     /// The process's one AppleSMC connection.
     ///
@@ -101,6 +104,35 @@ public final class WatcherHub {
                 positionalPortKeys: { PowerService.hpmPortKeysRIDOrdered() }
             )
         }
+
+        // Initial synchronous readiness refresh (issue #568). On M1 Pro/Max/Ultra
+        // macOS never publishes a real IOPortFeaturePowerSource node for USB-C,
+        // so the charger source only exists once powerWatcher.refresh() has run
+        // synthesis (see synthesisContext above). Without this, the first
+        // refresh doesn't happen until the poll's first sleep finishes (30s
+        // idle, or ~2s if the popover opens first), so NotificationManager
+        // primes its baseline against an empty charger list and then reads
+        // this refresh as a fresh connect.
+        //
+        // Contract: once start() returns, powerWatcher.sources reflects
+        // current reality, synthesis included, so NotificationManager's
+        // baseline prime (which now runs synchronously right after this, see
+        // NotificationManager.start()) sees the same charger already primed
+        // rather than diffing against an empty one.
+        //
+        // Port then PD then power, not a full refreshAll(): synthesis needs
+        // this tick's ports and PD identities (same ordering as refreshAll()
+        // above), and the TB/USB3/TRM/display walks aren't needed for
+        // baseline correctness, so skipping them keeps launch cost down.
+        // Deliberately doesn't send didRefresh: nothing is listening yet at
+        // this point in start(), and the burst/poll machinery below covers
+        // every later refresh.
+        let startupRefreshClock = ContinuousClock()
+        let startupRefreshStart = startupRefreshClock.now
+        portWatcher.refresh()
+        pdWatcher.refresh()
+        powerWatcher.refresh()
+        Self.log.info("WatcherHub.start() initial refresh took \(startupRefreshClock.now - startupRefreshStart, privacy: .public)")
 
         startPoll()
         setupBurstTriggers()

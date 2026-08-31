@@ -148,7 +148,7 @@ public enum CableReport {
     /// Map a VDO array index to its role per the USB-PD spec layout for a
     /// passive / active cable Discover Identity response. Anything past the
     /// known indices is "Other" so we still surface the raw value.
-    static func vdoRoleLabel(at index: Int) -> String {
+    public static func vdoRoleLabel(at index: Int) -> String {
         switch index {
         case 0: return "ID Header"
         case 1: return "Cert Stat"

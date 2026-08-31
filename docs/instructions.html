@@ -1040,7 +1040,10 @@
 
 <h3>I can't see the icon in the menu bar</h3>
 <p>
-  If your menu bar is full, macOS may hide the icon behind the notch or other apps. Try closing some menu bar apps, or switch WhatCable to Dock mode in Settings if space is tight.
+  On macOS 26 (Tahoe), check this first. Go to System Settings > Menu Bar and scroll down to "Allow in the Menu Bar". Find WhatCable in that list. While that switch is off, macOS will not show the icon whatever WhatCable does, so switch it on and open WhatCable again. If it already looks switched on, switch it off and back on anyway: one reporter fixed exactly this problem that way.
+</p>
+<p>
+  If that wasn't it, your menu bar may just be full. When there is no room, macOS may hide the icon behind the notch or other apps. Try closing some menu bar apps, or switch WhatCable to Dock mode in Settings if space is tight.
 </p>
 
 <h3>Notifications aren't showing up</h3>
@@ -1058,7 +1061,9 @@
   If you launch WhatCable and nothing shows up (no menu bar icon, no window), try these steps in order:
 </p>
 <ol>
-  <li><strong>Check the menu bar.</strong> The icon may be hidden behind the notch or other apps. Try closing a few menu bar apps and relaunching WhatCable.</li>
+  <li><strong>Check macOS isn't blocking the icon.</strong> On macOS 26 (Tahoe), go to System Settings > Menu Bar, scroll down to "Allow in the Menu Bar", and make sure WhatCable is switched on. If it already is, switch it off and back on again. This has fixed it for someone reporting these exact symptoms. It is a macOS setting rather than a WhatCable one, so reinstalling WhatCable does not change it.</li>
+  <li><strong>Check whether WhatCable is actually running.</strong> Open Activity Monitor (Applications > Utilities) and search for "WhatCable". If it is listed, WhatCable is running and its icon is not being shown, so work through the rest of this list. If it is not listed, open WhatCable again from Applications and watch whether it appears in the list and stays there. If it never appears, open Console (Applications > Utilities), click Crash Reports in the sidebar, and include anything named WhatCable in your bug report if there is one.</li>
+  <li><strong>Check the menu bar isn't full.</strong> The icon may be hidden behind the notch or other apps. Try closing a few menu bar apps and relaunching WhatCable.</li>
   <li><strong>Quit and relaunch.</strong> Open Activity Monitor, search for "WhatCable", force-quit it if it's running, then open it again from Applications.</li>
   <li><strong>Try the CLI.</strong> Open Terminal and run <code>whatcable</code>. If that prints port data, the hardware access is working and the issue is with the menu bar UI. Include the CLI output when filing a bug report.</li>
   <li><strong>Collect diagnostic logs</strong> (see below) and include them in a <a href="https://github.com/darrylmorley/whatcable/issues">bug report</a>.</li>

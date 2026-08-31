@@ -296,6 +296,54 @@ struct PortSummaryTests {
         #expect(group?.subtitle?.contains("above 3A or over Thunderbolt") == true)
     }
 
+    /// Issue #573 part 2 (Codex design review, "the visible-delta
+    /// recommendation currently produces misleading UI"): once
+    /// `USBPDSOPWatcher` starts producing a MagSafe cable identity (real
+    /// VID/PID, always empty `vdos`, since MagSafe never has a VDO array to
+    /// answer with), the plain `hasEmarker && !emarkerRead` rule above would
+    /// show "Present, but not read on this connection" -- exactly the wrong
+    /// message: the IDs WERE read, there was simply never anything else to
+    /// read. This is what `!isMagSafe` in that condition exists to suppress.
+    @Test("MagSafe cable identity never shows the unread-e-marker subtitle")
+    func magSafeCableIdentityNeverShowsUnreadSubtitle() {
+        let magSafePort = USBCPort(
+            id: 1,
+            serviceName: "Port-MagSafe 3@1",
+            className: "AppleHPMInterfaceType11",
+            portDescription: "Port-MagSafe 3@1",
+            portTypeDescription: "MagSafe 3",
+            portNumber: 1,
+            connectionActive: true,
+            activeCable: nil, opticalCable: nil, usbActive: nil, superSpeedActive: nil,
+            usbModeType: nil, usbConnectString: nil,
+            transportsSupported: [],
+            transportsActive: ["CC"],
+            transportsProvisioned: ["CC"],
+            plugOrientation: nil, plugEventCount: nil, connectionCount: nil,
+            overcurrentCount: nil, pinConfiguration: [:], powerCurrentLimits: [],
+            firmwareVersion: nil, bootFlagsHex: nil, rawProperties: [:]
+        )
+        let magSafeCable = USBPDSOP(
+            id: 99, endpoint: .sopPrime,
+            parentPortType: 17, parentPortNumber: 1,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [], specRevision: 0
+        )
+        let summary = PortSummary(
+            port: magSafePort,
+            sources: [usbPD(maxW: 100, winningW: 100)],
+            identities: [magSafeCable]
+        )
+        // hasEmarker is true (the endpoint responded), but no group carries
+        // the "not read" subtitle: no new UI, no new string, just silence
+        // where a USB-C port would have shown the wrong claim.
+        let group = summary.group(.emarker)
+        #expect(
+            group?.subtitle?.contains("not read on this connection") != true,
+            "MagSafe must never show the unread-e-marker subtitle, got: \(String(describing: group))"
+        )
+    }
+
     @Test("Populated SOP'' wins over an empty SOP' (reads, not 'not read')")
     func populatedEndpointWinsOverEmptyOne() {
         // Both cable endpoints present: SOP' empty, SOP'' populated. We should

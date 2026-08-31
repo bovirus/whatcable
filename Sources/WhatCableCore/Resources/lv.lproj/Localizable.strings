@@ -545,6 +545,8 @@
 "This cable has no e-marker, so it can't be tracked." = "Šim kabelim nav e-markera, tāpēc to nevar izsekot.";
 "This cable can't be tracked" = "Šo kabeli nevar izsekot";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Sakrīt ar jūsu saglabāto kabeli %@. Divus viena modeļa eksemplārus nevar atšķirt, tāpēc, saglabājot arī šo, to vēsture tiks apvienota.";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "Identificēts pēc MagSafe kabeļa ID (VID 0x%04X, PID 0x%04X). Šī modeļa kabeļi izskatās identiski, tāpēc šis ieraksts atspoguļo modeli, nevis vienu konkrētu kabeli.";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "Jums jau ir šis MagSafe kabelis saglabāts kā %@. Šī modeļa kabeļus nevar atšķirt, tāpēc pievienojiet vēsturi tam esošajam ierakstam.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Šim kabelim nav e-markera, tāpēc tam nevar reģistrēt neko jaunu. Esošā vēsture joprojām ir pieejama.";
 "Can't add this cable" = "Šo kabeli nevar pievienot";
 "OK" = "Labi";

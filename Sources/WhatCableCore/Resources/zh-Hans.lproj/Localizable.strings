@@ -546,6 +546,8 @@
 "This cable has no e-marker, so it can't be tracked." = "这根线缆没有 e-marker，因此无法追踪。";
 "This cable can't be tracked" = "这根线缆无法追踪";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "与您保存的线缆 %@ 匹配。同一型号的两根线缆无法区分，如果您也保存这一根，它们的记录会合并。";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "已通过 MagSafe 线缆 ID 识别（VID 0x%04X，PID 0x%04X）。同一型号的线缆外观完全相同，因此该记录代表的是型号，而非某一根具体线缆。";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "您已将此 MagSafe 线缆保存为 %@。同一型号的线缆无法区分，请改为将记录添加到该线缆下。";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "这根线缆没有 e-marker，因此无法为它记录新的内容。现有记录仍然可用。";
 "Can't add this cable" = "无法添加此线缆";
 "OK" = "好";

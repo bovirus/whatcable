@@ -118,8 +118,11 @@ DYNAMIC_MATCHERS = {
         "Loops over the four transport-state classes. Splitting this watcher is step 4 of the layering refactor.",
     ),
     "WhatCableDarwinBackend/Watchers/USBPDSOPWatcher.swift": (
-        {"className"},
-        "Loops over the SOP class list. Merging with VDMIdentityWatcher is step 5.",
+        {"className", "Self.stateCCClassName"},
+        "Loops over the SOP class list (className). Merging with VDMIdentityWatcher "
+        "is step 5. `Self.stateCCClassName` (issue #573 part 2) is IOPortTransportStateCC, "
+        "the class carrying a MagSafe cable's chip VID/PID -- a held constant, not a "
+        "loop, and no other reader in Sources matches this class (checked 2026-08-31).",
     ),
     "WhatCableDarwinBackend/Watchers/VDMIdentityWatcher.swift": (
         {"className"},

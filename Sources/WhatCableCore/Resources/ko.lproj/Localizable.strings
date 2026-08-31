@@ -545,6 +545,8 @@
 "This cable has no e-marker, so it can't be tracked." = "이 케이블에는 e-marker가 없어 추적할 수 없습니다.";
 "This cable can't be tracked" = "이 케이블은 추적할 수 없습니다";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "저장된 케이블 %@와(과) 일치합니다. 같은 모델의 두 케이블은 구분할 수 없으므로, 이것도 저장하면 기록이 합쳐집니다.";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "MagSafe 케이블 ID로 식별됨 (VID 0x%04X, PID 0x%04X). 이 정확한 모델의 케이블은 모두 동일하게 보이므로, 이 기록은 하나의 물리적 케이블이 아니라 모델을 추적합니다.";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "이 MagSafe 케이블은 이미 %@(으)로 저장되어 있습니다. 이 모델의 케이블은 구분할 수 없으므로, 대신 그 기록에 추가하세요.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "이 케이블에는 e-marker가 없어 새로운 활동을 기록할 수 없습니다. 기존 기록은 계속 이용할 수 있습니다.";
 "Can't add this cable" = "이 케이블을 추가할 수 없습니다";
 "OK" = "확인";

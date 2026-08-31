@@ -545,6 +545,8 @@
 "This cable has no e-marker, so it can't be tracked." = "इस केबल में कोई e-marker नहीं है, इसलिए इसे ट्रैक नहीं किया जा सकता।";
 "This cable can't be tracked" = "इस केबल को ट्रैक नहीं किया जा सकता";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "आपकी सेव की गई केबल %@ से मेल खाता है। एक ही मॉडल की दो केबलों को अलग नहीं पहचाना जा सकता, इसलिए अगर आप इसे भी सेव करते हैं तो दोनों का इतिहास मिल जाएगा।";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "इसके MagSafe केबल ID से पहचाना गया (VID 0x%04X, PID 0x%04X)। इस मॉडल की सभी केबल एक जैसी दिखती हैं, इसलिए यह रिकॉर्ड एक भौतिक केबल नहीं बल्कि मॉडल को ट्रैक करता है।";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "आपके पास पहले से यह MagSafe केबल %@ नाम से सेव है। इस मॉडल की केबलों को अलग नहीं पहचाना जा सकता, इसलिए इसका इतिहास उसी में जोड़ें।";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "इस केबल में कोई e-marker नहीं है, इसलिए इसके लिए कुछ भी नया रिकॉर्ड नहीं किया जा सकता। इसका मौजूदा इतिहास उपलब्ध रहेगा।";
 "Can't add this cable" = "यह केबल जोड़ी नहीं जा सकती";
 "OK" = "ठीक है";

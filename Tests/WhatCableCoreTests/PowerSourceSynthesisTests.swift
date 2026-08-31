@@ -322,6 +322,87 @@ struct PowerSourceSynthesisTests {
         #expect(result?.portKey == "2/2")
     }
 
+    /// Issue #573 part 2 (Codex design review, "another identities consumer
+    /// omitted from the audit"): a MagSafe cable identity (endpoint
+    /// `.sopPrime`, `parentPortType == 17`) is a structural no-op here,
+    /// pinned end-to-end (with vs. without) rather than assumed. Two
+    /// INDEPENDENT guards both have to hold for that to be true: rung b only
+    /// ever consults `identity.endpoint == .sop` (a device/power-brick
+    /// PARTNER identity, never a cable identity), and separately
+    /// `isValidTarget` restricts candidate ports to a `"2/"` (USB-C)
+    /// `portKey` prefix, so a MagSafe port could never become a synthesis
+    /// target either. This test pins the OBSERVABLE outcome (identical
+    /// result with or without the identity present); the next test below
+    /// isolates the endpoint guard specifically, since a realistic
+    /// MagSafe-typed identity can never exercise it alone (the port-type
+    /// guard already excludes it first).
+    @Test("A MagSafe SOP' cable identity is a no-op for synthesis, even carrying a power-brick-shaped VDO")
+    func magSafeSOPPrimeIdentityIsANoOp() {
+        let pdos = [fixedPDORaw(voltsMV: 20000, currentMA: 3000)]
+        let ports = [
+            port(number: 1, active: false),                    // positional target, inactive
+            port(number: 2, active: true),                     // the only active USB-C port
+        ]
+        let magSafeCableIdentity = USBPDSOP(
+            id: 1, endpoint: .sopPrime, parentPortType: 17, parentPortNumber: 1,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [idHeaderVDO(dfpValue: 3)], specRevision: 0)   // "Power Brick" shaped, but .sopPrime not .sop
+        let entries = [ContractEntry(index: 0, rawPDOs: pdos, activeRdo: 0, maxPowerMW: 60000)]
+
+        let withMagSafeIdentity = PowerSourceSynthesis.synthesizedSource(
+            realSources: [], ports: ports, identities: [magSafeCableIdentity],
+            entries: entries, positionalPortKeys: ["2/1"], externalConnected: true)
+        let withoutAnyIdentity = PowerSourceSynthesis.synthesizedSource(
+            realSources: [], ports: ports, identities: [],
+            entries: entries, positionalPortKeys: ["2/1"], externalConnected: true)
+
+        #expect(withMagSafeIdentity?.portKey == withoutAnyIdentity?.portKey)
+        #expect(withMagSafeIdentity?.portKey == "2/2")
+    }
+
+    /// Isolates rung b's `identity.endpoint == .sop` guard specifically
+    /// (the guard MagSafe's cable identity, `endpoint == .sopPrime`, relies
+    /// on). A real MagSafe identity can't exercise this guard in isolation,
+    /// because its `parentPortType == 17` already fails `isValidTarget`'s
+    /// USB-C-only port-key check before the endpoint is ever consulted; this
+    /// fixture uses a `.sopPrime` identity on a valid USB-C port instead
+    /// (the shape a genuine USB-C cable e-marker identity has), so the ONLY
+    /// thing standing between it and winning rung b is the endpoint check.
+    @Test("A SOP' (cable, not partner) identity never satisfies rung b, even sharing a valid target port's key")
+    func cableIdentityNeverSatisfiesRungBEvenOnAMatchingPort() {
+        let pdos = [fixedPDORaw(voltsMV: 20000, currentMA: 3000)]
+        // THREE ports, deliberately: with only one active port, rung c
+        // (sole-active-port) would resolve to the same answer regardless of
+        // whether rung b's endpoint guard holds, making the test outcome-
+        // insensitive to the very mechanism it claims to isolate. With two
+        // ACTIVE ports, rung c is ambiguous (validPorts.count == 2) and
+        // therefore fails too, so the correct result is nil; a broken
+        // endpoint guard would instead let the cable identity's brick-shaped
+        // VDO wrongly resolve rung b to port 2.
+        let ports = [
+            port(number: 1, active: false),   // positional target, inactive
+            port(number: 2, active: true),    // ambiguous candidate A
+            port(number: 3, active: true),    // ambiguous candidate B
+        ]
+        // A cable identity (not a device/power-brick partner) sitting on
+        // port 2, carrying the exact VDO shape that would win rung b if it
+        // were a real .sop partner.
+        let cableIdentityOnSamePort = USBPDSOP(
+            id: 1, endpoint: .sopPrime, parentPortType: 2, parentPortNumber: 2,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [idHeaderVDO(dfpValue: 3)], specRevision: 0)
+        let entries = [ContractEntry(index: 0, rawPDOs: pdos, activeRdo: 0, maxPowerMW: 60000)]
+
+        let result = PowerSourceSynthesis.synthesizedSource(
+            realSources: [], ports: ports, identities: [cableIdentityOnSamePort],
+            entries: entries, positionalPortKeys: ["2/1"], externalConnected: true)
+
+        // No rung resolves: rung a fails (inactive positional target), rung
+        // b fails (the cable identity is never consulted), rung c fails
+        // (two ambiguous active ports).
+        #expect(result == nil)
+    }
+
     // MARK: - 9. Winning derivation from maxPowerMW between two options
 
     @Test("Winning is the largest option <= maxPowerMW when there's no exact match")

@@ -395,8 +395,15 @@ private func launchApp(menuBarMode: Bool) {
 }
 
 private func printCableReports(identities: [USBPDSOP], cioCapabilities: [CIOCableCapability]) {
+    // Issue #573: MagSafe filtered out here too, same reasoning as the
+    // ContentView "Report this cable" button -- the cable DB keys on
+    // VID+PID+Cable VDO, and MagSafe never publishes a Cable VDO. Falling
+    // through to the existing "no cable e-markers" message when that leaves
+    // nothing is deliberate: a MagSafe-only connection should read exactly
+    // like a cable with no e-marker at all, not get its own message.
     let cables = identities.filter {
-        $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime
+        ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime)
+            && $0.parentPortType != PortIdentity.magSafeTypeCode
     }
     if cables.isEmpty {
         print("No cable e-markers detected. Plug in an e-marked USB-C cable and try again.")

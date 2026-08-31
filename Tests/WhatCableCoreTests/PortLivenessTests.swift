@@ -90,6 +90,49 @@ struct PortLivenessTests {
         ))
     }
 
+    /// Issue #573 part 2 (Codex design review "downstream audit omission"):
+    /// PD identities are strong liveness evidence (`if !identities.isEmpty
+    /// { return true }`), so once `USBPDSOPWatcher` starts producing a
+    /// MagSafe cable identity, that identity has to behave the same way as
+    /// any other one here. Pinned with a MagSafe-shaped fixture (endpoint
+    /// `.sopPrime`, `parentPortType == 17`, empty `vdos`) rather than
+    /// trusting the generic `partnerIdentity()` case above to stand in for
+    /// it.
+    private func magSafeCableIdentity() -> USBPDSOP {
+        USBPDSOP(
+            id: 1, endpoint: .sopPrime,
+            parentPortType: 17, parentPortNumber: 1,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [], specRevision: 0
+        )
+    }
+
+    @Test("A MagSafe cable identity makes the port live")
+    func magSafeCableIdentityMakesPortLive() {
+        #expect(isPortLive(
+            port: magSafePort(connectionActive: false),
+            powerSources: [], identities: [magSafeCableIdentity()], matchingDevices: []
+        ))
+    }
+
+    /// Stale-identity/unplug recovery (Codex design review, "prompt removal
+    /// on unplug is correctness, not polish"): the StateCC node PERSISTS
+    /// across unplug (unlike the SOP-component classes, whose add/terminate
+    /// notifications fire per connection), so a MagSafe cable identity only
+    /// ever disappears from `identities` when the watcher's own interest
+    /// callback / refresh() removes it. Once it's gone, `connectionActive`
+    /// lingering `true` (issue #47, MagSafe-specific) and no charger
+    /// attached must still read as not live: the identity's absence is
+    /// exactly what liveness is supposed to fall back on here.
+    @Test("Removing the MagSafe cable identity (unplug) returns the port to not live, even with a lingering connectionActive flag")
+    func removingMagSafeCableIdentityReturnsPortToNotLive() {
+        #expect(!isPortLive(
+            port: magSafePort(connectionActive: true),   // lingering true, issue #47
+            powerSources: [], identities: [], matchingDevices: []
+            // no chargerAttached: false by default
+        ))
+    }
+
     @Test("Non-MagSafe connectionActive makes port live")
     func nonMagSafeConnectionActiveMakesPortLive() {
         #expect(isPortLive(

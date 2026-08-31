@@ -546,6 +546,8 @@
 "This cable has no e-marker, so it can't be tracked." = "Dieses Kabel hat keinen e-Marker und kann daher nicht verfolgt werden.";
 "This cable can't be tracked" = "Dieses Kabel kann nicht verfolgt werden";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Stimmt mit deinem gespeicherten Kabel %@ überein. Zwei Exemplare desselben Modells lassen sich nicht unterscheiden, ihr Verlauf wird zusammengeführt, wenn du dieses auch speicherst.";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "Identifiziert durch die MagSafe-Kabel-ID (VID 0x%04X, PID 0x%04X). Kabel dieses genauen Modells sehen identisch aus, daher erfasst dieser Eintrag das Modell, nicht ein einzelnes physisches Kabel.";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "Du hast dieses MagSafe-Kabel bereits gespeichert als %@. Kabel dieses Modells lassen sich nicht unterscheiden, füge die Historie stattdessen diesem hinzu.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Dieses Kabel hat keinen e-Marker, daher kann nichts Neues dafür aufgezeichnet werden. Der bisherige Verlauf bleibt verfügbar.";
 "Can't add this cable" = "Dieses Kabel kann nicht hinzugefügt werden";
 "OK" = "OK";

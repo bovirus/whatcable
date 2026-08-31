@@ -545,6 +545,8 @@
 "This cable has no e-marker, so it can't be tracked." = "Bu kabloda e-marker yok, bu yüzden takip edilemez.";
 "This cable can't be tracked" = "Bu kablo takip edilemez";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Kayıtlı kablonuz %@ ile eşleşiyor. Aynı modelin iki adedi birbirinden ayırt edilemez, bu yüzden bunu da kaydederseniz geçmişleri birleşir.";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "MagSafe kablo kimliğiyle tanımlandı (VID 0x%04X, PID 0x%04X). Tam olarak bu modeldeki kablolar birbirinin aynısı görünür, bu yüzden bu kayıt tek bir fiziksel kabloyu değil, modeli temsil eder.";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "Bu MagSafe kablosu zaten %@ olarak kayıtlı. Bu modeldeki kablolar birbirinden ayırt edilemez, bu yüzden geçmişini onun yerine oraya ekleyin.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Bu kabloda e-marker yok, bu yüzden onun için yeni bir şey kaydedilemez. Mevcut geçmişi kullanılabilir olmaya devam ediyor.";
 "Can't add this cable" = "Bu kablo eklenemiyor";
 "OK" = "Tamam";

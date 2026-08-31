@@ -82,6 +82,44 @@ struct TextFormatterTests {
         #expect(output.contains("No USB-C"))
     }
 
+    // MARK: - Issue #573 part 2: MagSafe cable identity in CLI text
+
+    private func magSafePort() -> USBCPort {
+        USBCPort(
+            id: 1,
+            serviceName: "Port-MagSafe 3@1",
+            className: "AppleHPMInterfaceType11",
+            portDescription: "Port-MagSafe 3@1",
+            portTypeDescription: "MagSafe 3",
+            portNumber: 1,
+            connectionActive: true,
+            activeCable: nil, opticalCable: nil, usbActive: nil, superSpeedActive: nil,
+            usbModeType: nil, usbConnectString: nil,
+            transportsSupported: [], transportsActive: ["CC"], transportsProvisioned: ["CC"],
+            plugOrientation: nil, plugEventCount: nil, connectionCount: nil,
+            overcurrentCount: nil, pinConfiguration: [:], powerCurrentLimits: [],
+            firmwareVersion: nil, bootFlagsHex: nil, rawProperties: ["PortType": "17"]
+        )
+    }
+
+    /// End-to-end CLI-text pin, alongside the `PortSummary`-level one: the
+    /// unread-e-marker wording must never reach the actual `whatcable`
+    /// (plain-text) output for a MagSafe port either, not just the summary
+    /// struct that feeds it.
+    @Test("CLI text never shows the unread-e-marker wording for a MagSafe cable identity")
+    func cliTextNeverShowsUnreadEmarkerForMagSafe() {
+        let magSafeCable = USBPDSOP(
+            id: 99, endpoint: .sopPrime,
+            parentPortType: 17, parentPortNumber: 1,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [], specRevision: 0
+        )
+        let output = TextFormatter.render(
+            ports: [magSafePort()], sources: [], identities: [magSafeCable], showRaw: false
+        )
+        #expect(!output.contains("not read on this connection"))
+    }
+
     // MARK: - Headline passthrough
 
     @Test("Headline from PortSummary appears verbatim")

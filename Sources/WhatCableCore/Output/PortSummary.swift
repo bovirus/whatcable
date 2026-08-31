@@ -439,7 +439,16 @@ extension PortSummary {
         // signals that made it wrong.
         let readConditionsMet = negotiatedAbove3A || hasTB
         if hasEmarker {
-            if !emarkerRead {
+            // Issue #573 part 2: MagSafe never has this suppressed, because
+            // MagSafe never has anything TO read. Its cable identity (added
+            // by `USBPDSOPWatcher`'s StateCC path) carries a real VID/PID
+            // but always an empty `vdos`, which is exactly what
+            // `emarkerRead` above reads as "not read on this connection".
+            // That wording is honest for USB-C (a real e-marker chip that
+            // genuinely didn't answer) but false for MagSafe (the chip
+            // answered; there was never a VDO array for it to answer with).
+            // No new UI, no new strings: just don't show this one.
+            if !emarkerRead && !isMagSafe {
                 emarkerSubtitle = readConditionsMet
                     ? String(localized: "Present, but not read on this connection. Try reconnecting; some chargers and docks block the read.", bundle: _coreLocalizedBundle)
                     : String(localized: "Present, but not read on this connection. macOS usually reads it above 3A or over Thunderbolt.", bundle: _coreLocalizedBundle)

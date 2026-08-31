@@ -1505,7 +1505,13 @@ struct PortCard: View {
 
             // Trust card is rendered up with the callouts above; only the
             // report action stays at the bottom of the card.
-            if let cable = cableEmarker {
+            //
+            // Issue #573: hidden on MagSafe. The cable DB keys on
+            // VID+PID+Cable VDO, and MagSafe never publishes a Cable VDO, so
+            // a report would carry nothing the DB could use. Gated on the
+            // PORT fact (`parentPortType`, the one source of truth this
+            // whole feature reads), not on the e-marker payload being empty.
+            if let cable = cableEmarker, cable.parentPortType != PortIdentity.magSafeTypeCode {
                 HStack {
                     Spacer()
                     Button {

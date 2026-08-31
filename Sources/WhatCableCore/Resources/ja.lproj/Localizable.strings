@@ -547,6 +547,8 @@
 "This cable has no e-marker, so it can't be tracked." = "このケーブルにはe-markerがないため、追跡できません。";
 "This cable can't be tracked" = "このケーブルは追跡できません";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "保存済みのケーブル「%@」と一致します。同じモデルの2本は区別できないため、これも保存すると履歴が統合されます。";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "MagSafeケーブルIDで識別済み（VID 0x%04X、PID 0x%04X）。この正確なモデルのケーブルはすべて同じに見えるため、この記録は個々のケーブルではなくモデルを追跡します。";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "このMagSafeケーブルはすでに「%@」として保存されています。このモデルのケーブルは区別できないため、履歴はそちらに追加してください。";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "このケーブルにはe-markerがないため、新しい記録を追加できません。既存の履歴は引き続き利用できます。";
 "Can't add this cable" = "このケーブルは追加できません";
 "OK" = "OK";

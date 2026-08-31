@@ -550,6 +550,8 @@
 "This cable has no e-marker, so it can't be tracked." = "This cable has no e-marker, so it can't be tracked.";
 "This cable can't be tracked" = "This cable can't be tracked";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too.";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable.";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead.";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available.";
 "Can't add this cable" = "Can't add this cable";
 "OK" = "OK";

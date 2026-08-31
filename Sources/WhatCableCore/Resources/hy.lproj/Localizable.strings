@@ -546,6 +546,8 @@
 "This cable has no e-marker, so it can't be tracked." = "Այս մալուխն e-marker չունի, ուստի այն չի կարող հետևվել։";
 "This cable can't be tracked" = "Այս մալուխը չի կարող հետևվել";
 "Matches your saved cable %@. Two units of the same model can't be told apart, so their history will merge if you save this one too." = "Համընկնում է ձեր պահված մալուխի հետ՝ %@։ Նույն մոդելի երկու օրինակները հնարավոր չէ տարբերել, ուստի եթե սա նույնպես պահեք, նրանց պատմությունը կմիավորվի։";
+"Identified by its MagSafe cable ID (VID 0x%04X, PID 0x%04X). Cables of this exact model look identical, so this record tracks the model, not one physical cable." = "Ճանաչված է MagSafe մալուխի ID-ով (VID 0x%04X, PID 0x%04X)։ Ճիշտ այս մոդելի մալուխները նույնական տեսք ունեն, ուստի այս գրառումը վերաբերում է մոդելին, ոչ թե մեկ կոնկրետ մալուխի։";
+"You already have this MagSafe cable saved as %@. Cables of this model can't be told apart, so add its history to that one instead." = "Դուք արդեն ունեք այս MagSafe մալուխը՝ պահված որպես %@։ Այս մոդելի մալուխները հնարավոր չէ տարբերել, ուստի ավելացրեք դրա պատմությունը այդ մեկին։";
 "This cable has no e-marker, so nothing new can be recorded for it. Its existing history stays available." = "Այս մալուխն e-marker չունի, ուստի դրա համար ոչինչ նոր չի կարող գրանցվել։ Դրա եղած պատմությունը մնում է հասանելի։";
 "Can't add this cable" = "Հնարավոր չէ ավելացնել այս մալուխը";
 "OK" = "Լավ";

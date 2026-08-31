@@ -485,6 +485,64 @@ struct JSONFormatterTests {
         #expect(detail.contains("0xDEAD"), "detail should include hex VID, got: \(detail)")
     }
 
+    // MARK: - Issue #573 part 2: MagSafe cable identity JSON shape
+
+    private func magSafePort() -> USBCPort {
+        USBCPort(
+            id: 1,
+            serviceName: "Port-MagSafe 3@1",
+            className: "AppleHPMInterfaceType11",
+            portDescription: "Port-MagSafe 3@1",
+            portTypeDescription: "MagSafe 3",
+            portNumber: 1,
+            connectionActive: true,
+            activeCable: nil, opticalCable: nil, usbActive: nil, superSpeedActive: nil,
+            usbModeType: nil, usbConnectString: nil,
+            transportsSupported: [], transportsActive: ["CC"], transportsProvisioned: ["CC"],
+            plugOrientation: nil, plugEventCount: nil, connectionCount: nil,
+            overcurrentCount: nil, pinConfiguration: [:], powerCurrentLimits: [],
+            firmwareVersion: nil, bootFlagsHex: nil, rawProperties: ["PortType": "17"]
+        )
+    }
+
+    /// Pins the JSON delta the design review named explicitly: once
+    /// `USBPDSOPWatcher` produces a MagSafe cable identity, `--json` gains a
+    /// `cable` object for that port (VID exposed, PID deliberately NOT --
+    /// out of scope per the spec unless the owner asks) with no
+    /// `trustFlags` (empty `vdos` -> `CableTrustReport` has nothing to flag),
+    /// AND a `trust` object at the tier `CableTrust` computes for
+    /// "nothing demonstrated yet, nothing to flag either" (amber, the
+    /// Phase 1 default: MagSafe's zero-VDO identity has no live-delivery
+    /// evidence and no static flags). This is the "broader than one cable
+    /// object" delta the review called out; pinned here, not assumed.
+    @Test("MagSafe cable identity: cable object with VID but no PID, no trust flags, amber trust tier")
+    func magSafeCableIdentityJSONShape() throws {
+        let magSafeCable = USBPDSOP(
+            id: 99, endpoint: .sopPrime,
+            parentPortType: 17, parentPortNumber: 1,
+            vendorID: 0x05AC, productID: 0x7800, bcdDevice: 0,
+            vdos: [], specRevision: 0
+        )
+        let json = try JSONFormatter.render(
+            ports: [magSafePort()], sources: [], identities: [magSafeCable], showRaw: false
+        )
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+
+        let cable = try #require(portObj["cable"] as? [String: Any])
+        #expect(cable["vendorID"] as? Int == 0x05AC)
+        // CableDTO exposes VID but never PID (spec: "adding productID to
+        // JSON is NOT in scope unless the owner asks"). No key of any name
+        // carrying 0x7800 (30720) should be present.
+        #expect(cable["productID"] == nil)
+        #expect(cable["trustFlags"] == nil)
+
+        let trust = try #require(portObj["trust"] as? [String: Any])
+        #expect(trust["tier"] as? String == "amber")
+        #expect(trust["confirmedBy"] == nil)
+        #expect(trust["contradiction"] as? Bool == false)
+    }
+
     // MARK: - Active Cable VDO 2 surfacing
 
     private func activeCableIdentity(vdo4: UInt32, vendorID: Int = 0x05AC) -> USBPDSOP {

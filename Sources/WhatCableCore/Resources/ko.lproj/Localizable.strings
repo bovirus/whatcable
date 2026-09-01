@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "응답했지만 성능 데이터를 보고하지 않았습니다.";
 "Certification ID" = "인증 ID";
 "Connect a charger to identify the cable." = "케이블을 식별하려면 충전기를 연결하십시오.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "이 포트에는 PD 계약이 없습니다. 들어오는 전력은 아래 ‘시스템 전력 입력’에 표시됩니다.";

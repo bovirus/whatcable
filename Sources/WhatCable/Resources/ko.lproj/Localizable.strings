@@ -183,3 +183,6 @@
 "Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "안정 버전 출시 며칠 전에 배포되는 사전 릴리스 빌드입니다. 다듬어지지 않은 부분이 있을 수 있습니다.";
 "Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "이 옵션을 끄면 이후 베타는 받지 않습니다. 이미 사용 중인 베타에서 되돌아가지는 않으며, 다음 안정 버전이 그 역할을 합니다.";
 "You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "WhatCable을 Homebrew로 설치했습니다. brew upgrade를 실행하면 베타가 현재 안정 버전으로 교체될 수 있습니다.";
+
+/* Brick ID analog charger identity note (issue #592) */
+"Analog charger identifier, no PD profiles" = "아날로그 충전기 식별자, PD 프로필 없음";

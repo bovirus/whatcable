@@ -3,10 +3,12 @@
 "Charger disconnected" = "Зарядное устройство отключено";
 "Connected: %@" = "Подключено: %@";
 "Disconnected: %@" = "Отключено: %@";
-"PD source" = "Источник PD";
 "Reconnected: %@" = "Переподключено: %@";
 "USB device" = "USB-устройство";
 "USB devices connected" = "USB-устройства подключены";
 "USB devices disconnected" = "USB-устройства отключены";
 "Thunderbolt devices connected" = "Thunderbolt-устройства подключены";
 "Thunderbolt devices disconnected" = "Thunderbolt-устройства отключены";
+"System reports charger at %lldW" = "Система сообщает о ЗУ %lld Вт";
+"Charger advertises up to %lldW" = "Зарядное устройство заявляет до %lld Вт";
+"Wattage not reported" = "Мощность не сообщается";

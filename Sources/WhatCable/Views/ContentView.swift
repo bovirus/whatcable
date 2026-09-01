@@ -1780,29 +1780,50 @@ struct ProScreenContainer<Content: View>: View {
 struct PowerSourceList: View {
     let sources: [PowerSource]
 
+    /// Apple's analog charger identity node (issue #592). Its options are
+    /// junk placeholder values (5V @ 0.5A) and never carry a winning
+    /// contract, so they must not render as PD profile rows.
+    private static let brickIDName = "Brick ID"
+
+    /// True when a source's options should render as PD profile rows.
+    static func showsPDProfiles(for source: PowerSource) -> Bool {
+        source.name != brickIDName
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(sources) { src in
-                if !src.options.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) {
-                        let srcName = src.name
-                        Text(String(localized: "\(srcName) profiles", bundle: _appLocalizedBundle))
-                            .scaledFont(.subheadline, weight: .semibold)
-                            .foregroundStyle(.secondary)
-                        ForEach(src.options.sorted(by: { $0.voltageMV < $1.voltageMV }), id: \.self) { opt in
-                            let isWinning = opt == src.winning
-                            HStack(spacing: 6) {
-                                Image(systemName: isWinning ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(isWinning ? Color.green : Color.secondary)
-                                    .scaledFont(.caption)
-                                Text(verbatim: "\(opt.voltsLabel) @ \(opt.ampsLabel) - \(opt.wattsLabel)")
-                                    .scaledFont(.callout, monospacedDigit: true)
-                                if isWinning {
-                                    Text(String(localized: "active", bundle: _appLocalizedBundle)).scaledFont(.caption2).foregroundStyle(.green)
+                if PowerSourceList.showsPDProfiles(for: src) {
+                    if !src.options.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            let srcName = src.name
+                            Text(String(localized: "\(srcName) profiles", bundle: _appLocalizedBundle))
+                                .scaledFont(.subheadline, weight: .semibold)
+                                .foregroundStyle(.secondary)
+                            ForEach(src.options.sorted(by: { $0.voltageMV < $1.voltageMV }), id: \.self) { opt in
+                                let isWinning = opt == src.winning
+                                HStack(spacing: 6) {
+                                    Image(systemName: isWinning ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isWinning ? Color.green : Color.secondary)
+                                        .scaledFont(.caption)
+                                    Text(verbatim: "\(opt.voltsLabel) @ \(opt.ampsLabel) - \(opt.wattsLabel)")
+                                        .scaledFont(.callout, monospacedDigit: true)
+                                    if isWinning {
+                                        Text(String(localized: "active", bundle: _appLocalizedBundle)).scaledFont(.caption2).foregroundStyle(.green)
+                                    }
+                                    Spacer()
                                 }
-                                Spacer()
                             }
                         }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: src.name)
+                            .scaledFont(.subheadline, weight: .semibold)
+                            .foregroundStyle(.secondary)
+                        Text(String(localized: "Analog charger identifier, no PD profiles", bundle: _appLocalizedBundle))
+                            .scaledFont(.callout)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

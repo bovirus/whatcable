@@ -109,6 +109,15 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     /// shim maps it from `WatcherHub.shared.tbWatcher.switches.filter {
     /// $0.depth > 0 }.map(\.id)`.
     private let currentDownstreamTBSwitchIDs: () -> Set<Int64>
+    /// Every port on the machine, and the system-wide adapter reading. Both
+    /// feed `ChargerWattageSource.resolve` in `chargerLabels`, so a charger
+    /// that never wins a PD contract (a third-party MagSafe brick publishes
+    /// only a junk Brick ID source, issue #592) still gets a wattage in the
+    /// banner instead of a bare "PD source". Injected closures rather than a
+    /// direct read for the same reason as the ones above: this module has no
+    /// platform imports, so the app-side shim owns the IOKit call.
+    private let currentPorts: () -> [AppleHPMInterface]
+    private let currentAdapter: () -> AdapterInfo?
     /// Gate read AFTER baseline bookkeeping in `diffDevices` /
     /// `reconcileChargers`, exactly where `AppSettings.shared.notifyOnChanges`
     /// was read in the original, so state stays primed even when
@@ -819,6 +828,10 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
     ///   - currentDevices / currentChargerSources: read fresh at the moment
     ///     each settle task actually needs them, never a value captured when
     ///     the underlying publisher fired.
+    ///   - currentPorts / currentAdapter: same discipline, read fresh inside
+    ///     `chargerLabels` so the wattage resolution sees the port and adapter
+    ///     state the charger set was read against. Default to empty/nil so a
+    ///     test that only cares about ordering can leave them out.
     ///   - notifyOnChanges: read AFTER baseline bookkeeping in `diffDevices`
     ///     / `reconcileChargers`, matching where the original read
     ///     `AppSettings.shared.notifyOnChanges`.
@@ -851,6 +864,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         currentDevices: @escaping () -> [USBDevice],
         currentChargerSources: @escaping () -> [PowerSource],
         currentDownstreamTBSwitchIDs: @escaping () -> Set<Int64> = { [] },
+        currentPorts: @escaping () -> [AppleHPMInterface] = { [] },
+        currentAdapter: @escaping () -> AdapterInfo? = { nil },
         notifyOnChanges: @escaping () -> Bool,
         post: @escaping (NotificationCategory, NotificationContent, NotificationDecision.DeliveryDirective) -> Void,
         log: @escaping (String) -> Void = { _ in },
@@ -863,6 +878,8 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         self.currentDevices = currentDevices
         self.currentChargerSources = currentChargerSources
         self.currentDownstreamTBSwitchIDs = currentDownstreamTBSwitchIDs
+        self.currentPorts = currentPorts
+        self.currentAdapter = currentAdapter
         self.notifyOnChanges = notifyOnChanges
         self.post = post
         self.log = log
@@ -2495,10 +2512,11 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
 
         // Every added port key already has a label in currentLabels (it was
         // built from the same set); this fallback only guards a mismatch
-        // between the two that should never happen.
+        // between the two that should never happen. The same "no number to
+        // give you" wording `chargerLabels` uses, rather than a made-up claim.
         var addedLabelsByPortKey = currentLabels
         for portKey in addedPortKeys where addedLabelsByPortKey[portKey] == nil {
-            addedLabelsByPortKey[portKey] = String(localized: "PD source", bundle: _notificationsLocalizedBundle)
+            addedLabelsByPortKey[portKey] = String(localized: "Wattage not reported", bundle: _notificationsLocalizedBundle)
         }
         let addedLabels = NotificationDecision.sortedChargerLabels(for: addedPortKeys, labels: addedLabelsByPortKey)
         let removedLabels = NotificationDecision.sortedChargerLabels(for: removedPortKeys, labels: previousLabels)
@@ -2509,17 +2527,55 @@ public final class DeviceDiffSequencer<ClockType: Clock> where ClockType.Duratio
         }
     }
 
-    /// The current negotiated-wattage label per charger port, used both to
-    /// prime the baseline and to recall what a charger was delivering once it
+    /// The current wattage label per charger port, used both to prime the
+    /// baseline and to recall what a charger was delivering once it
     /// disconnects (its `PowerSource` is already gone by then).
+    ///
+    /// A winning PD contract is the measurement, so it labels first and is
+    /// the only case allowed to say "negotiated". Without one, this defers to
+    /// `ChargerWattageSource.resolve`, the same resolution the port summary
+    /// uses, so a third-party MagSafe brick that only ever publishes a junk
+    /// Brick ID source still reports the system adapter's wattage (issue #592
+    /// on the #154 divert). When nothing resolves to a number the label says
+    /// so in words: a body-less banner cannot say WHICH port changed when
+    /// several are involved, and every port keeps a dictionary entry either
+    /// way so add/remove diffing is unaffected.
     private func chargerLabels(for sources: [PowerSource]) -> [String: String] {
+        let ports = currentPorts()
+        let activePortCount = ports.filter { $0.connectionActive == true }.count
+        let chargerSourceCount = ChargerWattageSource.chargerSourceCount(ports: ports, sources: sources)
+        let adapter = currentAdapter()
+        let unreported = String(localized: "Wattage not reported", bundle: _notificationsLocalizedBundle)
         let portKeys = Set(sources.map(\.canonicalJoinKey))
         return Dictionary(uniqueKeysWithValues: portKeys.map { portKey -> (String, String) in
             let portSources = sources.filter { $0.canonicalJoinKey == portKey }
             let preferred = PowerSource.preferredChargingSource(in: portSources) ?? portSources.first
-            let label = preferred?.winning.map { String(localized: "\($0.wattsLabel) negotiated", bundle: _notificationsLocalizedBundle) }
-                ?? String(localized: "PD source", bundle: _notificationsLocalizedBundle)
-            return (portKey, label)
+            if let winning = preferred?.winning {
+                return (portKey, String(localized: "\(winning.wattsLabel) negotiated", bundle: _notificationsLocalizedBundle))
+            }
+            let resolved = ChargerWattageSource.resolve(
+                portSources: portSources,
+                activePortCount: activePortCount,
+                chargerSourceCount: chargerSourceCount,
+                adapter: adapter
+            )
+            // A Brick ID node's wattage is a placeholder, so suppress it when
+            // the adapter divert declined and resolve fell back to it.
+            if ChargerWattageSource.isUnquantifiedBrickID(portSources: portSources, resolved: resolved) {
+                return (portKey, unreported)
+            }
+            switch resolved {
+            case .systemAdapterFallback(let watts):
+                // macOS's own reading of the adapter, so it is a measurement:
+                // same wording `PortSummary` uses for this case.
+                return (portKey, String(localized: "System reports charger at \(watts)W", bundle: _notificationsLocalizedBundle))
+            case .portNegotiated(let watts):
+                // The source's own advertised maximum, not a settled contract,
+                // so this must never read as negotiated.
+                return (portKey, String(localized: "Charger advertises up to \(watts)W", bundle: _notificationsLocalizedBundle))
+            case .unknown:
+                return (portKey, unreported)
+            }
         })
     }
 

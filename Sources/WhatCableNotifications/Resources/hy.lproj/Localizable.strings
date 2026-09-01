@@ -3,10 +3,12 @@
 "Charger disconnected" = "Լիցքավորիչը անջատված է";
 "Connected: %@" = "Միացված է՝ %@";
 "Disconnected: %@" = "Անջատված է՝ %@";
-"PD source" = "PD հոսանքի աղբյուր";
 "Reconnected: %@" = "Վերամիացված է՝ %@";
 "USB device" = "USB սարք";
 "USB devices connected" = "USB սարքերը միացվեցին";
 "USB devices disconnected" = "USB սարքերն անջատվեցին";
 "Thunderbolt devices connected" = "Thunderbolt սարքերը միացվեցին";
 "Thunderbolt devices disconnected" = "Thunderbolt սարքերն անջատվեցին";
+"System reports charger at %lldW" = "Համակարգը հաղորդում է %lldW լիցքավորիչ";
+"Charger advertises up to %lldW" = "Լիցքավորիչը հայտնում է մինչև %lldW հզորության մասին";
+"Wattage not reported" = "Հզորությունը չի հաղորդվում";

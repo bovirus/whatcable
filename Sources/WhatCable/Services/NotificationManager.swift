@@ -159,6 +159,8 @@ final class NotificationManager {
             currentDownstreamTBSwitchIDs: {
                 Set(WatcherHub.shared.tbWatcher.switches.filter { $0.depth > 0 }.map(\.id))
             },
+            currentPorts: { WatcherHub.shared.portWatcher.ports },
+            currentAdapter: { SystemPower.currentAdapter() },
             notifyOnChanges: { AppSettings.shared.notifyOnChanges },
             // Not a `[weak self]` capture: `self` isn't fully initialized
             // yet at this point in `init` (this closure is itself part of

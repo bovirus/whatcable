@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "Heeft geantwoord, maar geen capaciteitsgegevens gemeld.";
 "Certification ID" = "Certificerings-ID";
 "Connect a charger to identify the cable." = "Sluit een oplader aan om de kabel te identificeren.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Geen PD-contract op deze poort. Inkomend vermogen wordt weergegeven in Systeemvermogensinvoer hieronder.";

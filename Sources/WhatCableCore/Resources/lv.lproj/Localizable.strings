@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "Atbildēja, bet nepaziņoja datus par iespējām.";
 "Certification ID" = "Sertifikācijas ID";
 "Connect a charger to identify the cable." = "Pievienojiet lādētāju, lai identificētu kabeli.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Šim portam nav PD līguma. Ienākošā jauda redzama zemāk sadaļā «Sistēmas strāvas ievade».";

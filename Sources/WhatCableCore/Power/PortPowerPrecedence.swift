@@ -22,6 +22,14 @@ public enum PortPowerOutcome: Equatable, Sendable {
     /// Kept separate from `contracted` because its attribution is weaker and a
     /// future phase may want to treat it differently.
     case legacyContracted(PortPowerSample)
+    /// Power is coming into this port and no contract was ever negotiated for
+    /// it, so there is no per-port figure to wait for. Two real shapes land
+    /// here: a third-party brick on MagSafe, whose port publishes only a
+    /// contract-less "Brick ID" identity node, and a dumb 5V source on USB-C
+    /// (a PC's port), which on M1 Pro/Max/Ultra publishes no source node at
+    /// all. Separate from `awaitingData` because the answer is permanent, not
+    /// late, and the card should say so rather than spin (#592).
+    case noContract
     /// The port is in use but nothing has reported a figure for it. The view
     /// decides what to say, which is where the "a charger on another port won"
     /// and "this port is driving a display" explanations get added.
@@ -31,7 +39,7 @@ public enum PortPowerOutcome: Equatable, Sendable {
     public var sample: PortPowerSample? {
         switch self {
         case .live(let s), .contracted(let s), .legacyContracted(let s): return s
-        case .notInUse, .awaitingData: return nil
+        case .notInUse, .noContract, .awaitingData: return nil
         }
     }
 
@@ -101,7 +109,14 @@ public enum PortPowerPrecedence {
         )
         let samples = samples.droppingStaleContracted(externalPowerAbsent: externalPowerAbsent)
 
-        return ports.compactMap { port -> Resolution? in
+        // Liveness first, for every port, because one branch below asks whether
+        // this is the machine's ONLY live port and that cannot be answered from
+        // inside a single port's pass.
+        typealias Candidate = (
+            port: AppleHPMInterface, number: Int, identity: PortIdentity,
+            sources: [PowerSource], live: Bool
+        )
+        let candidates: [Candidate] = ports.compactMap { port -> Candidate? in
             guard let number = port.portNumber else { return nil }
             // Built from the description alone, with no reported type code,
             // because that is what this path has always done. `port.identity`
@@ -113,20 +128,50 @@ public enum PortPowerPrecedence {
                 reportedTypeCode: nil,
                 number: number
             )
-            let key = identity.key
             let portSources = powerSources.filter { $0.canonicallyMatches(port: port) }
 
             // A live SMC reading is itself proof the port is in use: a dead
             // port reads 0 V / 0 A and is never emitted, and a desktop has no
             // power-source tree for `isPortLive` to corroborate with.
             let smcLive = samples.contains {
-                $0.portKey == key && $0.isSMCMeasured && ($0.watts > 0 || $0.current > 0)
+                $0.portKey == identity.key && $0.isSMCMeasured && ($0.watts > 0 || $0.current > 0)
             }
             let live = smcLive || isPortLive(
                 port: port, powerSources: portSources,
                 identities: [], matchingDevices: [], chargerAttached: chargerAttached
             )
-            guard live else {
+            return (port, number, identity, portSources, live)
+        }
+        let liveCount = candidates.filter(\.live).count
+
+        // Two machine-wide facts branch 4 needs. Both are about what ELSE on
+        // this Mac could account for the incoming power, which is not a question
+        // a single port's own data can answer.
+        //
+        // A winning contract anywhere names where the power actually went, so
+        // no port may claim it by elimination. Deliberately machine-wide and
+        // deliberately not gated on liveness: the contract can sit on a port
+        // that has already gone dark, which is the just-unplugged shape
+        // (charger out of port X, its source still cached and
+        // `connectionActive` already false, something goes into port Y, the
+        // system adapter has not cleared yet). `activeChargingPort` cannot see
+        // that one, because it requires the winning port to be live.
+        let winningContractSomewhere = powerSources.contains { ($0.winning?.maxPowerMW ?? 0) > 0 }
+
+        // Live ports publishing a source node that carries no contract. A node
+        // proves something is attached to that port, never that this port is
+        // the input the Mac selected, so when two ports have one (two non-PD
+        // chargers, or a MagSafe brick alongside a contract-less USB-C charger)
+        // neither may speak for the incoming power.
+        let contractLessSourcePorts = candidates.filter { candidate in
+            candidate.live && candidate.sources.holdsNoContract
+        }.count
+
+        return candidates.map { candidate -> Resolution in
+            let (port, number, identity, portSources, _) = candidate
+            let key = identity.key
+
+            guard candidate.live else {
                 return Resolution(identity: identity, port: port, outcome: .notInUse)
             }
 
@@ -160,6 +205,49 @@ public enum PortPowerPrecedence {
                 return Resolution(identity: identity, port: port, outcome: .legacyContracted(legacy))
             }
 
+            // 4. Power is coming in through THIS port, it negotiated nothing,
+            //    and nothing ever will: the answer is permanent rather than
+            //    late, so the card can say so instead of spinning (#592).
+            //
+            //    Two real shapes reach here, and each arm below is what makes
+            //    its shape attributable to this port rather than merely
+            //    consistent with it:
+            //      - a source node exists on this port and holds no contract (a
+            //        third-party brick on MagSafe publishes only a
+            //        contract-less "Brick ID"), and it is the only such port,
+            //      - or no node exists here at all and this is the machine's
+            //        only live port, so the power has nowhere else it could have
+            //        come from. Same reasoning as the #141 sole-active-port
+            //        attribution, and it collapses the moment anything else
+            //        could account for the power: a second live port, or a
+            //        winning contract anywhere on the machine.
+            //
+            //    `batteryInstalled` is the first term because only a laptop
+            //    takes power IN through a port. A desktop sources power OUT of
+            //    one, and `externalPowerAbsent` is false on every desktop for
+            //    the unrelated reason that a machine with no battery is by
+            //    definition running off the mains. Without this term the card
+            //    would tell a Mac mini that its peripheral port is a charge
+            //    path, which is not a thing that happens.
+            //
+            //    Neither arm can be reached by a port whose own sources hold a
+            //    contract, and that is worth keeping deliberate rather than
+            //    leaning on branch 2 to have caught it: branch 2 falls back to
+            //    `?? portSources.first` when no source carries a priority name,
+            //    and `.first` can be the contract-less one while a sibling holds
+            //    the contract.
+            //
+            //    A genuine PD charger mid-negotiation briefly looks exactly like
+            //    the first arm. That is accepted here; the view holds the
+            //    explanation back for a few seconds so it never flashes.
+            let soleContractLessSource = portSources.holdsNoContract && contractLessSourcePorts == 1
+            let soleLivePortWithNothingElseClaiming =
+                portSources.isEmpty && liveCount == 1 && !winningContractSomewhere
+            if batteryInstalled, !externalPowerAbsent,
+               soleContractLessSource || soleLivePortWithNothingElseClaiming {
+                return Resolution(identity: identity, port: port, outcome: .noContract)
+            }
+
             return Resolution(identity: identity, port: port, outcome: .awaitingData)
         }
     }
@@ -189,5 +277,19 @@ public enum PortPowerPrecedence {
                               identities: [], matchingDevices: [], chargerAttached: chargerAttached)
         }
         return winning.count == 1 ? winning.first : nil
+    }
+}
+
+private extension Array where Element == PowerSource {
+    /// True when a port publishes at least one source node and none of them
+    /// carries a negotiated contract: the "a charger is attached here but it
+    /// never negotiated" shape.
+    ///
+    /// Empty is deliberately false. No node at all is a different fact from a
+    /// node that never negotiated, and branch 4 above treats them differently:
+    /// the first needs the port to be the machine's only live one before
+    /// anything can be attributed to it, the second does not.
+    var holdsNoContract: Bool {
+        !isEmpty && !contains { ($0.winning?.maxPowerMW ?? 0) > 0 }
     }
 }

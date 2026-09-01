@@ -19,6 +19,33 @@ public enum ChargerWattageSource: Hashable {
         }
     }
 
+    /// Apple's analog charger-identity node. Its options are placeholder
+    /// values (often ~2.5W, which rounds to a misleading "3W"), never a real
+    /// PD menu, and it never carries a winning contract. The one shared
+    /// definition of the name, so the surfaces that have to recognise it stop
+    /// each keeping their own literal.
+    public static let brickIDSourceName = "Brick ID"
+
+    /// True when `resolved` is a wattage that came out of a Brick ID node's
+    /// junk options, so no surface should print it as a number.
+    ///
+    /// `resolve` diverts a Brick ID port to the system adapter reading
+    /// (issue #154), but only when there IS an adapter reading and it is
+    /// higher than the brick's own figure. When the divert declines, resolve
+    /// falls through to its general per-port branch and hands back that junk
+    /// figure as `.portNegotiated`. This is the predicate for that case.
+    ///
+    /// Deliberately a separate query rather than a new `resolve` case: every
+    /// other consumer (`PortSummary`, the formatters, the widget, the app's
+    /// port cards) keeps the exact values it has today, JSON output included.
+    public static func isUnquantifiedBrickID(
+        portSources: [PowerSource],
+        resolved: ChargerWattageSource
+    ) -> Bool {
+        guard case .portNegotiated = resolved else { return false }
+        return PowerSource.preferredChargingSource(in: portSources)?.name == brickIDSourceName
+    }
+
     /// Number of active ports that expose a power-source node of their own,
     /// i.e. a port through which the Mac is actually pulling a charging
     /// contract (Brick ID, USB-PD, Type-C, or a synthesized source on M1

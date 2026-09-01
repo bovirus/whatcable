@@ -604,3 +604,6 @@
 "Answered, but reported no capability data." = "Answered, but reported no capability data.";
 "Certification ID" = "Certification ID";
 "Connect a charger to identify the cable." = "Connect a charger to identify the cable.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "No PD contract on this port. Incoming power shows in System Power Input below.";

@@ -599,3 +599,6 @@
 "Answered, but reported no capability data." = "Պատասխանեց, բայց հնարավորությունների տվյալներ չհաղորդեց։";
 "Certification ID" = "Հավաստագրման ID";
 "Connect a charger to identify the cable." = "Միացրեք լիցքավորիչ՝ մալուխը որոշելու համար։";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Այս պորտում PD պայմանագիր չկա։ Մուտքային հզորությունը ցուցադրվում է ստորև՝ «Համակարգի սնուցման մուտք» բաժնում։";

@@ -3,10 +3,12 @@
 "Charger disconnected" = "Oplader verbroken";
 "Connected: %@" = "Verbonden: %@";
 "Disconnected: %@" = "Verbroken: %@";
-"PD source" = "PD-bron";
 "Reconnected: %@" = "Opnieuw verbonden: %@";
 "USB device" = "USB-apparaat";
 "USB devices connected" = "USB-apparaten verbonden";
 "USB devices disconnected" = "USB-apparaten verbroken";
 "Thunderbolt devices connected" = "Thunderbolt-apparaten verbonden";
 "Thunderbolt devices disconnected" = "Thunderbolt-apparaten verbroken";
+"System reports charger at %lldW" = "Systeem meldt oplader op %lldW";
+"Charger advertises up to %lldW" = "Oplader biedt tot %lldW";
+"Wattage not reported" = "Vermogen niet gerapporteerd";

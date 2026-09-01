@@ -183,3 +183,6 @@
 "Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "प्री-रिलीज़ बिल्ड, जो स्थिर रिलीज़ से कुछ दिन पहले आते हैं। इनमें कुछ खामियाँ हो सकती हैं।";
 "Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "इसे बंद करने से आगे के बीटा आना बंद हो जाएंगे। जो बीटा आप पहले से चला रहे हैं, उससे यह वापस नहीं ले जाएगा। अगली स्थिर रिलीज़ ऐसा करेगी।";
 "You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "आपने WhatCable को Homebrew से इंस्टॉल किया है। brew upgrade चलाने पर बीटा की जगह मौजूदा स्थिर रिलीज़ आ सकती है।";
+
+/* Brick ID analog charger identity note (issue #592) */
+"Analog charger identifier, no PD profiles" = "एनालॉग चार्जर पहचानकर्ता, कोई PD प्रोफ़ाइल नहीं";

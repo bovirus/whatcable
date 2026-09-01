@@ -3,10 +3,12 @@
 "Charger disconnected" = "Cargador desconectado";
 "Connected: %@" = "Conectado: %@";
 "Disconnected: %@" = "Desconectado: %@";
-"PD source" = "Fuente PD";
 "Reconnected: %@" = "Reconectado: %@";
 "USB device" = "Dispositivo USB";
 "USB devices connected" = "Dispositivos USB conectados";
 "USB devices disconnected" = "Dispositivos USB desconectados";
 "Thunderbolt devices connected" = "Dispositivos Thunderbolt conectados";
 "Thunderbolt devices disconnected" = "Dispositivos Thunderbolt desconectados";
+"System reports charger at %lldW" = "El sistema indica un cargador de %lld W";
+"Charger advertises up to %lldW" = "El cargador anuncia hasta %lld W";
+"Wattage not reported" = "Potencia no reportada";

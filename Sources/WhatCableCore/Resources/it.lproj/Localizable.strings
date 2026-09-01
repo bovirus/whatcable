@@ -604,3 +604,6 @@
 "Answered, but reported no capability data." = "Ha risposto, ma non ha comunicato dati sulle capacità.";
 "Certification ID" = "ID certificazione";
 "Connect a charger to identify the cable." = "Per identificare il cavo collega un caricabatterie.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Nessun contratto PD su questa porta. L'alimentazione in ingresso è visualizzata qui sotto in 'Ingresso alimentazione sistema'.";

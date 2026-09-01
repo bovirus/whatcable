@@ -184,3 +184,6 @@
 "Pre-release builds, shipped a few days before a stable release. Expect rough edges." = "預發行版本會在穩定版發行前幾天推出。可能仍有一些問題。";
 "Turning this off stops future betas. It does not move you back off a beta you are already running. The next stable release will." = "關閉此選項後將不再提供後續 Beta 更新，但不會將您目前使用的 Beta 版本退回穩定版；下一個穩定版更新才會讓您回到穩定版。";
 "You installed WhatCable with Homebrew. Running brew upgrade may replace a beta with the current stable release." = "您是透過 Homebrew 安裝 WhatCable。執行 brew upgrade 可能會用目前的穩定版取代 Beta 版本。";
+
+/* Brick ID analog charger identity note (issue #592) */
+"Analog charger identifier, no PD profiles" = "類比充電器識別碼，無 PD 設定檔";

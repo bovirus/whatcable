@@ -599,3 +599,6 @@
 "Answered, but reported no capability data." = "Svarte, men oppga ingen egenskapsdata.";
 "Certification ID" = "Sertifiserings-ID";
 "Connect a charger to identify the cable." = "Koble til en lader for å identifisere kabelen.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Ingen PD-avtale på denne porten. Innkommende strøm vises nedenfor under «Systemstrøminngang».";

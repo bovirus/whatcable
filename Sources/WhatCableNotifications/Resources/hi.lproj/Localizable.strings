@@ -3,10 +3,12 @@
 "Charger disconnected" = "चार्जर डिस्कनेक्ट हुआ";
 "Connected: %@" = "कनेक्टेड: %@";
 "Disconnected: %@" = "डिस्कनेक्टेड: %@";
-"PD source" = "PD स्रोत";
 "Reconnected: %@" = "फिर से कनेक्टेड: %@";
 "USB device" = "USB डिवाइस";
 "USB devices connected" = "USB डिवाइस कनेक्ट हुए";
 "USB devices disconnected" = "USB डिवाइस डिस्कनेक्ट हुए";
 "Thunderbolt devices connected" = "Thunderbolt डिवाइस कनेक्ट हुए";
 "Thunderbolt devices disconnected" = "Thunderbolt डिवाइस डिस्कनेक्ट हुए";
+"System reports charger at %lldW" = "सिस्टम के अनुसार चार्जर %lld W";
+"Charger advertises up to %lldW" = "चार्जर अधिकतम %lld W बताता है";
+"Wattage not reported" = "वाट क्षमता रिपोर्ट नहीं की गई";

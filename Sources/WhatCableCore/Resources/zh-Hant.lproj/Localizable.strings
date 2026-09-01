@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "e-marker 有回應，但未回報任何規格資料。";
 "Certification ID" = "認證 ID";
 "Connect a charger to identify the cable." = "請連接充電器來識別線材。";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "此連接埠沒有 PD 合約。輸入功率會顯示在下方的「系統電源輸入」圖表中。";

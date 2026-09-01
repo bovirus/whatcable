@@ -600,3 +600,6 @@
 "Answered, but reported no capability data." = "応答しましたが、能力データは報告されませんでした。";
 "Certification ID" = "認証 ID";
 "Connect a charger to identify the cable." = "ケーブルを識別するには充電器を接続してください。";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "このポートには PD 契約がありません。入力される電力は下の「システム電源入力」に表示されます。";

@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "Ответил, но не сообщил данных о возможностях.";
 "Certification ID" = "ID сертификации";
 "Connect a charger to identify the cable." = "Подключите зарядное устройство, чтобы определить кабель.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "На этом порту нет PD-контракта. Входящее питание показано ниже в разделе «Вход системного питания».";

@@ -599,3 +599,6 @@
 "Answered, but reported no capability data." = "有响应，但未报告能力数据。";
 "Certification ID" = "认证 ID";
 "Connect a charger to identify the cable." = "请连接充电器以识别线缆。";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "此端口没有 PD 合约。输入的电力显示在下方的“系统电源输入”中。";

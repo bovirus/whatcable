@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "Yanıt verdi, ancak yetenek verisi bildirmedi.";
 "Certification ID" = "Sertifika kimliği";
 "Connect a charger to identify the cable." = "Kabloyu tanımlamak için bir şarj cihazı bağlayın.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "Bu portta PD sözleşmesi yok. Gelen güç aşağıdaki Sistem Güç Girişi bölümünde gösteriliyor.";

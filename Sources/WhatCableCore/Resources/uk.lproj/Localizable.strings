@@ -598,3 +598,6 @@
 "Answered, but reported no capability data." = "Відповів, але не повідомив даних про можливості.";
 "Certification ID" = "ID сертифікації";
 "Connect a charger to identify the cable." = "Підключіть зарядний пристрій, щоб визначити кабель.";
+
+/* Power Monitor: a charge path that never negotiates a contract (issue #592) */
+"No PD contract on this port. Incoming power shows in System Power Input below." = "На цьому порту немає PD-контракту. Вхідне живлення відображається в розділі «Вхідне живлення системи» нижче.";

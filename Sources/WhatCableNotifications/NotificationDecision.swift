@@ -565,6 +565,12 @@ public enum NotificationDecision {
     /// the single-charger case. Removed comes first, added second, mirroring
     /// `diffDevices`'s ordering so the same "latest post wins" reasoning
     /// applies if a charger both drops and reconnects within the window.
+    ///
+    /// Empty labels are dropped from the joined body. `chargerLabels` no
+    /// longer produces one (a charger whose wattage doesn't resolve says
+    /// "Wattage not reported" instead), so this is a guard rather than a live
+    /// path: it is what stops any future label gap from rendering as a blank
+    /// line, or as a leading newline beside a describable charger.
     public static func chargerNotificationContents(
         addedLabels: [String],
         removedLabels: [String]
@@ -573,13 +579,13 @@ public enum NotificationDecision {
         if !removedLabels.isEmpty {
             contents.append(NotificationContent(
                 title: String(localized: "Charger disconnected", bundle: _notificationsLocalizedBundle),
-                body: removedLabels.joined(separator: "\n")
+                body: removedLabels.filter { !$0.isEmpty }.joined(separator: "\n")
             ))
         }
         if !addedLabels.isEmpty {
             contents.append(NotificationContent(
                 title: String(localized: "Charger connected", bundle: _notificationsLocalizedBundle),
-                body: addedLabels.joined(separator: "\n")
+                body: addedLabels.filter { !$0.isEmpty }.joined(separator: "\n")
             ))
         }
         return contents

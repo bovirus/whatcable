@@ -184,6 +184,46 @@ struct CableSnapshotContextTests {
         #expect(CableReport.vdoRoleLabel(at: 3) == "Cable")
     }
 
+    // MARK: - Test: one e-marker selection policy
+
+    @Test("cableEmarker prefers a populated SOP'' over a bare SOP', and partnerIdentity is the SOP")
+    func cableEmarkerPrefersPopulatedVDOs() throws {
+        let port = makePort(portNumber: 1, portType: "USB-C", uuid: nil, connectionActive: true)
+        // The bare SOP' comes FIRST on purpose: a first-match policy would
+        // pick it and shadow the populated SOP'' behind it.
+        let bare = makeIdentity(portType: 2, portNumber: 1, endpoint: .sopPrime, vdos: [])
+        let populated = makeIdentity(
+            portType: 2, portNumber: 1, endpoint: .sopDoublePrime,
+            vdos: [0x1C60_05AC, 0, 0x720A_0100, 0x110A_2644])
+        let partner = makeIdentity(portType: 2, portNumber: 1, endpoint: .sop)
+
+        let context = CableSnapshotContext(snapshot: makeSnapshot(
+            ports: [port], identities: [bare, populated, partner]))
+        let portContext = try #require(context.portContexts.first)
+
+        #expect(portContext.cableEmarker?.id == populated.id)
+        #expect(portContext.partnerIdentity?.id == partner.id)
+    }
+
+    @Test("cableEmarker falls back to the first SOP' when no identity carries VDOs")
+    func cableEmarkerFallsBackToFirstWhenAllBare() throws {
+        let port = makePort(portNumber: 1, portType: "USB-C", uuid: nil, connectionActive: true)
+        let first = makeIdentity(portType: 2, portNumber: 1, endpoint: .sopPrime, vdos: [])
+        let second = makeIdentity(portType: 2, portNumber: 1, endpoint: .sopDoublePrime, vdos: [])
+
+        let context = CableSnapshotContext(snapshot: makeSnapshot(
+            ports: [port], identities: [first, second]))
+        let portContext = try #require(context.portContexts.first)
+
+        // `first` and `second` share an id here (makeIdentity derives id from
+        // portNumber and vdos.count, and both are bare), so an id comparison
+        // could not tell a correct "first in array" pick from an incorrect
+        // "last in array" one. Compare endpoint instead, which does
+        // distinguish them.
+        #expect(portContext.cableEmarker?.endpoint == first.endpoint)
+        #expect(portContext.partnerIdentity == nil)
+    }
+
     // MARK: - Helpers
 
     private func makeSnapshot(

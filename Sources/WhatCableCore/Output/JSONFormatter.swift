@@ -19,45 +19,50 @@ public enum JSONFormatter {
         displayPorts: [IOPortTransportStateDisplayPort] = [],
         builtInDisplayPorts: [BuiltInDisplayPort] = []
     ) throws -> String {
-        let activePortCount = ports.filter { $0.connectionActive == true }.count
-        let chargerSourceCount = ChargerWattageSource.chargerSourceCount(
-            ports: ports, sources: sources)
+        // One shared per-port assembly for every renderer. The
+        // loose parameters above are this function's public signature; they
+        // describe a CableSnapshot, so rebuild it and let the Core builder
+        // do the canonical joins, the charger-wattage resolution, the
+        // cross-port charging flag (#264) and the device attribution.
+        let context = CableSnapshotContext(snapshot: CableSnapshot(
+            ports: ports,
+            powerSources: sources,
+            identities: identities,
+            usbDevices: usbDevices,
+            adapter: adapter,
+            thunderboltSwitches: thunderboltSwitches,
+            isDesktopMac: isDesktopMac,
+            federatedIdentities: federatedIdentities,
+            usb3Transports: usb3Transports,
+            trmTransports: trmTransports,
+            cioCapabilities: cioCapabilities,
+            displayPorts: displayPorts,
+            batteryFullyCharged: batteryFullyCharged,
+            batteryIsCharging: batteryIsCharging
+        ))
         // Map each switch's hardware UID to its position in the encoded
         // array. The JSON exposes only these per-snapshot indices; the raw
         // UID is a stable hardware identifier and stays internal (it would
-        // otherwise leak into output people paste publicly).
+        // otherwise leak into output people paste publicly). Presentation,
+        // so it stays here rather than in the builder.
         var switchIndexByUID: [Int64: Int] = [:]
         for (index, sw) in thunderboltSwitches.enumerated() where switchIndexByUID[sw.id] == nil {
             switchIndexByUID[sw.id] = index
         }
-        // Port keys with a live negotiated contract. A port with a
-        // connected-but-idle second charger uses this to know another port is
-        // the active source. See issue #264. Deliberately
-        // ungated on adapter/battery: this only feeds
-        // `anotherPortActivelyCharging`, and ChargingDiagnostic applies the
-        // system-power gate before acting on it, so a stale PDO here can't
-        // surface a charging claim. See hasLiveChargingContract's doc.
-        let chargingPortKeys = Set(ports.compactMap { port -> String? in
-            let portSources = sources.filter { $0.canonicallyMatches(port: port) }
-            return PowerSource.hasLiveChargingContract(in: portSources) ? port.portKey : nil
-        })
         // Devices structurally scoped to a port by apciecN root name join
         // that port's own device tree (via PortDTO's
         // structuralTunnelledDevices) and are subtracted from the flat
-        // otherUSBDevices group, mirroring the app and text wiring; JSON
-        // previously never got this subtraction (plan
-        // pcie-tunnelled-usb-attribution, review round 3/4).
+        // otherUSBDevices group. The builder already computed the per-port
+        // sets; this only unions their ids for the subtraction.
         var structurallyScopedIDs: Set<UInt64> = []
-        for port in ports {
-            structurallyScopedIDs.formUnion(
-                TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
-                    for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
-                ).map(\.id)
-            )
+        for portContext in context.portContexts {
+            structurallyScopedIDs.formUnion(portContext.structurallyScopedTunnelledDevices.map(\.id))
         }
         // Group port-less USB devices once: those reached over a Thunderbolt
         // tunnel (#274) and those on built-in front-panel ports (#348). Shared
         // by the two closures below so the grouping runs a single time.
+        // Grouping stays a formatter concern; the builder is deliberately
+        // per-port only.
         let usbGrouping = TunnelledDeviceGrouping.group(
             devices: usbDevices,
             ports: ports,
@@ -67,38 +72,30 @@ public enum JSONFormatter {
         )
         let output = Output(
             version: AppInfo.version,
-            isDesktopMac: isDesktopMac,
-            adapter: adapter.map { AdapterDTO(adapter: $0) },
-            ports: ports.map { port in
-                let portSources = sources.filter { $0.canonicallyMatches(port: port) }
-                let wattageSource = ChargerWattageSource.resolve(
-                    portSources: portSources,
-                    activePortCount: activePortCount,
-                    chargerSourceCount: chargerSourceCount,
-                    adapter: adapter
-                )
-                let anotherPortActivelyCharging = port.portKey.map { key in chargingPortKeys.contains { $0 != key } } ?? false
-                return PortDTO(
-                    port: port,
-                    sources: portSources,
-                    identities: identities.filter { $0.canonicallyMatches(port: port) },
-                    thunderboltSwitches: thunderboltSwitches,
+            isDesktopMac: context.isDesktopMac,
+            adapter: context.adapter.map { AdapterDTO(adapter: $0) },
+            ports: context.portContexts.map { portContext in
+                PortDTO(
+                    port: portContext.port,
+                    sources: portContext.portSources,
+                    identities: portContext.portIdentities,
+                    thunderboltSwitches: context.thunderboltSwitches,
                     switchIndexByUID: switchIndexByUID,
                     showRaw: showRaw,
-                    adapter: adapter,
-                    federatedIdentities: federatedIdentities,
-                    usb3Transports: usb3Transports.filter { $0.canonicallyMatches(port: port) },
-                    trmTransports: trmTransports.filter { $0.canonicallyMatches(port: port) },
-                    cioCapability: cioCapabilities.first { $0.canonicallyMatches(port: port) },
-                    chargerWattageSource: wattageSource,
-                    batteryFullyCharged: batteryFullyCharged,
-                    batteryIsCharging: batteryIsCharging,
-                    usbDevices: port.matchingDevices(from: usbDevices),
-                    structuralTunnelledDevices: TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
-                        for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
-                    ),
-                    displayPorts: displayPorts.filter { $0.canonicallyMatches(port: port) },
-                    anotherPortActivelyCharging: anotherPortActivelyCharging
+                    adapter: context.adapter,
+                    federatedIdentities: context.federatedIdentities,
+                    usb3Transports: portContext.portUSB3,
+                    trmTransports: portContext.portTRM,
+                    cioCapability: portContext.portCIO,
+                    chargerWattageSource: portContext.chargerWattageSource,
+                    batteryFullyCharged: context.batteryFullyCharged,
+                    batteryIsCharging: context.batteryIsCharging,
+                    usbDevices: portContext.matchedDevices,
+                    structuralTunnelledDevices: portContext.structurallyScopedTunnelledDevices,
+                    displayPorts: portContext.portDisplayPorts,
+                    anotherPortActivelyCharging: portContext.anotherPortActivelyCharging,
+                    cableEmarker: portContext.cableEmarker,
+                    partnerIdentity: portContext.partnerIdentity
                 )
             },
             thunderboltSwitches: thunderboltSwitches.enumerated().map { index, sw in
@@ -295,7 +292,12 @@ private struct PortDTO: Codable {
         // with that controller, not with this port's native link).
         structuralTunnelledDevices: [USBDevice] = [],
         displayPorts: [IOPortTransportStateDisplayPort] = [],
-        anotherPortActivelyCharging: Bool = false
+        anotherPortActivelyCharging: Bool = false,
+        // The one shared e-marker selection. Previously computed
+        // here; the builder owns the policy now so the text and dashboard
+        // surfaces cannot drift from it again.
+        cableEmarker: USBPDSOP?,
+        partnerIdentity: USBPDSOP?
     ) {
         self.name = port.portDescription ?? port.serviceName
         self.type = port.portTypeDescription
@@ -373,20 +375,9 @@ private struct PortDTO: Codable {
 
         self.powerSources = port.connectionActive != false ? sources.map { PowerSourceDTO(source: $0) } : []
 
-        // Mirror PortSummary's selection (see its cableEmarker): prefer an
-        // e-marker that actually carries VDOs. A bare SOP'/SOP'' with empty
-        // VDOs must not shadow a populated one, or the JSON cable object would
-        // drop the cable's speed / vendor / trust / certification data while
-        // the text output shows it. See JSONFormatter/PortSummary parity.
-        let cableEmarker = identities.first {
-            ($0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime) && !$0.vdos.isEmpty
-        } ?? identities.first {
-            $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime
-        }
-        let partner = identities.first { $0.endpoint == .sop }
-        self.cable = cableEmarker.map { CableDTO(identity: $0, partner: partner) }
+        self.cable = cableEmarker.map { CableDTO(identity: $0, partner: partnerIdentity) }
 
-        self.device = partner.map { DeviceDTO(identity: $0) }
+        self.device = partnerIdentity.map { DeviceDTO(identity: $0) }
 
         self.charging = ChargingDiagnostic(port: port, sources: sources, identities: identities, adapter: adapter, wattageSource: chargerWattageSource, batteryFullyCharged: batteryFullyCharged, batteryIsCharging: batteryIsCharging, anotherPortActivelyCharging: anotherPortActivelyCharging, federatedIdentities: federatedIdentities)
             .map { ChargingDTO(diagnostic: $0) }
@@ -411,7 +402,7 @@ private struct PortDTO: Codable {
             .max()
         self.trust = cableEmarker.map { id in
             TrustDTO(trust: CableTrust(
-                report: CableTrustReport(identity: id, partner: partner),
+                report: CableTrustReport(identity: id, partner: partnerIdentity),
                 vendorRegistered: VendorDB.isRegistered(id.vendorID),
                 dataLink: dataLinkDiag,
                 negotiatedWatts: negotiatedWatts,

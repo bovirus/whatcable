@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import WhatCableCore
 
@@ -373,6 +374,140 @@ struct TextFormatterTests {
         )
         #expect(output.contains(TrustFlag.vidNotInUSBIFList(0xDEAD).title))
         #expect(output.contains(TrustFlag.reservedSpeedEncoding(7).title))
+    }
+
+    // MARK: - E-marker selection is order independent
+
+    /// A bare SOP' (endpoint present, no VDOs at all): the "not read on this
+    /// connection" shape, not a genuinely blank e-marker.
+    private func bareCableIdentity(portNumber: Int) -> USBPDSOP {
+        USBPDSOP(
+            id: 2, endpoint: .sopPrime,
+            parentPortType: 2, parentPortNumber: portNumber,
+            vendorID: 0, productID: 0, bcdDevice: 0,
+            vdos: [], specRevision: 3
+        )
+    }
+
+    /// A populated SOP'', genuinely the other endpoint from `bareCableIdentity`'s
+    /// SOP' (the actual shape the ticket describes: a bare SOP' shadowing a
+    /// populated SOP''). Passive cable header by default so a shortfall
+    /// scenario can reach `DisplayDiagnostic`'s cable-exoneration branch.
+    private func populatedDoublePrimeIdentity(
+        portNumber: Int,
+        vendorID: Int = 0x05AC,
+        cableVDO: UInt32 = (0b10 << 5) | 0b011 | (1 << 13)
+    ) -> USBPDSOP {
+        USBPDSOP(
+            id: 3, endpoint: .sopDoublePrime,
+            parentPortType: 2, parentPortNumber: portNumber,
+            vendorID: vendorID, productID: 0x1234, bcdDevice: 0,
+            vdos: [(3 << 27) | UInt32(vendorID), 0, 0, cableVDO],
+            specRevision: 3
+        )
+    }
+
+    /// Renders one port with a bare SOP' and a populated SOP'' twice, with
+    /// the two identities swapped in `identities`, and asserts the two
+    /// outputs are byte-identical. This is the property the whole ticket
+    /// exists to guarantee: which identity carries the real cable data must
+    /// not depend on array order. Zero VID (rather than a clean cable) is
+    /// deliberate: it raises `TrustFlag.zeroVendorID`, which only the
+    /// populated identity can produce (the bare one has no VDOs to evaluate
+    /// at all, per `CableTrustReport`'s "unread e-marker" gate), so the two
+    /// renders have real content to differ on if selection is order-dependent.
+    @Test("Cable e-marker selection is order independent: bare SOP' before or after a populated SOP'' renders identically")
+    func cableSelectionIsOrderIndependent() {
+        let port = makePort()
+        let bare = bareCableIdentity(portNumber: port.portNumber ?? 1)
+        let populated = populatedDoublePrimeIdentity(portNumber: port.portNumber ?? 1, vendorID: 0)
+
+        let bareFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [bare, populated], showRaw: false
+        )
+        let populatedFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [populated, bare], showRaw: false
+        )
+
+        #expect(bareFirst == populatedFirst)
+        // Confirm there is something real to compare: the populated
+        // identity's trust note must actually appear in both renders, not
+        // just happen to match because neither rendered it.
+        #expect(bareFirst.contains(TrustFlag.zeroVendorID(corroborated: true).title))
+        #expect(populatedFirst.contains(TrustFlag.zeroVendorID(corroborated: true).title))
+    }
+
+    /// Same order-independence property, but through the display verdict:
+    /// a readable EDID (the real G34w-10 base block from `EDIDInfoTests`) on
+    /// a link that falls short of the monitor's ceiling with every host lane
+    /// in use on a passive cable. This is `DisplayDiagnostic`'s
+    /// `cableUnlikely` branch, which the golden net cannot reach (every
+    /// golden fixture's display port has `monitor: nil`).
+    @Test("Cable e-marker selection is order independent: display verdict with a readable EDID and a link shortfall")
+    func displayVerdictSelectionIsOrderIndependent() {
+        let port = makePort()
+        let bare = bareCableIdentity(portNumber: port.portNumber ?? 1)
+        let populated = populatedDoublePrimeIdentity(portNumber: port.portNumber ?? 1)
+        // 4 of 4 lanes in use, but at RBR (1.62 Gbps/lane): falls short of
+        // the G34w-10's 100 Hz / 600 MHz ceiling. All host lanes in use on a
+        // cable positively identified as passive is the one signal that
+        // exonerates it (DisplayDiagnostic.swift's cableKnownPassive).
+        let displayPort = IOPortTransportStateDisplayPort(
+            link: DisplayPortLink(
+                active: true, laneCount: 4, maxLaneCount: 4, linkRate: 3,
+                linkRateDescription: "1.62 Gbps (RBR)", tunneled: false, hpdState: 1
+            ),
+            monitor: MonitorInfo(
+                manufacturerName: nil, productName: nil, productId: nil,
+                yearOfManufacture: nil, edid: Data(EDIDInfoTests.g34wBaseBlock)
+            ),
+            parentPortType: 2, parentPortNumber: port.portNumber ?? 1
+        )
+
+        let bareFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [bare, populated], showRaw: false,
+            displayPorts: [displayPort]
+        )
+        let populatedFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [populated, bare], showRaw: false,
+            displayPorts: [displayPort]
+        )
+
+        #expect(bareFirst == populatedFirst)
+        // Confirm the cableUnlikely branch was actually reached, not just
+        // "no display block at all".
+        #expect(bareFirst.lowercased().contains("unlikely to be the cable"))
+    }
+
+    /// Same order-independence property, but through the showRaw active-cable
+    /// VDO2 block, which only an active cable's e-marker carries and which
+    /// the golden net cannot reach (every golden test renders `showRaw: false`).
+    @Test("Cable e-marker selection is order independent: showRaw active-cable VDO2 block")
+    func showRawVDO2SelectionIsOrderIndependent() {
+        let port = makePort()
+        let bare = bareCableIdentity(portNumber: port.portNumber ?? 1)
+        // Active cable header (product type 4) with a populated VDO2 at
+        // index 4, mirroring activeCableVDO2SectionAppearsInRawMode.
+        var vdo4: UInt32 = 0
+        vdo4 |= UInt32(1) << 10  // optical
+        let vdo3: UInt32 = UInt32(0b011) | UInt32(2 << 5) | UInt32(1 << 13) | UInt32(0b10 << 11)
+        let populated = USBPDSOP(
+            id: 3, endpoint: .sopDoublePrime,
+            parentPortType: 2, parentPortNumber: port.portNumber ?? 1,
+            vendorID: 0x05AC, productID: 0, bcdDevice: 0,
+            vdos: [(4 << 27) | UInt32(0x05AC), 0, 0, vdo3, vdo4],
+            specRevision: 3
+        )
+
+        let bareFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [bare, populated], showRaw: true
+        )
+        let populatedFirst = TextFormatter.render(
+            ports: [port], sources: [], identities: [populated, bare], showRaw: true
+        )
+
+        #expect(bareFirst == populatedFirst)
+        #expect(bareFirst.contains("Active cable (VDO 2)"))
     }
 
     // MARK: - Active Cable VDO 2 raw view

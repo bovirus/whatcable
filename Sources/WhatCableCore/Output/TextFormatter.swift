@@ -29,40 +29,44 @@ public enum TextFormatter {
         if isDesktopMac {
             out += ANSI.wrap(ANSI.dim, "Desktop Mac: charger identity (FedDetails) is not available (no battery controller).") + "\n\n"
         }
-        let activePortCount = ports.filter { $0.connectionActive == true }.count
-        let chargerSourceCount = ChargerWattageSource.chargerSourceCount(
-            ports: ports, sources: sources)
-        // Port keys with a live negotiated contract, so a connected-but-idle
-        // second charger can tell another port is the active source (#264).
-        // Deliberately ungated on adapter/battery: this only feeds
-        // `anotherPortActivelyCharging`, and ChargingDiagnostic applies the
-        // system-power gate before it acts on that, so a stale PDO here can't
-        // surface a charging claim. See hasLiveChargingContract's doc.
-        let chargingPortKeys = Set(ports.compactMap { port -> String? in
-            PowerSource.hasLiveChargingContract(in: filterSources(port, all: sources)) ? port.portKey : nil
-        })
+        // One shared per-port assembly for every renderer. The
+        // loose parameters above are this function's public signature; they
+        // describe a CableSnapshot, so rebuild it and let the Core builder
+        // do the canonical joins, the charger-wattage resolution, the
+        // cross-port charging flag (#264) and the device attribution.
+        let context = CableSnapshotContext(snapshot: CableSnapshot(
+            ports: ports,
+            powerSources: sources,
+            identities: identities,
+            usbDevices: usbDevices,
+            adapter: adapter,
+            thunderboltSwitches: thunderboltSwitches,
+            isDesktopMac: isDesktopMac,
+            federatedIdentities: federatedIdentities,
+            usb3Transports: usb3Transports,
+            trmTransports: trmTransports,
+            cioCapabilities: cioCapabilities,
+            displayPorts: displayPorts,
+            batteryFullyCharged: batteryFullyCharged,
+            batteryIsCharging: batteryIsCharging
+        ))
         // Devices behind a Thunderbolt dock or display match no physical port
         // (issue #274). Two paths, not one:
         //
         // - Structural: a device whose `tunnelRootName` names THIS port's own
-        //   `apciecN` root joins that port's tree directly (via
-        //   `ConnectedDeviceTree.rows`'s `tunnelledDevices` parameter below),
-        //   nested under its chain device exactly like a native device.
+        //   `apciecN` root joins that port's tree directly (the builder's
+        //   `structurallyScopedTunnelledDevices`, passed to renderPort
+        //   below), nested under its chain device exactly like a native
+        //   device.
         // - Fallback: `TunnelledDeviceGrouping.group`, unchanged in its own
-        //   logic, but now told which devices the structural path already
-        //   claimed (`structurallyScoped`) so it never renders them again.
-        //   This is still the ONLY path for a device with no structural root
-        //   data at all: the single-active-port heuristic, nested when
-        //   unambiguous, else a flat section at the end.
-        var structurallyScopedByPort: [String: [USBDevice]] = [:]
+        //   logic, but told which devices the structural path already claimed
+        //   (`structurallyScoped`) so it never renders them again. This is
+        //   still the ONLY path for a device with no structural root data at
+        //   all. Grouping stays a formatter concern; the builder is
+        //   deliberately per-port only.
         var structurallyScopedIDs: Set<UInt64> = []
-        for port in ports {
-            let scoped = TunnelledDeviceGrouping.structurallyScopedTunnelledDevices(
-                for: port, in: usbDevices, thunderboltSwitches: thunderboltSwitches
-            )
-            guard !scoped.isEmpty else { continue }
-            structurallyScopedByPort[port.serviceName] = scoped
-            structurallyScopedIDs.formUnion(scoped.map(\.id))
+        for portContext in context.portContexts {
+            structurallyScopedIDs.formUnion(portContext.structurallyScopedTunnelledDevices.map(\.id))
         }
         let tunnelled = TunnelledDeviceGrouping.group(
             devices: usbDevices,
@@ -71,35 +75,29 @@ public enum TextFormatter {
             isDesktopMac: isDesktopMac,
             structurallyScoped: structurallyScopedIDs
         )
-        for (i, port) in ports.enumerated() {
+        for (i, portContext) in context.portContexts.enumerated() {
             if i > 0 { out += "\n" }
-            let portSources = filterSources(port, all: sources)
-            let wattageSource = ChargerWattageSource.resolve(
-                portSources: portSources,
-                activePortCount: activePortCount,
-                chargerSourceCount: chargerSourceCount,
-                adapter: adapter
-            )
             out += renderPort(
-                port,
-                sources: portSources,
-                identities: filterIdentities(port, all: identities),
+                portContext.port,
+                sources: portContext.portSources,
+                identities: portContext.portIdentities,
                 showRaw: showRaw,
-                adapter: adapter,
-                thunderboltSwitches: thunderboltSwitches,
-                federatedIdentities: federatedIdentities,
-                usb3Transports: usb3Transports.filter { $0.canonicallyMatches(port: port) },
-                trmTransports: trmTransports.filter { $0.canonicallyMatches(port: port) },
-                cioCapability: cioCapabilities.first { $0.canonicallyMatches(port: port) },
-                chargerWattageSource: wattageSource,
-                batteryFullyCharged: batteryFullyCharged,
-                batteryIsCharging: batteryIsCharging,
-                usbDevices: port.matchingDevices(from: usbDevices),
-                structuralTunnelledDevices: structurallyScopedByPort[port.serviceName] ?? [],
-                displayPorts: displayPorts.filter { $0.canonicallyMatches(port: port) },
-                anotherPortActivelyCharging: port.portKey.map { key in chargingPortKeys.contains { $0 != key } } ?? false
+                adapter: context.adapter,
+                thunderboltSwitches: context.thunderboltSwitches,
+                federatedIdentities: context.federatedIdentities,
+                usb3Transports: portContext.portUSB3,
+                trmTransports: portContext.portTRM,
+                cioCapability: portContext.portCIO,
+                chargerWattageSource: portContext.chargerWattageSource,
+                batteryFullyCharged: context.batteryFullyCharged,
+                batteryIsCharging: context.batteryIsCharging,
+                usbDevices: portContext.matchedDevices,
+                structuralTunnelledDevices: portContext.structurallyScopedTunnelledDevices,
+                displayPorts: portContext.portDisplayPorts,
+                anotherPortActivelyCharging: portContext.anotherPortActivelyCharging,
+                cableEmarker: portContext.cableEmarker
             )
-            if port.serviceName == tunnelled.hostPortServiceName {
+            if portContext.port.serviceName == tunnelled.hostPortServiceName {
                 out += renderTunnelledDevices(tunnelled.devices, nested: true)
             }
         }
@@ -254,7 +252,9 @@ public enum TextFormatter {
         // .structurallyScopedTunnelledDevices`.
         structuralTunnelledDevices: [USBDevice] = [],
         displayPorts: [IOPortTransportStateDisplayPort] = [],
-        anotherPortActivelyCharging: Bool = false
+        anotherPortActivelyCharging: Bool = false,
+        // The one shared e-marker selection.
+        cableEmarker: USBPDSOP?
     ) -> String {
         let summary = PortSummary(
             port: port,
@@ -320,7 +320,7 @@ public enum TextFormatter {
         // several through one port, issue #271). The cable e-marker is passed
         // only so the verdict can exonerate (not convict) the cable on an
         // active-cable check.
-        let displayCable = identities.first { $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime }
+        let displayCable = cableEmarker
         for displayPort in displayPorts {
             guard let displayDiag = DisplayDiagnostic(dp: displayPort, cable: displayCable) else { continue }
             let displayColor = displayDiag.isWarning ? ANSI.yellow : ANSI.green
@@ -397,7 +397,7 @@ public enum TextFormatter {
         // Match the popover's behaviour: only render when at least one flag
         // fires, and use the same titles + details so wording stays
         // consistent across surfaces.
-        if let cable = identities.first(where: { $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime }) {
+        if let cable = cableEmarker {
             let partner = identities.first(where: { $0.endpoint == .sop })
             let trust = CableTrustReport(identity: cable, partner: partner)
             if !trust.isEmpty {
@@ -422,9 +422,7 @@ public enum TextFormatter {
         }
 
         if showRaw {
-            if let cable = identities.first(where: {
-                $0.endpoint == .sopPrime || $0.endpoint == .sopDoublePrime
-            }), let v2 = cable.activeCableVDO2 {
+            if let cable = cableEmarker, let v2 = cable.activeCableVDO2 {
                 out += "\n" + ANSI.wrap(ANSI.bold, String(localized: "Active cable (VDO 2):", bundle: _coreLocalizedBundle)) + "\n"
                 out += rawRow("Physical connection", v2.physicalConnection.label)
                 out += rawRow("Active element", v2.activeElement.label)
@@ -483,13 +481,4 @@ public enum TextFormatter {
         }
     }
 
-    /// Returns power sources canonically associated with the given port.
-    private static func filterSources(_ port: AppleHPMInterface, all: [PowerSource]) -> [PowerSource] {
-        return all.filter { $0.canonicallyMatches(port: port) }
-    }
-
-    /// Returns USB-PD identities canonically associated with the given port.
-    private static func filterIdentities(_ port: AppleHPMInterface, all: [USBPDSOP]) -> [USBPDSOP] {
-        all.filter { $0.canonicallyMatches(port: port) }
-    }
 }

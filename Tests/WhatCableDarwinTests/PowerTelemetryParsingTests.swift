@@ -284,14 +284,19 @@ struct PowerTelemetryParsingTests {
                 // portPowerSamplesFromControllerInfo) -- despite the field
                 // name, it is milliwatts on this path, confirmed by a corpus
                 // max of 140000 (140W EPR MagSafe, a real and unremarkable
-                // value once read as mW). A "sane wattage ceiling" invariant
-                // was considered for this sweep (item 5 of the 2026-07 test
-                // hardening pass) and rejected: the field isn't consistently
-                // watts across call sites (see probe32SweepPowerOutDetails
-                // below, corpus max 15543 there too), so any assumed ceiling
-                // would be checking the wrong unit rather than a real
-                // physical invariant. Non-negativity is the only invariant
-                // that holds regardless of unit.
+                // value once read as mW).
+                //
+                // The 2026-07 hardening pass rejected a "sane wattage
+                // ceiling" invariant here on the grounds that the field
+                // "isn't consistently watts across call sites". That premise
+                // was wrong and is retracted (2026-09-03): the other path is
+                // milliwatts too. Its corpus max of 15543 is 15.5W on a 15W
+                // contract, not a rogue unit. See probe32SweepPowerOutDetails
+                // below. A physical ceiling is therefore a real invariant now
+                // and worth adding, but it is new behaviour and needs its own
+                // watched-red run, so it stays out of the labelling fix that
+                // corrected this comment. Non-negativity is what this sweep
+                // asserts today.
                 #expect(sample.watts >= 0,
                     "Folder \(folder): negative watts \(sample.watts) from PortControllerInfo")
                 // portKey must be non-empty.
@@ -351,12 +356,18 @@ struct PowerTelemetryParsingTests {
 
             for sample in samples {
                 // Note: `sample.watts` here is the raw IOKit "Watts" field
-                // (see portPowerSamples), which is NOT true watts either: the
-                // corpus max is 15543, far above any real USB-C wattage. A
-                // physical-ceiling invariant was considered for this sweep
-                // and rejected for the same reason as probe32SweepPortControllerInfo
-                // above -- the unit isn't watts, so non-negativity is the
-                // invariant that actually holds.
+                // (see portPowerSamples). It is milliwatts, not watts, which
+                // is why the corpus max of 15543 looks impossible read as
+                // watts and is unremarkable read as 15.5W. Swept over every
+                // PowerOutDetails entry on disk, Watts tracks AdapterVoltage
+                // (mV) x Current (mA) / 1000, and never exceeds its own row's
+                // PD contract by more than about 4%.
+                //
+                // An earlier version of this comment said the unit was not
+                // watts and left it there, and used that to reject a physical
+                // ceiling. The unit is settled now, so a ceiling is viable;
+                // see the longer note in probe32SweepPortControllerInfo above
+                // for why it is not being added in the same change.
                 #expect(sample.watts >= 0,
                     "Folder \(folder): negative watts \(sample.watts) from PowerOutDetails")
                 #expect(!sample.portKey.isEmpty,

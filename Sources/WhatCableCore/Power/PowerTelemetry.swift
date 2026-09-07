@@ -18,13 +18,23 @@ public struct PortPowerSample: Codable, Sendable, Equatable {
     public let portIndex: Int
     public let portKey: String
     public let current: Int
+    /// Measured power out of the port (mW). AppleSmartBattery's `Watts` is
+    /// milliwatts, not centiwatts: swept over every PowerOutDetails entry in
+    /// the customer-probe corpus (620 entries over 413 capture folders, 567 of
+    /// them with a nonzero current, from 386 folders), it tracks
+    /// AdapterVoltage (mV) x Current (mA) / 1000 with a median ratio of 1.001.
+    /// The tail runs high on small draws, because the integer milliamp field
+    /// truncates away part of the current (p95 1.064, max 1.160, all the worst
+    /// rows at 5 mA), but no entry is anywhere near the 10x a centiwatt
+    /// reading would give, on any chip or any macOS version.
     public let watts: Int
     public let configuredVoltage: Int
     public let configuredCurrent: Int
     public let adapterVoltage: Int
     public let vconnCurrent: Int
+    /// Cable-electronics power draw (mW).
     public let vconnPower: Int
-    /// Smoothed power reading (centiwatts).
+    /// Smoothed power reading (mW).
     public let filteredPower: Int
     /// PD contract negotiated power (mW).
     public let pdPowerMW: Int

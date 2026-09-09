@@ -614,6 +614,18 @@ extraHead: |
       .home .family { padding: 48px 0; }
       .home .family-grid { grid-template-columns: 1fr; gap: 28px; }
     }
+
+    .tier-intro { font-size: 15px; color: var(--ink-soft); line-height: 1.7; margin: 20px 0; max-width: 65ch; }
+    .tier-intro span { display: block; }
+    .tier-intro a, .learn-link a { text-decoration: underline; text-underline-offset: 3px; }
+    .skip-link { position: fixed; left: 16px; top: 8px; z-index: 100; padding: 12px 18px; background: white; color: #075d6e; border: 2px solid #075d6e; border-radius: 8px; transform: translateY(-160%); }
+    .skip-link:focus { transform: none; }
+    main:focus { outline: none; }
+
+    main.home { padding: 0; }
+    .home .hero .homebrew-link { display: inline-block; align-self: center; font-size: 14px; text-decoration: underline; text-underline-offset: 3px; padding: 10px 0; }
+    .home .hero .actions { align-items: center; }
+    .home .terminal .term-title, .home .terminal .dim { color: #91a0b1; }
   </style>
 ---
 <script type="application/ld+json">
@@ -654,7 +666,8 @@ extraHead: |
   ]
 }
 </script>
-<div class="home">
+<a class="skip-link" href="#main-content">Skip to content</a>
+<main class="home" id="main-content" tabindex="-1">
 
 <header class="hero">
   <div class="wrap-wide hero-grid">
@@ -666,19 +679,17 @@ extraHead: |
       </span>
       <h1>Know what your USB-C cable <span class="accent">can really do.</span></h1>
       <p class="lede">
-        Plug in a cable. WhatCable shows its speed, power capability, display
-        path, and the weak link in your connection, using what macOS reports,
-        not what the packaging promises.
+        Connect a device or charger. See your cable’s reported speed and charging capability, understand your display connection, and find what may be limiting the setup.
       </p>
       <div class="actions">
         <a class="button primary" href="{{ site.downloadUrl }}" download>
           Download WhatCable for free
           <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg>
         </a>
-        <a class="button secondary" href="#install">Install with Homebrew</a>
+        <a class="homebrew-link" href="#install">Prefer Homebrew? Install instructions</a>
       </div>
       <p style="font-size: 14px; color: var(--ink-soft); margin-bottom: 24px;">
-        Need deeper diagnostics? <a href="/pro" style="color: var(--accent); font-weight: 500;">Explore WhatCable Pro<svg style="display:inline;vertical-align:middle;margin-left:3px;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg></a>
+        <strong>Free:</strong> understand the current connection.<br><strong>Pro:</strong> inspect the evidence, watch measurements and investigate changes over time. <a href="/pro" style="color: var(--accent); font-weight: 500;">Explore WhatCable Pro<svg style="display:inline;vertical-align:middle;margin-left:3px;" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 5l7 7-7 7"/></svg></a>
       </p>
       <div class="meta-row">
         <span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>Open source, Pro optional</span>
@@ -732,7 +743,8 @@ extraHead: |
         <div class="story-copy">
           <span class="story-kicker">Cable identity</span>
           <h3>What kind of cable is this?</h3>
-          <p>Read the cable's e-marker identity, advertised speed, power rating and active transports. Turn on technical details when you need the underlying values from macOS.</p>
+          <p>See the cable’s reported identity, speed and charging rating, plus the kind of connection it is using. Open the technical details when you want to see the original readings.</p>
+          <p class="learn-link"><a href="/inside-a-cable">See what the wires and identity chip do in our interactive cable diagram →</a></p>
           <div class="story-result">USB4 Gen 4 at 80 Gbps. Rated for up to 240W.</div>
         </div>
       </article>
@@ -848,7 +860,7 @@ extraHead: |
       <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Display bottlenecks</h3><p>When a monitor is connected, see whether the link is carrying its full resolution and refresh, or falling short, and whether an adapter, the cable, or the selected mode is the limit.</p></article>
       <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 7V5M17 7V5M7 17v2M17 17v2"/></svg></div><h3>Cable e-marker data</h3><p>Decode cable speed, current rating, vendor identity, and USB PD capability flags from marked USB-C cables, including USB-IF certification read straight off the cable.</p></article>
       <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg></div><h3>Active transports</h3><p>Identify USB 2, USB 3, USB4, Thunderbolt, and DisplayPort paths under the physical port where they are connected.</p></article>
-      <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div><h3>Engineer mode</h3><p>Option-click or enable raw details to reveal the underlying IOKit properties when you need the registry-level facts.</p></article>
+      <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div><h3>Engineer mode</h3><p>Option-click or enable technical details to see the original information macOS reports about the connection.</p></article>
       <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h.01M10 12h.01M14 12h.01M18 12h.01"/></svg></div><h3>Connected devices</h3><p>Every device sits inside the thing it is actually plugged into, not a flat pile. Hubs are hidden by default, and each device says how many it is sitting behind.</p></article>
       <article class="feature"><div class="icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></div><h3>Built for macOS</h3><p>A focused menu bar app on Apple Silicon Macs. No helper daemon, no private API, no background uploads.</p></article>
     </div>
@@ -1058,15 +1070,15 @@ extraHead: |
     <div class="family-grid">
       <div class="section-head">
         <span class="section-tag">The rest of the answer</span>
-        <h2>WhatCable stops at the cable. The questions don't.</h2>
-        <p>Knowing a charger only negotiated 60W raises the next question, and it is usually about the battery or the port it is plugged into. Two more Mac utilities from the same developer, built the same way: read what the Mac already knows, then say it in plain English.</p>
+        <h2>More ways to understand your Mac.</h2>
+        <p>WhatCable explains the connected setup. These companion apps add a closer look at battery health and a dedicated overview of your Mac’s ports.</p>
       </div>
       <div class="family-apps">
         <a class="family-app" href="https://www.whatbattery.app" rel="noopener">
           <img class="family-icon" src="/whatbattery-icon.png" alt="" width="48" height="48" loading="lazy">
           <div>
             <h3>WhatBattery</h3>
-            <p>So the cable delivers 60W. What is that doing to the battery? Unrounded health, live charge and discharge in watts, per-cell readings from the pack, and where the charge went overnight.</p>
+            <p>Take a closer look at the battery itself: Unrounded health, live charge and discharge in watts, per-cell readings from the pack, and where the charge went overnight.</p>
             <span class="family-go">Visit whatbattery.app →</span>
           </div>
         </a>
@@ -1074,7 +1086,7 @@ extraHead: |
           <img class="family-icon" src="/whatport-icon.png" alt="" width="48" height="48" loading="lazy">
           <div>
             <h3>WhatPort</h3>
-            <p>WhatCable looks closely at one port. WhatPort shows all of them at once: protocol, speed, lane status and live power draw for every port on your Mac.</p>
+            <p>A dedicated overview of your Mac’s ports: connection types, speeds, signal paths and available live power readings in one place.</p>
             <span class="family-go">Visit whatport.app →</span>
           </div>
         </a>
@@ -1083,7 +1095,7 @@ extraHead: |
   </div>
 </section>
 
-</div>
+</main>
 
 {% raw %}
 <script>

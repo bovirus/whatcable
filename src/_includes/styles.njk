@@ -307,8 +307,21 @@
   footer .footer-links { display: flex; flex-wrap: wrap; gap: 6px 14px; }
   footer .footer-links .sep { color: rgba(255, 255, 255, 0.3); }
 
+  .mobile-nav { display: none; }
+  .mobile-menu summary { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 12px; border: 1px solid #bac5cf; border-radius: 8px; background: white; color: var(--ink); cursor: pointer; font-size: 14px; font-weight: 600; list-style: none; }
+  .mobile-menu summary::-webkit-details-marker { display: none; }
+  .mobile-menu[open] summary { background: #eaf3f5; border-color: #08768b; }
+  .mobile-nav-panel { position: absolute; top: 100%; left: 0; right: 0; padding: 12px 20px 20px; background: #fafbfc; border-bottom: 1px solid var(--line); box-shadow: 0 12px 20px #0c12191a; max-height: calc(100dvh - 64px); overflow-y: auto; overscroll-behavior: contain; }
+  .mobile-nav-panel a { display: flex; align-items: center; min-height: 48px; padding: 10px 14px; border-radius: 7px; color: var(--ink); font-size: 16px; text-decoration: none; }
+  .mobile-nav-panel a:hover { background: #edf2f5; }
+  .mobile-nav-panel a[aria-current="page"] { background: #e3f0f3; color: #075d6e; font-weight: 700; border-left: 3px solid #08768b; }
+  .nav :is(a,summary):focus-visible { outline: 3px solid #08768b; outline-offset: 3px; }
   @media (max-width: 720px) {
-    .nav-links a:not(.button):not([data-keep-mobile]) { display: none; }
+    .mobile-nav { display: flex; align-items: center; gap: 10px; }
+    .nav-inner { gap: 10px; }
+    .mobile-nav .button.accent { min-height: 44px; background: #08768b; }
+
+    .nav .desktop-nav { display: none; }
     .nav-links { gap: 12px; }
     .nav .button { padding: 8px 12px; font-size: 13px; }
     h1 { font-size: 28px; }

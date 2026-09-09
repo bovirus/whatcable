@@ -93,6 +93,7 @@ extraHead: |
       <p class="article-meta">
         {% if category %}<span class="category">{{ category }}</span> &nbsp;·&nbsp;{% endif %}
         <time datetime="{{ page.date | isoDate }}">{{ page.date | readableDate }}</time>
+        {% if updated %} &nbsp;·&nbsp; Updated <time datetime="{{ updated | isoDate }}">{{ updated | readableDate }}</time>{% endif %}
       </p>
       <h1>{{ title }}</h1>
       {% if summary %}<p class="article-deck">{{ summary }}</p>{% endif %}
@@ -192,7 +193,7 @@ extraHead: |
   "description": {{ (summary or "") | dump | safe }},
   "url": "{{ site.url }}{{ page.url | cleanUrl }}",
   "datePublished": {{ page.date | isoDate | dump | safe }},
-  "dateModified": {{ page.date | isoDate | dump | safe }},
+  "dateModified": {{ (updated or page.date) | isoDate | dump | safe }},
   {% if coverImage %}"image": {{ ((site.url + coverImage) if coverImage.startsWith("/") else coverImage) | dump | safe }},{% endif %}
   "author": {
     "@type": "Person",

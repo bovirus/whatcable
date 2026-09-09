@@ -1,8 +1,22 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { feedPlugin } from "@11ty/eleventy-plugin-rss";
 import syntaxHighlight from "@11ty/eleventy-plugin-syntaxhighlight";
 
 export default async function (eleventyConfig) {
   eleventyConfig.addPlugin(syntaxHighlight);
+
+  // Keep explorer markup, styles, code and data in sync across browser caches.
+  eleventyConfig.addTransform("versionCableExplorer", function (content) {
+    if (!this.page.outputPath?.endsWith("/inside-a-cable.html")) return content;
+    const hash = createHash("sha256");
+    for (const file of ["src/assets/cable-explorer/explorer.css", "src/assets/cable-explorer/explorer.js", "src/_data/explorer.json"]) {
+      hash.update(readFileSync(file));
+    }
+    const version = hash.digest("hex").slice(0, 16);
+    return content.replace(/(\/assets\/cable-explorer\/explorer\.(?:css|js))(?=["'])/g, `$1?v=${version}`);
+  });
+
 
   eleventyConfig.addPlugin(feedPlugin, {
     type: "atom",

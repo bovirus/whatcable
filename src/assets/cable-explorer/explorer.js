@@ -133,7 +133,9 @@ function selectCable(id) {
 }
 async function init() {
   try {
-    const response = await fetch(new URL('./cables.json', import.meta.url));
+    const dataUrl = new URL('./cables.json', import.meta.url);
+    dataUrl.search = new URL(import.meta.url).search;
+    const response = await fetch(dataUrl);
     if (!response.ok) throw new Error('Cable descriptions unavailable');
     data = await response.json();
   } catch (error) {

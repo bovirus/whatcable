@@ -53,6 +53,9 @@ function selectPart(id) {
   $('part-whatcable-detail').hidden = !part.whatcableDetail;
   $('part-whatcable').hidden = !part.whatcable;
   $('part-whatcable-text').textContent = part.whatcable || '';
+  $('part-pro-link').hidden = !part.proUrl;
+  $('part-pro-link').href = part.proUrl || '/pro#features';
+  $('part-pro-link').textContent = part.proLabel || 'Explore WhatCable Pro →';
   if (window.matchMedia?.('(max-width:850px)').matches) {
     const explanation=$('component-explanation');
     if(explanation.getBoundingClientRect().top < 80) explanation.scrollIntoView({block:'start',behavior:'instant'});
@@ -101,7 +104,7 @@ async function init() {
     $('bandwidth-out').textContent=boost?'120 Gbps →':'80 Gbps →';
     $('bandwidth-back').textContent=boost?'← 40 Gbps':'← 80 Gbps';
     $('bandwidth-lanes').textContent=boost?'3 lanes towards displays · 1 lane back':'2 lanes each way';
-    $('bandwidth-explanation').textContent=boost?'Bandwidth Boost reallocates one lane for display-heavy traffic. It provides 120 Gbps in one direction and 40 Gbps in the other.':'Normal operation provides 80 Gbps in each direction at the same time.';
+    $('bandwidth-explanation').textContent=boost?'Bandwidth Boost gives demanding screens more room: 120 Gbps towards them, with 40 Gbps still available in the other direction.':'Information can travel both ways at once, with 80 Gbps of capacity in each direction.';
   }));
   $('end-guide').addEventListener('click',()=>{
     const question=document.querySelector('[data-question][aria-pressed="true"]');

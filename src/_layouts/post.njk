@@ -193,7 +193,7 @@ extraHead: |
   "url": "{{ site.url }}{{ page.url | cleanUrl }}",
   "datePublished": {{ page.date | isoDate | dump | safe }},
   "dateModified": {{ page.date | isoDate | dump | safe }},
-  {% if coverImage %}"image": {{ coverImage | dump | safe }},{% endif %}
+  {% if coverImage %}"image": {{ ((site.url + coverImage) if coverImage.startsWith("/") else coverImage) | dump | safe }},{% endif %}
   "author": {
     "@type": "Person",
     "name": {{ site.author.name | dump | safe }},

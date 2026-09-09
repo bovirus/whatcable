@@ -94,6 +94,7 @@ export default async function (eleventyConfig) {
   });
 
   eleventyConfig.addPassthroughCopy("src/assets/cable-explorer");
+  eleventyConfig.addPassthroughCopy("src/assets/cable-database");
   eleventyConfig.addPassthroughCopy("src/icon.png");
   eleventyConfig.addPassthroughCopy("src/whatbattery-icon.png");
   eleventyConfig.addPassthroughCopy("src/whatport-icon.png");

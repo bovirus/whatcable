@@ -620,12 +620,13 @@ extraHead: |
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
+  "@id": "https://www.whatcable.uk/#software",
   "name": "WhatCable",
   "operatingSystem": "macOS 14+",
   "applicationCategory": "UtilitiesApplication",
   "offers": [
-    { "@type": "Offer", "price": "0", "priceCurrency": "GBP", "name": "Free" },
-    { "@type": "Offer", "price": "9.99", "priceCurrency": "GBP", "name": "Pro" }
+    { "@type": "Offer", "price": "0", "priceCurrency": "GBP", "name": "Free", "url": "https://www.whatcable.uk/#download" },
+    { "@type": "Offer", "price": "9.99", "priceCurrency": "GBP", "name": "Pro", "url": "https://www.whatcable.uk/pro#pricing" }
   ],
   "description": "Why is my MacBook charging slowly? WhatCable shows USB-C cable speed, charging power, and e-marker data in plain English. Free Mac app for Apple Silicon.",
   "url": "https://www.whatcable.uk",
@@ -805,7 +806,7 @@ extraHead: |
         <ul class="plan-list">
           <li>Cable history and performance timeline</li>
           <li>Negotiation and display diagnostics</li>
-          <li>Live power, PD contracts and port health</li>
+          <li>Power readings, charging agreements and port health</li>
           <li>Terminal dashboard and raw evidence</li>
         </ul>
         <a class="button secondary" href="/pro">Explore WhatCable Pro</a>
@@ -868,7 +869,7 @@ extraHead: |
       <div>
         <span class="section-tag">Free, with optional Pro</span>
         <h2>See what your cables are doing right now.</h2>
-        <p>The free app tells you what your cable can do and, in plain English, where the bottleneck is. Pro shows you the full picture: live power flowing through each port, real-time PD contracts, the full negotiation breakdown of every connection, port health over time, and the raw VDO fingerprints behind every cable.</p>
+        <p>The free app tells you what your cable can do and, in plain English, where the bottleneck is. Pro lets you look closer: watch power readings, see what charging power was agreed, compare each part of the connection and inspect the original identity data behind the explanation.</p>
         <p>16 advanced features, £9.99 one-time, works on up to 2 Macs.</p>
         <a href="/pro" class="button primary" style="margin-top: 20px;">
           Unlock Pro
@@ -986,6 +987,7 @@ extraHead: |
 </section>
 
 <section class="faq-section" id="faq">
+  <div class="wrap-wide"><p><a href="/inside-a-cable">Same plug, different insides: explore our 3D cable diagram</a> to compare basic USB-C, Thunderbolt 4 and Thunderbolt 5.</p></div>
   <div class="wrap-wide">
     <div class="section-head">
       <span class="section-tag">FAQ</span>
@@ -994,11 +996,11 @@ extraHead: |
     <div class="faq-list">
       <details class="faq-item"><summary>Does it work on Intel Macs?</summary><p>No. WhatCable needs Apple Silicon (M1 or later). This is measured, not assumed: every Intel Mac in our community diagnostic data reports its USB-C port controllers as empty, so the USB-PD state and cable e-marker data WhatCable is built on never appear on those machines at all. Thunderbolt link data is still there on Intel, but the port-controller layer WhatCable reads is not.</p></details>
       <details class="faq-item"><summary>Is it really free?</summary><p>Yes. The WhatCable app is free and open source under the MIT licence. No ads, no tracking. WhatCable Pro (£9.99, optional) adds advanced diagnostics for power users. <a href="/pro" style="color: var(--accent);">See what's included.</a></p></details>
-      <details class="faq-item"><summary>What does WhatCable Pro add?</summary><p>Pro unlocks 16 advanced features including cable history (named cables with a recorded timeline), live power metering, Negotiation and Display Diagnostics, port health counters, PD contract inspection, and raw VDO identity. One-time £9.99, no subscription, works on up to 2 Macs. <a href="/pro" style="color: var(--accent);">See full features and comparison.</a></p></details>
+      <details class="faq-item"><summary>What does WhatCable Pro add?</summary><p>Pro helps you investigate further: keep a cable history, watch power readings, understand a slow connection and check why a screen is not performing as expected. It is a one-time £9.99 purchase for up to two Macs, with no subscription. <a href="/pro">See the features and comparison.</a></p><p><strong>Technical detail:</strong> The tools include Negotiation and Display Diagnostics, port health counters, the USB Power Delivery contract inspector and raw cable identity fields. Each gives more context behind the main explanation.</p></details>
       <details class="faq-item"><summary>Does it phone home or collect data?</summary><p>No analytics, no telemetry, and nothing about you or your cables ever leaves your Mac. In the free app the one routine network call is a version check against the public GitHub Releases API, roughly every 6 hours. WhatCable Pro adds one more: a licence check when you activate your key, then once each time the app launches. That call sends only the key and your Mac's hardware UUID, which is how the two-Mac limit is enforced. Diagnostic data only goes anywhere if you explicitly choose to contribute it. Check the source on GitHub if you want to verify.</p></details>
-      <details class="faq-item"><summary>Does WhatCable just read the e-marker?</summary><p>Not only. On a plain USB connection the cable's e-marker chip is all macOS exposes, so that is what WhatCable shows. But on a Thunderbolt or USB4 connection it goes further: it reads the speed the Mac's controller actually negotiated with the cable and shows it next to the e-marker's claim, so a cable that under-reports itself is caught. The measured speed is a floor, meaning at least this fast, so a genuine 10 Gbps cable that never forms a Thunderbolt link really is 10 Gbps.</p></details>
-      <details class="faq-item"><summary>Why does my cable show no e-marker data?</summary><p>Two reasons. Either the cable has no e-marker chip (cheap USB 2.0 cables and many cables rated at 3A or below don't have one), or it has a chip but macOS hasn't read it. macOS asks a cable to identify itself when the connection needs it: a charge drawing more than 3A (a 5A cable on a high-wattage charger), or a Thunderbolt / USB4 link. It can also read it at other times, and some chargers and docks may block the read entirely. Plug a marked cable into a low-power charger or a plain data connection and macOS may never query it, so there's nothing for WhatCable to show. To force the read, connect the cable to a high-wattage charger or a Thunderbolt device.</p></details>
-      <details class="faq-item"><summary>Can it tell me if a cable is fake?</summary><p>Not definitively. The trust signals feature flags values that look unusual against the USB-PD spec, like a zero vendor ID or reserved bit patterns. A flag means "worth checking," not "definitely counterfeit."</p></details>
+      <details class="faq-item"><summary>Does WhatCable just read the e-marker?</summary><p>No. The e-marker is the cable’s digital label, but WhatCable also uses the connection information your Mac provides. It compares the port, cable and connected device, and checks display links too. This helps explain why the connection is working at a particular speed or charging rate.</p><p><strong>Technical detail:</strong> On Thunderbolt and USB4 connections, controller reports can show the negotiated link speed. That confirms the speed reached in that connection, not the cable’s absolute maximum. A compatible passive cable with an older 40 Gbps identity may legitimately carry newer 80 Gbps signalling. Missing faster-link evidence does not prove a lower physical limit.</p></details>
+      <details class="faq-item"><summary>Why does my cable show no e-marker data?</summary><p>The cable may have no identity chip, or your Mac may not have read it yet. Try connecting a charger, dock or device at the far end, then check again. Missing information alone does not mean the cable is broken.</p><p><strong>Technical detail:</strong> Some basic USB 2.0 cables do not require an e-marker. Full-featured cables and cables carrying more than 3 A do. Whether macOS exposes the identity also depends on the port and connected equipment; connecting another device can help trigger a read but does not guarantee one.</p></details>
+      <details class="faq-item"><summary>Can it tell me if a cable is fake?</summary><p>Not definitively. WhatCable helps you investigate inconsistent reports and connection problems. A missing manufacturer or certificate alone does not prove a cable is counterfeit.</p><p><strong>Technical detail:</strong> The trust checks examine identity and capability fields against USB Power Delivery rules. Malformed or contradictory fields are different from missing information. The app cannot inspect the physical wiring or authenticate every product label.</p></details>
       <details class="faq-item"><summary>What languages is WhatCable available in?</summary><p>19, and the diagnostic verdicts are translated too, not just the menus: Armenian, Brazilian Portuguese, Dutch, English, French, German, Hindi, Italian, Japanese, Korean, Latvian, Norwegian, Polish, Russian, Simplified Chinese, Spanish, Traditional Chinese, Turkish, and Ukrainian. WhatCable follows your Mac's language by default, or you can pick one in Settings. Translations are community-refinable, so if something reads oddly in your language, <a href="https://github.com/darrylmorley/whatcable/issues" style="color: var(--accent);">open an issue</a> and we'll fix it.</p></details>
     </div>
   </div>

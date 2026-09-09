@@ -2,15 +2,16 @@
 permalink: /pro.html
 layout: base.njk
 documentTitle: "WhatCable Pro - Deep USB-C Diagnostics for Mac"
-description: "WhatCable Pro adds live power metering, PD contract inspection, port health counters, DP Alt Mode details, and more. One-time purchase, works on up to 2 Macs."
+description: "WhatCable Pro helps explain slow charging, display limits and unreliable connections, with the technical detail when you need it. One-time purchase, works on up to 2 Macs."
 ogImage: "https://www.whatcable.uk/screenshot-power-monitor.webp"
 extraHead: |
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
-    "@type": "Product",
+    "@type": ["SoftwareApplication", "Product"],
+    "@id": "https://www.whatcable.uk/pro#software",
     "name": "WhatCable Pro",
-    "description": "Deep USB-C diagnostics for Mac. Live power metering, PD contract inspection, port health counters, DP Alt Mode details, cable resistance estimation, and more.",
+    "description": "USB-C diagnostics for Mac. Understand charging power, display connections and port errors, with detailed hardware reports.",
     "url": "https://www.whatcable.uk/pro",
     "image": "https://www.whatcable.uk/screenshot-power-monitor.webp",
     "brand": { "@type": "Brand", "name": "WhatCable" },
@@ -18,8 +19,8 @@ extraHead: |
       "@type": "Offer",
       "price": "9.99",
       "priceCurrency": "GBP",
+      "url": "https://www.whatcable.uk/pro#pricing",
       "availability": "https://schema.org/InStock",
-      "priceValidUntil": "2026-12-31",
       "seller": { "@type": "Person", "name": "Darryl Morley" }
     },
     "operatingSystem": "macOS 14+",
@@ -498,6 +499,7 @@ extraHead: |
       .pro-page .pricing-card { padding: 28px 24px; }
       .pro-page .cta h2 { font-size: 24px; }
     }
+  .plain-detail{margin:12px 0 18px}.plain-detail summary{cursor:pointer;font-weight:600;text-decoration:underline;text-underline-offset:3px}.plain-detail summary:focus-visible{outline:2px solid currentColor;outline-offset:4px}.plain-detail p{margin-top:10px}
   </style>
 ---
 <div class="pro-page">
@@ -511,7 +513,7 @@ extraHead: |
         WhatCable Pro
       </div>
       <h1>Find the weak link in your <span class="accent">USB-C setup.</span></h1>
-      <p class="lede">See what the Mac port, cable, dock, adapter and device each support, what was actually negotiated, and where the connection is being limited.</p>
+      <p class="lede">See what the Mac port, cable, dock, adapter and device each support, the speed and power they agreed to use, and where the connection is being limited.</p>
       <div class="hero-actions">
         <button class="button accent lg" id="buy-hero">Buy WhatCable Pro for £9.99</button>
         <a href="#features" class="button secondary lg">See what's included</a>
@@ -542,7 +544,7 @@ extraHead: |
       </div>
       <div class="persona-card">
         <div class="persona-title">Multi-dock setups</div>
-        <p>One dock at work, one at home, same laptop, different behaviour. Pro shows what each dock actually negotiated, so you stop blaming the Mac.</p>
+        <p>One dock at work, one at home, same laptop, different behaviour. Pro shows the connection each dock actually established, so you stop blaming the Mac.</p>
       </div>
       <div class="persona-card">
         <div class="persona-title">High-end docks and displays</div>
@@ -560,7 +562,7 @@ extraHead: |
       <div class="story-feature-text">
         <div class="story-feature-name">Cable history</div>
         <p class="story-feature-setup">Is this the cable that gave me trouble last week?</p>
-        <p class="story-feature-explainer">Add a cable, give it a name. WhatCable recognises it next time and builds up a timeline: when you last used it, what it negotiated, whether it has been misbehaving. Saved-cables list, summary per cable, verdict on the port card.</p>
+        <p class="story-feature-explainer">Add a cable, give it a name. WhatCable recognises it next time and builds up a timeline: when you last used it, the connection it used, and whether it has shown problems. Saved-cables list, summary per cable, verdict on the port card.</p>
       </div>
       <div class="story-feature-img">
         <img src="/screenshot-cable-history.webp" alt="Saved Cables screen showing a named Anker Thunderbolt cable with a Performing verdict, last seen one second ago, and History, Rename, and Delete actions" loading="lazy">
@@ -571,7 +573,7 @@ extraHead: |
       <div class="story-feature-text">
         <div class="story-feature-name">Negotiation Diagnostics</div>
         <p class="story-feature-setup">You bought a 40Gbps cable and the drive runs at 5.</p>
-        <p class="story-feature-explainer">Port, cable, and device side by side against what was actually negotiated, weak link highlighted.</p>
+        <p class="story-feature-explainer">See what the port, cable and device each support beside the connection they are using, with an identified limit highlighted.</p>
       </div>
       <div class="story-feature-img">
         <img src="/screenshot-negotiation-diagnostics.webp" alt="Negotiation Diagnostics screen showing per-port power and data-speed breakdowns with the bottleneck highlighted" loading="lazy">
@@ -593,7 +595,7 @@ extraHead: |
       <div class="story-feature-text">
         <div class="story-feature-name">Port Diagnostics</div>
         <p class="story-feature-setup">The drive keeps dropping out, but never while you are watching.</p>
-        <p class="story-feature-explainer">Per-port counters that keep score when you are not there: attaches, detaches, hard resets, failed role swaps, VDO failures. Alongside them, the live power contract, the PD event log, pin-level signal routing, and liquid-detection state.</p>
+        <p class="story-feature-explainer">See the connection events and errors reported by each port. Open the technical details to inspect charging agreements, event messages, individual signal paths and liquid-detection information.</p>
       </div>
       <div class="story-feature-img">
         <img src="/screenshot-diagnostics.webp" alt="Port Diagnostics screen showing port health counters with 27 attaches and 40 VDO failures flagged, liquid detection state, and the live power contract with its active request and the charger's source PDOs" loading="lazy">
@@ -677,7 +679,7 @@ extraHead: |
   <div class="wrap-wide">
     <div class="section-head">
       <span class="section-tag">Pro features</span>
-      <h2>More of what Pro can see</h2>
+      <h2>More of what Pro can see</h2><p>New to the terms? <a href="/inside-a-cable">Explore our interactive cable diagram</a> to see how charging, data and video use the parts inside a USB-C cable.</p>
       <p>Every one of these inspects a connection in more detail than the free app can. The full Free and Pro comparison follows below.</p>
     </div>
     <div class="feature-grid">
@@ -688,58 +690,69 @@ extraHead: |
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="4" height="9"/><rect x="10" y="7" width="4" height="13"/><rect x="17" y="3" width="4" height="17"/></svg></div>
-        <h3>Negotiation Diagnostics</h3>
-        <p>Compare the Mac port, cable and device against the live connection, with the limiting part highlighted.</p>
+        <h3 id="connection-diagnostics">Negotiation Diagnostics</h3>
+        <p>Find out which part of the connection is holding it back: your Mac’s port, the cable or the connected device.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>“Negotiated” means the speed or power the connected devices have agreed to use. WhatCable compares this with the reported capabilities of each part, and identifies a limit when the available evidence supports it.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-        <h3>Display Diagnostics</h3>
-        <p>Compare the monitor's top mode with the live DisplayPort link and identify adapters in the chain.</p>
+        <h3 id="display-diagnostics">Display Diagnostics</h3>
+        <p>Find out why your screen is not as sharp or smooth as expected. Compare its picture settings with what the screen and its connection can support.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>Resolution describes picture detail; refresh rate is how often the picture updates. Display Diagnostics compares these with the monitor’s reported modes and the DisplayPort connection’s lanes and rate. It accounts for Display Stream Compression (DSC), which fits the picture into less bandwidth, and adapter information when available. A lower link rate can be appropriate for the selected picture setting.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></div>
         <h3>Live power metering</h3>
-        <p>Real-time watts, amps, and voltage per port. Updates every 2 seconds from the battery controller. See exactly what your cable is delivering right now.</p>
+        <p>See how much power your Mac reports through each port, with readings updated every two seconds.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>Watts (W) measure power, amps (A) measure current and volts (V) measure voltage. Where live per-port readings are unavailable, WhatCable shows the agreed maximum instead. That limit is not the same as the power being used at that moment.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg></div>
-        <h3>PD contract inspector</h3>
-        <p>See the full negotiated power delivery contract: active voltage and current, all available PDOs decoded with type-aware formatting, and any capability mismatches flagged.</p>
+        <h3 id="charging-agreement">PD contract inspector</h3>
+        <p>See which charging options your charger offers and which one your Mac is using. This helps explain why a powerful charger may be charging at a lower rate.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>USB Power Delivery (PD) is how compatible devices agree charging power. The agreement is called a power contract. Power Data Objects (PDOs) describe the available charging profiles. The inspector shows voltage, current and available profiles, and flags capability mismatches.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg></div>
         <h3>Cable resistance estimation</h3>
-        <p>Multi-point regression across power samples estimates cable resistance in milliohms. Useful for spotting worn or marginal cables before they cause problems.</p>
+        <p>Estimate how much the cable resists the flow of electricity. This can help you investigate power loss while testing a cable.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>The estimate uses multiple power samples and is shown in milliohms (mΩ), a unit of electrical resistance. It is an estimate, not a direct measurement or proof that a cable is worn.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
         <h3>Port health counters</h3>
-        <p>Lifetime attach/detach events, hard resets, shorts, I2C errors, role swap stats, and FET failures per port. See how a port has been treated over its lifetime.</p>
+        <p>Look for repeated disconnects, restarts and electrical errors reported by a port. Changes over time can help you investigate an unreliable connection.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>Counters can include attach/detach events, hard resets, power-role swaps and internal communication or switching errors. A power-role swap changes which device supplies power. These are reported events, not a complete lifetime wear record or proof that the cable caused a fault.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></div>
         <h3>PD event trace</h3>
-        <p>Decoded protocol-level event history per port. See attach/detach sequences, contract negotiation steps, and hard reset events as they happen.</p>
+        <p>Follow what happened when you connected a cable: the charging setup, any interruptions and the final agreement.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>The USB Power Delivery event trace shows the protocol messages and events reported for a port, including attachment, contract negotiation and hard resets that restart power negotiation.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
         <h3>DP Alt Mode details</h3>
-        <p>Lane count, link rate, tunneled vs native, full EDID with monitor model, manufacturer, and year for any display connected over USB-C.</p>
+        <p>See how the picture travels from your Mac to the screen, along with the display information your Mac can read.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>DisplayPort Alt Mode carries DisplayPort video through USB-C. The details include lane count (the signal paths in use), link rate (their speed), and whether video travels directly or through a Thunderbolt tunnel. EDID is the monitor’s identity and capabilities data, which can include its model, manufacturer and year.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
         <h3>Raw VDO identity</h3>
-        <p>Full Discover Identity VDOs from SOP and SOP', the cable plug itself. Go beyond the e-marker summary to the raw fields your cable's controller actually reported.</p>
+        <p>Inspect the exact identity data reported by the cable and connected device, beyond the usual summary.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>Vendor Defined Objects (VDOs) are structured blocks of identity and capability information. SOP addresses the connected device; SOP′ addresses cable electronics. Keeping them separate helps distinguish the device’s claims from the cable’s.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2z"/><path d="M12 8v4l3 3"/></svg></div>
         <h3>Liquid detection</h3>
-        <p>LDCM sensor status per port. See whether the liquid contact indicator has been triggered on any port, useful for diagnosing intermittent charging faults.</p>
+        <p>Check the liquid-detection state reported for a USB-C port when investigating an intermittent connection.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>WhatCable displays the available liquid-detection controller state, also called LDCM. This is a report from the Mac’s hardware, not a physical inspection of the port.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></div>
         <h3>Power monitor window</h3>
-        <p>Dedicated SwiftUI window with live Charts showing watts and voltage over time per port. Pin it while you test a charger or cable under load.</p>
+        <p>Watch a chart of power and voltage over time while you try a charger or cable. Keep the window open beside your work.</p>
+<details class="plain-detail"><summary>Technical detail</summary><p>The chart shows the available per-port readings. Where the Mac does not provide live power draw, the displayed negotiated maximum is the agreed limit, not measured consumption.</p></details>
       </div>
       <div class="feature">
         <div class="icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg></div>
@@ -808,13 +821,13 @@ extraHead: |
         <tr><td class="feature-name">Cable type (active / passive / optical)</td><td><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">E-marker identity (VID/PID, vendor name)</td><td><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">Speed and power ratings from e-marker</td><td><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
-        <tr><td class="feature-name">Raw VDO identity (SOP and SOP')</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
+        <tr><td class="feature-name">Detailed device and cable identity (VDOs)</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">Mid-session fault warnings (overcurrent, connection drops)</td><td><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">Cable history (named cables, per-cable timeline and verdict)</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr class="group-header"><td colspan="3">Power</td></tr>
         <tr><td class="feature-name">Basic charger info (voltage, wattage)</td><td><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">Live power metering (watts, amps, volts)</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
-        <tr><td class="feature-name">PD contract details (all PDOs, active RDO)</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
+        <tr><td class="feature-name">Charging agreement (PD profiles and selected request)</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">Cable resistance estimation</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr><td class="feature-name">CC advertisement level</td><td><span class="cross"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span></td><td class="col-pro"><span class="tick"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span></td></tr>
         <tr class="group-header"><td colspan="3">Port diagnostics</td></tr>

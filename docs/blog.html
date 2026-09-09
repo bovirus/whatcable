@@ -533,6 +533,28 @@
     .blog-index .cta-actions, .blog-index .cta-button { width: 100%; }
     .blog-index .cta-button { justify-content: center; }
   }
+
+  .blog-index { --accent: #08768b; --muted: #596675; }
+  .blog-index .blog-hero { padding: 48px 0 40px; }
+  .blog-index .blog-hero h1 { font-size: clamp(34px,5vw,56px); line-height: 1.12; text-wrap: balance; }
+  .blog-index .hero-links a { padding: 8px 0; text-decoration: underline; text-underline-offset: 4px; }
+  .blog-index .featured-section { padding: 40px 0 28px; }
+  .blog-index .featured-card { min-height: 0; box-shadow: none; }
+  .blog-index .featured-media { min-height: 0; aspect-ratio: 4 / 3; }
+  .blog-index .featured-copy { padding: 32px; }
+  .blog-index .featured-copy h2 { font-size: clamp(26px,3vw,34px); line-height: 1.2; }
+  .blog-index .topics-section { padding: 24px 0 40px; }
+  .blog-index .latest-section { padding: 40px 0; }
+  .blog-index .archive { padding: 16px 0 40px; }
+  .blog-index .blog-cta { padding: 40px 0; }
+  .blog-index :is(a,button):focus-visible { outline: 3px solid #08768b; outline-offset: 4px; }
+  @media(max-width:820px) {
+    .blog-index .featured-media { aspect-ratio: 16 / 9; }
+    .blog-index .featured-copy { padding: 24px; }
+    .blog-index .topics-grid { gap: 12px; }
+    .blog-index .topic-card { padding: 20px; }
+  }
+  @media(prefers-reduced-motion:reduce) { .blog-index .topic-card { transition: none; } .blog-index .topic-card:hover { transform: none; } }
 </style>
 
   </head>
@@ -567,9 +589,10 @@
     <div class="wrap-wide hero-inner">
       <span class="eyebrow">WhatCable Field Notes</span>
       <h1>What the connector doesn't tell you.</h1>
-      <p class="lede">Practical guides, protocol deep dives and findings from real Apple hardware. We explain what negotiated, what limited the connection and how to prove it.</p>
+      <p class="lede">Practical guides, protocol deep dives and findings from real Apple hardware. Understand your cable, follow the connection and find a useful next step.</p>
       <div class="hero-links">
         <a href="#latest">Read the latest</a>
+        <a href="/inside-a-cable">Explore the cable diagram</a>
         <a href="/blog/feed.xml">Subscribe via RSS</a>
       </div>
     </div>
@@ -579,16 +602,16 @@
     
     <section class="featured-section">
       <div class="wrap-wide">
-        <span class="section-label">Featured investigation</span>
+        <span class="section-label">Featured guide</span>
         <article class="featured-card">
           <a class="featured-media" href="/blog/is-my-usb-c-cable-thunderbolt" aria-label="Read How to tell if a USB-C cable is Thunderbolt">
-            <img src="" alt="">
+            <img src="https://www.whatcable.uk/screenshot.webp" alt="How to tell if a USB-C cable is Thunderbolt" decoding="async">
           </a>
           <div class="featured-copy">
             <p class="post-meta"><span class="category">Guides</span> &nbsp;·&nbsp; <time datetime="2026-07-30T00:00:00.000Z">30 July 2026</time></p>
             <h2><a href="/blog/is-my-usb-c-cable-thunderbolt">How to tell if a USB-C cable is Thunderbolt</a></h2>
             <p class="summary">Check markings, connection information and cable identity together to understand a USB-C cable, without mistaking missing data for a faulty cable.</p>
-            <a class="read-link" href="/blog/is-my-usb-c-cable-thunderbolt">Read the investigation →</a>
+            <a class="read-link" href="/blog/is-my-usb-c-cable-thunderbolt">Read the guide →</a>
           </div>
         </article>
       </div>
@@ -628,7 +651,7 @@
             
               <article class="article-card">
                 <a href="/blog/why-whatcable-checks-the-whole-chain" aria-label="Read WhatCable doesn&#39;t just take the cable&#39;s word for it">
-                  <img src="https://images.whatcable.uk/1784302843898-0x0-jpg.webp" alt="A Thunderbolt cable connecting a MacBook to a dock" loading="lazy">
+                  <img src="https://images.whatcable.uk/1784302843898-0x0-jpg.webp" alt="A Thunderbolt cable connecting a MacBook to a dock" decoding="async" loading="lazy">
                 </a>
                 <div class="article-copy">
                   <p class="post-meta"><span class="category">Deep dives</span> &nbsp;·&nbsp; <time datetime="2026-07-17T00:00:00.000Z">17 July 2026</time></p>
@@ -641,7 +664,7 @@
             
               <article class="article-card">
                 <a href="/blog/thunderbolt-vs-usb-c" aria-label="Read Thunderbolt vs USB-C: what the connector hides">
-                  <img src="https://images.whatcable.uk/1779375024963-usb-c-cable-emarker-cutaway.webp" alt="Cutaway illustration of a USB-C cable showing the e-marker and the protocols hidden inside the connector" loading="lazy">
+                  <img src="https://images.whatcable.uk/1779375024963-usb-c-cable-emarker-cutaway.webp" alt="Cutaway illustration of a USB-C cable showing the e-marker and the protocols hidden inside the connector" decoding="async" loading="lazy">
                 </a>
                 <div class="article-copy">
                   <p class="post-meta"><span class="category">Deep dives</span> &nbsp;·&nbsp; <time datetime="2026-05-21T00:00:00.000Z">21 May 2026</time></p>

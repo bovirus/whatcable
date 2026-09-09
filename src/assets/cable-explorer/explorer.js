@@ -8,21 +8,63 @@ function clearGuide() {
   $('question-answer').hidden = true;
   document.querySelectorAll('[data-question]').forEach(b=>b.setAttribute('aria-pressed','false'));
 }
+function updatePlugViews(connection = null) {
+  if (!data) return;
+  const full = state.cable !== 'basic';
+  const connected = new Set(data.connections.filter(c=>full || c.basic).flatMap(c=>c.from.split(', ')));
+  if(full) connected.add('B5');
+  const ns='http://www.w3.org/2000/svg';
+  function add(parent,tag,attributes,text) {
+    const node=document.createElementNS(ns,tag);
+    for(const [key,value] of Object.entries(attributes)) node.setAttribute(key,value);
+    if(text)node.textContent=text;
+    parent.appendChild(node);return node;
+  }
+  for(const end of ['from','to']) {
+    const svg=$(`plug-${end}`);svg.replaceChildren();
+    const selected=new Set(connection ? connection[end].split(', ') : []);
+    svg.setAttribute('aria-label',`${end==='from'?'Model plug':'Other plug'}, front view. ${connection ? `Selected contacts: ${connection[end]}` : 'No wire selected'}.`);
+    add(svg,'rect',{x:8,y:38,width:444,height:92,rx:44,fill:'#dce4ea',stroke:'#607587','stroke-width':3});
+    add(svg,'rect',{x:19,y:49,width:422,height:70,rx:34,fill:'#172a38'});
+    for(const row of ['A','B']) for(let column=0;column<12;column++) {
+      const pin=row+(row==='A'?12-column:column+1), x=43+column*34;
+      const active=selected.has(pin), present=connected.has(pin);
+      if(present)add(svg,'rect',{x:x-9,y:row==='A'?50:98,width:18,height:20,rx:3,fill:active?'#0066ff':'#d4b878',stroke:active?'#fff':'#796336','stroke-width':active?2:1});
+      add(svg,'text',{x,y:row==='A'?26:151,'text-anchor':'middle',fill:active?'#0046b8':'#4b5969','font-size':14,'font-weight':active?750:400},pin);
+      if(active)add(svg,'circle',{cx:x,cy:row==='A'?78:90,r:3,fill:'#fff'});
+    }
+    $(`plug-${end}-caption`).textContent=connection ? `Highlighted: ${connection[end]}` : 'No wire selected';
+  }
+  $('plug-view-status').textContent=connection ? `${connection.label}: ${['power','ground'].includes(connection.part)?'these groups of contacts share the selected electrical connection.':'this wire joins the two highlighted contacts.'}` : 'Choose a wire to see the contacts it joins highlighted in blue.';
+  $('plug-example').textContent=full?'Show a fast data wire':'Show a USB 2.0 data wire';
+}
 function selectWire(pin) {
   const connection = data.connections.find(c=>c.from.split(', ').includes(pin));
   if (!connection) return;
-  selectPart(connection.part);
+  selectPart(connection.part, false);
   state.wire = pin;
   $('wire-select').value = connection.from;
   $('wire-description').hidden = false;
-  $('wire-description').textContent = `${connection.signal}: plug 1 ${connection.from} → plug 2 ${connection.to}.`;
-  $('selection-status').textContent = $('wire-description').textContent;
+  $('wire-title').textContent = `${connection.label} · ${connection.signal}`;
+  $('wire-from').textContent = connection.from;
+  $('wire-to').textContent = connection.to;
+  updatePlugViews(connection);
+  const purposes = {
+    power: 'Carries power between the plugs. Several contacts share this electrical connection, so this is a group rather than one separate wire per contact.',
+    ground: 'Provides the shared ground return. Several contacts join this connection; they are highlighted together.',
+    cc: 'Lets connected devices detect the connection and communicate about power and supported modes.',
+    usb2: 'One of the two wires that work together to carry USB 2.0 data. D+ and D− are signal names, not charging terminals.',
+    highspeed: 'One conductor in a fast data pair. The + and − conductors work together. TX and RX name the contacts; they do not fix the direction of traffic in every connection mode.',
+    sideband: 'Carries supporting signals for modes such as DisplayPort. SBU1 connects to SBU2 at the opposite plug.'
+  };
+  $('wire-purpose').textContent = purposes[connection.part];
+  $('selection-status').textContent = `${connection.label}: plug shown ${connection.from}; other plug ${connection.to}.`;
   document.querySelectorAll('[data-connection]').forEach(row=>row.dataset.traced=String(row.dataset.from===connection.from));
   viewer?.highlight();
 }
 function clearSelection() {
   state.selected=null;state.wire=null;clearGuide();
-  $('wire-select').value='';$('wire-description').hidden=true;
+  $('wire-select').value='';$('wire-description').hidden=true;updatePlugViews();
   $('part-name').textContent='Explore a component';
   $('part-summary').textContent='Select a part of the cable or choose a component from the list to learn how it works.';
   $('part-details').hidden=true;$('part-details').open=false;$('part-whatcable').hidden=true;
@@ -32,11 +74,12 @@ function clearSelection() {
   document.querySelectorAll('[data-connection]').forEach(row=>row.dataset.traced='false');
   viewer?.highlight();
 }
-function selectPart(id) {
+function selectPart(id, scrollToExplanation = true) {
   $('clear-selection').disabled=false;
   state.wire = null;
   $('wire-select').value = '';
   $('wire-description').hidden = true;
+  updatePlugViews();
   document.querySelectorAll('[data-connection]').forEach(row=>row.dataset.traced='false');
   const part = { ...data.parts.find(p => p.id === id), ...data.cables[state.cable].partOverrides?.[id] };
   if(state.selected!==id)$('part-details').open=false;
@@ -56,7 +99,7 @@ function selectPart(id) {
   $('part-pro-link').hidden = !part.proUrl;
   $('part-pro-link').href = part.proUrl || '/pro#features';
   $('part-pro-link').textContent = part.proLabel || 'Explore WhatCable Pro →';
-  if (window.matchMedia?.('(max-width:850px)').matches) {
+  if (scrollToExplanation && window.matchMedia?.('(max-width:850px)').matches) {
     const explanation=$('component-explanation');
     if(explanation.getBoundingClientRect().top < 80) explanation.scrollIntoView({block:'start',behavior:'instant'});
   }
@@ -69,6 +112,7 @@ function selectPart(id) {
 }
 function selectCable(id) {
   state.cable = id;
+  updatePlugViews();
   document.querySelectorAll('#wire-select option[data-basic]').forEach(option=>{ option.hidden = option.disabled = id==='basic' && option.dataset.basic==='false'; });
   const cable = data.cables[id];
   document.querySelectorAll('[data-cable]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cable === id)));
@@ -94,9 +138,11 @@ async function init() {
     data = await response.json();
   } catch (error) {
     status.textContent = 'The explorer could not load. You can still read the full component guide below.';
-    document.querySelectorAll('[data-cable], [data-part], [data-question], #wire-select, #cutaway, #differences, #reset-view, #connector-view').forEach(b => b.disabled = true);
+    document.querySelectorAll('[data-cable], [data-part], [data-question], #wire-select, #wire-previous, #wire-next, #plug-example, #cutaway, #differences, #reset-view, #connector-view').forEach(b => b.disabled = true);
     return;
   }
+  updatePlugViews();
+  $('plug-example').addEventListener('click',()=>{clearGuide();selectWire(state.cable==='basic'?'A6':'A2');});
   $('clear-selection').addEventListener('click',clearSelection);
   document.querySelectorAll('[data-bandwidth]').forEach(button=>button.addEventListener('click',()=>{
     const boost=button.dataset.bandwidth==='boost';
@@ -110,6 +156,14 @@ async function init() {
     const question=document.querySelector('[data-question][aria-pressed="true"]');
     clearGuide();question?.focus();
   });
+  function stepWire(direction) {
+    const options = [...$('wire-select').options].filter(option => option.value && !option.disabled);
+    const current = options.findIndex(option => option.value === $('wire-select').value);
+    const next = current < 0 ? (direction > 0 ? 0 : options.length - 1) : (current + direction + options.length) % options.length;
+    if (options[next]) { clearGuide(); selectWire(options[next].value.split(', ')[0]); }
+  }
+  $('wire-previous').addEventListener('click',()=>stepWire(-1));
+  $('wire-next').addEventListener('click',()=>stepWire(1));
   $('wire-select').addEventListener('change',e=>{clearGuide();if(e.target.value)selectWire(e.target.value.split(', ')[0]);else if(state.selected)selectPart(state.selected);});
   document.querySelectorAll('[data-question]').forEach(button=>button.addEventListener('click',()=>{
     const question=data.questions.find(q=>q.id===button.dataset.question);
@@ -181,6 +235,33 @@ function createViewer(T, OrbitControls) {
         || anchor.z > 1 || anchor.z < -1;
       label.style.left = `${Math.max(90, Math.min(host.clientWidth - 90, (anchor.x + 1) / 2 * host.clientWidth))}px`;
       label.style.top = `${Math.max(110, Math.min(host.clientHeight - 70, (1 - anchor.y) / 2 * host.clientHeight - 24))}px`;
+      const callout = $('selection-callout');
+      const chosen = pickable.find(o => o.geometry.parameters.path && (state.wire ? o.userData.wirePin === state.wire : o.userData.part === state.selected))
+        || pickable.find(o => o.userData.part === state.selected);
+      callout.hidden = !state.selected || !chosen;
+      if (!callout.hidden) {
+        const point = chosen.geometry.parameters.path
+          ? chosen.geometry.parameters.path.getPoint(.48) : new T.Vector3();
+        chosen.localToWorld(point); point.project(camera);
+        callout.hidden = Math.abs(point.x)>1 || Math.abs(point.y)>1 || Math.abs(point.z)>1;
+        const connection = state.wire && data.connections.find(c=>c.from.split(', ').includes(state.wire));
+        const part = data.parts.find(p=>p.id===state.selected);
+        $('selection-label-name').textContent = connection ? `${connection.label} · ${connection.signal}` : part.name;
+        $('selection-label-contact').textContent = connection
+          ? (['power','ground'].includes(connection.part) ? `Shared contacts: ${connection.from}` : `Contact ${state.wire} · plug shown`)
+          : 'Selected component';
+        const box = $('selection-label');
+        const x = (point.x+1)*host.clientWidth/2, y = (1-point.y)*host.clientHeight/2;
+        const left = Math.max(12,Math.min(host.clientWidth-box.offsetWidth-12,x-box.offsetWidth/2));
+        const top = 48;
+        box.style.left=`${left}px`;box.style.top=`${top}px`;
+        const line=$('selection-leader');
+        for(const [key,value] of Object.entries({x1:left+box.offsetWidth/2,y1:top+box.offsetHeight,x2:x,y2:y})) line.setAttribute(key,value);
+        $('selection-dot').setAttribute('cx',x);$('selection-dot').setAttribute('cy',y);
+        // The selection label replaces the chip's older separate callout.
+        if(state.selected==='marker') label.hidden=true;
+      }
+
   }
   controls.addEventListener('change', render);
   function reset() {

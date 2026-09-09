@@ -195,95 +195,110 @@
       "signal": "Ground bus",
       "from": "A1, A12, B1, B12",
       "to": "A1, A12, B1, B12",
-      "basic": true
+      "basic": true,
+      "label": "Ground return"
     },
     {
       "part": "power",
       "signal": "VBUS bus",
       "from": "A4, A9, B4, B9",
       "to": "A4, A9, B4, B9",
-      "basic": true
+      "basic": true,
+      "label": "Charging power"
     },
     {
       "part": "cc",
       "signal": "CC",
       "from": "A5",
       "to": "A5",
-      "basic": true
+      "basic": true,
+      "label": "Connection setup"
     },
     {
       "part": "usb2",
       "signal": "D+",
       "from": "A6",
       "to": "A6",
-      "basic": true
+      "basic": true,
+      "label": "USB 2.0 data"
     },
     {
       "part": "usb2",
       "signal": "D−",
       "from": "A7",
       "to": "A7",
-      "basic": true
+      "basic": true,
+      "label": "USB 2.0 data"
     },
     {
       "part": "highspeed",
       "signal": "TX1+ → RX1+",
       "from": "A2",
-      "to": "B11"
+      "to": "B11",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "TX1− → RX1−",
       "from": "A3",
-      "to": "B10"
+      "to": "B10",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "RX1+ ← TX1+",
       "from": "B11",
-      "to": "A2"
+      "to": "A2",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "RX1− ← TX1−",
       "from": "B10",
-      "to": "A3"
+      "to": "A3",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "TX2+ → RX2+",
       "from": "B2",
-      "to": "A11"
+      "to": "A11",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "TX2− → RX2−",
       "from": "B3",
-      "to": "A10"
+      "to": "A10",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "RX2+ ← TX2+",
       "from": "A11",
-      "to": "B2"
+      "to": "B2",
+      "label": "Fast data"
     },
     {
       "part": "highspeed",
       "signal": "RX2− ← TX2−",
       "from": "A10",
-      "to": "B3"
+      "to": "B3",
+      "label": "Fast data"
     },
     {
       "part": "sideband",
       "signal": "SBU1 → SBU2",
       "from": "A8",
-      "to": "B8"
+      "to": "B8",
+      "label": "Display support"
     },
     {
       "part": "sideband",
       "signal": "SBU2 → SBU1",
       "from": "B8",
-      "to": "A8"
+      "to": "A8",
+      "label": "Display support"
     }
   ],
   "questions": [

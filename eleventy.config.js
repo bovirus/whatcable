@@ -93,6 +93,7 @@ export default async function (eleventyConfig) {
       .replace(/(https?:\/\/[^\s"<>]+?)\/(?=["<\s])/g, "$1");
   });
 
+  eleventyConfig.addPassthroughCopy("src/assets/cable-explorer");
   eleventyConfig.addPassthroughCopy("src/icon.png");
   eleventyConfig.addPassthroughCopy("src/whatbattery-icon.png");
   eleventyConfig.addPassthroughCopy("src/whatport-icon.png");

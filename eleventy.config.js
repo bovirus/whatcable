@@ -29,7 +29,7 @@ export default async function (eleventyConfig) {
         "USB-C cables, Thunderbolt, and the deep weeds of port diagnostics.",
       base: "https://www.whatcable.uk/blog/",
       author: {
-        name: "Darryl Morley",
+        name: "Darryl",
       },
     },
   });

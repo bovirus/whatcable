@@ -2691,6 +2691,165 @@ struct PortSummaryTests {
                 "expected the vendor line, got: \(apple)")
     }
 
+    // MARK: - VCONN-Powered Device (issue #542)
+
+    /// Apple USB-C EarPods as they answer Discover Identity at SOP': a
+    /// VCONN-Powered Device (UFP product type 6), not a cable. VDO[3] uses
+    /// USB PD R3.2 Table 6.45, so the cable decoder must never touch it.
+    /// `vdo3` defaults to the real captured value, whose Charge Through
+    /// Support bit (bit 0) is clear.
+    private func vpdIdentity(vdo3: UInt32 = 0x1100_0000) -> USBPDSOP {
+        USBPDSOP(
+            id: 7001, endpoint: .sopPrime,
+            parentPortType: 2, parentPortNumber: 3,
+            vendorID: 0x05AC, productID: 0x110B, bcdDevice: 0x2681,
+            vdos: [0x7000_05AC, 0x0000_0000, 0x110B_2681, vdo3],
+            specRevision: 3
+        )
+    }
+
+    /// A high-speed (USB 2.0) device, the shape the EarPods enumerate as.
+    private func usb2Device() -> USBDevice {
+        USBDevice(
+            id: 9010, locationID: 0x0021_0000,
+            vendorID: 0x05AC, productID: 0x110B,
+            vendorName: nil, productName: "USB-C to 3.5mm Headphone Jack Adapter",
+            serialNumber: nil,
+            usbVersion: nil, speedRaw: 2,
+            busPowerMA: nil, currentMA: nil,
+            rawProperties: [:]
+        )
+    }
+
+    private func vpdPort() -> USBCPort {
+        makePort(active: ["CC", "USB2"], supported: ["CC", "USB2", "USB3"])
+    }
+
+    @Test("VPD accessory gets its own headline, with no charger wattage (issue #542)")
+    func vpdAccessoryHeadline() {
+        // Apple USB-C EarPods read as "Slow USB device or charge-only cable ·
+        // 67W charger" before this branch existed. They are neither a slow
+        // cable nor anything the 67 W figure belongs to: the wattage is a
+        // machine-wide system-adapter reading and the accessory takes no
+        // power from it.
+        let summary = PortSummary(
+            port: vpdPort(),
+            identities: [vpdIdentity()],
+            devices: [usb2Device()],
+            chargerWattageSource: .systemAdapterFallback(watts: 67)
+        )
+        #expect(summary.status == .dataDevice)
+        #expect(summary.headline == "USB accessory (audio or adapter)",
+                "got: \(summary.headline)")
+        #expect(!summary.headline.contains("charge-only cable"),
+                "the charge-only wording must not survive, got: \(summary.headline)")
+        #expect(!summary.headline.contains("67W"),
+                "a machine-wide charger figure must not sit beside the accessory, got: \(summary.headline)")
+        #expect(!summary.headline.contains("W cable"),
+                "no cable rating suffix belongs on a VPD, got: \(summary.headline)")
+        #expect(summary.subtitle == "This accessory has its own USB-C plug. It is not a cable and does not charge.",
+                "got: \(summary.subtitle)")
+    }
+
+    @Test("A charge-through VPD keeps the existing wording (issue #542 guard)")
+    func chargeThroughVPDKeepsExistingWording() {
+        // Bit 0 of the VPD VDO is Charge Through Support. A VPD that does
+        // pass power through would make "does not charge" false, so it must
+        // fall through to the old branch rather than take the new one.
+        let summary = PortSummary(
+            port: vpdPort(),
+            identities: [vpdIdentity(vdo3: 0x1100_0001)],
+            devices: [usb2Device()],
+            chargerWattageSource: .systemAdapterFallback(watts: 67)
+        )
+        #expect(summary.status == .dataDevice)
+        #expect(summary.headline == "Slow USB device or charge-only cable · 67W charger",
+                "got: \(summary.headline)")
+    }
+
+    @Test("A plain USB2 port with no e-marker keeps the slow-device headline (issue #542 guard)")
+    func plainUSB2WithNoEmarkerKeepsSlowDeviceHeadline() {
+        // The real charge-only cable case. The new VPD branch must not steal
+        // it: this is what the old wording exists for.
+        let summary = PortSummary(
+            port: vpdPort(),
+            devices: [usb2Device()],
+            chargerWattageSource: .systemAdapterFallback(watts: 67)
+        )
+        #expect(summary.status == .dataDevice)
+        #expect(summary.headline == "Slow USB device or charge-only cable · 67W charger",
+                "got: \(summary.headline)")
+    }
+
+    @Test("VPD e-marker group says there is no cable rating, not 'no capability data' (issue #542)")
+    func vpdEmarkerGroupSubtitle() {
+        // The VPD answered with real data; it just is not cable data. Saying
+        // it "reported no capability data" is the wrong message.
+        let summary = PortSummary(
+            port: vpdPort(),
+            identities: [vpdIdentity()],
+            devices: [usb2Device()],
+            chargerWattageSource: .systemAdapterFallback(watts: 67)
+        )
+        let subtitle = summary.group(.emarker)?.subtitle
+        #expect(subtitle == "This plug is part of the accessory, not a cable, so there is no cable rating.",
+                "got: \(String(describing: subtitle))")
+    }
+
+    @Test("A cable that answers with nothing decodable still says 'no capability data' (issue #542 guard)")
+    func cableWithNoCapabilityDataKeepsGenericWording() {
+        // An ID header alone, from a real cable. The generic wording is
+        // correct here and must survive the VPD carve-out.
+        let cable = USBPDSOP(
+            id: 7002, endpoint: .sopPrime,
+            parentPortType: 2, parentPortNumber: 1,
+            vendorID: 0, productID: 0, bcdDevice: 0,
+            vdos: [(3 << 27)], specRevision: 3
+        )
+        let summary = PortSummary(port: vpdPort(), identities: [cable])
+        let subtitle = summary.group(.emarker)?.subtitle
+        #expect(subtitle == "Answered, but reported no capability data.",
+                "got: \(String(describing: subtitle))")
+    }
+
+    @Test("A VPD never reads as a cable limit on charging (issue #542)")
+    func vpdIsNeverACableLimit() {
+        // VDO[3] = 0x11000000 decoded as a cable VDO looked like a 60 W
+        // cable, which put a 67 W charger into `.cableLimit` and printed
+        // "Cable is limiting charging speed" against a pair of earphones.
+        let diagnostic = ChargingDiagnostic(
+            port: vpdPort(),
+            sources: [usbPD(maxW: 67, winningW: 67)],
+            identities: [vpdIdentity()]
+        )
+        #expect(diagnostic != nil)
+        if case .cableLimit = diagnostic?.bottleneck {
+            Issue.record("a VPD must never be read as a cable limit, got: \(String(describing: diagnostic?.bottleneck))")
+        }
+        #expect(diagnostic?.cableW == nil,
+                "a VPD carries no cable rating, got: \(String(describing: diagnostic?.cableW))")
+    }
+
+    @Test("A VPD port that is actually charging keeps its charging headline (issue #542 guard)")
+    func vpdPortWithLiveContractKeepsChargingHeadline() {
+        // A VPD with Charge Through Support clear cannot pass power, so a live
+        // per-port contract contradicts its own e-marker and can only come
+        // from a miscoded one. Zero corpus machines reach it. But the
+        // accessory arm would say "does not charge" about a port charging the
+        // Mac at 67 W, which is the same false claim this ticket removes, so
+        // a live charging source keeps the charging arms it always reached.
+        let port = makePort(active: ["CC"], supported: ["CC", "USB2", "USB3"])
+        let summary = PortSummary(
+            port: port,
+            sources: [usbPD(maxW: 67, winningW: 67)],
+            identities: [vpdIdentity()]
+        )
+        #expect(summary.status == .charging, "got: \(summary.status)")
+        #expect(summary.headline == "Charging · 67W charger", "got: \(summary.headline)")
+        #expect(!summary.subtitle.contains("does not charge"),
+                "must not claim a charging port does not charge, got: \(summary.subtitle)")
+    }
+
     // MARK: - Apple accessory name from the port's UVDM node
 
     /// Fixture for the Apple accessory identity a UVDM node publishes.

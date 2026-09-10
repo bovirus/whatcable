@@ -929,6 +929,32 @@ extension PortSummary {
             self.subtitle = dataWithheld
                 ? String(localized: "macOS is holding data back until you approve the accessory.", bundle: _coreLocalizedBundle)
                 : String(localized: "SuperSpeed data link is active.", bundle: _coreLocalizedBundle)
+        } else if let vpd = cableEmarker?.vpdVDO, !vpd.chargeThroughSupported, !dataWithheld,
+                  chargingSource == nil {
+            // A VCONN-Powered Device answers Discover Identity at SOP' the way
+            // a cable does, so before this branch Apple's USB-C EarPods fell
+            // into the USB2 arm below and read as a slow charge-only cable
+            // (issue #542). They are an accessory with a USB-C plug on the end
+            // of them, not a cable.
+            //
+            // No wattage suffix, deliberately: the figure on this port is a
+            // machine-wide system-adapter reading, and the accessory draws
+            // nothing from it, so printing a charger figure next to a pair of
+            // earphones is the confusion the issue reports.
+            //
+            // Gated on Charge Through Support being clear. A VPD that does
+            // pass power through would make "does not charge" false, so it
+            // falls through to the arm below, which is no worse than today.
+            // No corpus sample sets that bit; it is covered by a unit test.
+            //
+            // Also gated on there being no live charging source. A VPD that
+            // says it cannot pass power, on a port holding a real contract,
+            // is contradicting its own e-marker, and "does not charge" would
+            // then be false about a port charging the Mac. Zero corpus
+            // machines reach it; the charging arms below keep it.
+            self.status = .dataDevice
+            self.headline = String(localized: "USB accessory (audio or adapter)", bundle: _coreLocalizedBundle)
+            self.subtitle = String(localized: "This accessory has its own USB-C plug. It is not a cable and does not charge.", bundle: _coreLocalizedBundle)
         } else if hasUSB2 && !hasCorroboratedUSB3 {
             self.status = .dataDevice
             if let w = chargerW {
@@ -1102,7 +1128,15 @@ extension PortSummary {
         // The old flat list said "Cable has an e-marker chip" here, so say the
         // equivalent rather than showing the user nothing.
         if hasEmarker, emarkerRead, emarkerLines.isEmpty, emarkerSubtitle == nil {
-            emarkerSubtitle = String(localized: "Answered, but reported no capability data.", bundle: _coreLocalizedBundle)
+            if cableEmarker?.vpdVDO != nil {
+                // A VCONN-Powered Device did answer, and with real data; it is
+                // simply not cable data, so `cableVDO` is nil and the group has
+                // no lines. Saying it "reported no capability data" would be a
+                // new wrong message rather than a fixed one (issue #542).
+                emarkerSubtitle = String(localized: "This plug is part of the accessory, not a cable, so there is no cable rating.", bundle: _coreLocalizedBundle)
+            } else {
+                emarkerSubtitle = String(localized: "Answered, but reported no capability data.", bundle: _coreLocalizedBundle)
+            }
         }
 
         // The cable first. This is a cable app: what the cable says about

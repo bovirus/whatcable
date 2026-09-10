@@ -513,6 +513,7 @@ final class WidgetDataWriter {
 
             let wattageSource = ChargerWattageSource.resolve(
                 portSources: sources,
+                portIsActive: port.connectionActive == true,
                 activePortCount: activePortCount,
                 chargerSourceCount: chargerSourceCount,
                 adapter: adapter

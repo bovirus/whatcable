@@ -146,6 +146,7 @@ public struct CableSnapshotContext {
                 attributedDevices: union,
                 chargerWattageSource: ChargerWattageSource.resolve(
                     portSources: portSources,
+                    portIsActive: port.connectionActive == true,
                     activePortCount: activePortCount,
                     chargerSourceCount: chargerSourceCount,
                     adapter: snapshot.adapter),

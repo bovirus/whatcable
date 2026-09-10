@@ -424,6 +424,7 @@ struct ContentView: View {
                             let portSources = powerWatcher.sources(for: port)
                             let wattageSource = ChargerWattageSource.resolve(
                                 portSources: portSources,
+                                portIsActive: port.connectionActive == true,
                                 activePortCount: activePortCount,
                                 chargerSourceCount: chargerSourceCount,
                                 adapter: adapter

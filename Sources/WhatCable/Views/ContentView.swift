@@ -11,6 +11,7 @@ struct ContentView: View {
     @ObservedObject private var tbWatcher = WatcherHub.shared.tbWatcher
     @ObservedObject private var usb3Watcher = WatcherHub.shared.usb3Watcher
     @ObservedObject private var trmWatcher = WatcherHub.shared.trmWatcher
+    @ObservedObject private var uvdmWatcher = WatcherHub.shared.uvdmWatcher
     @ObservedObject private var displayWatcher = WatcherHub.shared.displayWatcher
     @EnvironmentObject private var refresh: RefreshSignal
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -447,6 +448,7 @@ struct ContentView: View {
                                 isLive: portIsLive,
                                 showAdvanced: showAdvanced,
                                 cioCapability: trmWatcher.cioCapabilities.first { $0.canonicallyMatches(port: port) },
+                                accessoryIdentity: uvdmWatcher.identities.first { $0.canonicallyMatches(port: port) },
                                 displayPorts: displayWatcher.statuses.filter { $0.status.canonicallyMatches(port: port) }.map(\.status),
                                 chargerWattageSource: wattageSource,
                                 batteryFullyCharged: batteryFull,
@@ -1065,6 +1067,9 @@ struct PortCard: View {
     let isLive: Bool
     let showAdvanced: Bool
     let cioCapability: CIOCableCapability?
+    /// Apple's own name for what is attached, read from the port's UVDM node.
+    /// Nil for every non-Apple accessory, which never publishes one.
+    var accessoryIdentity: AppleAccessoryIdentity?
     /// DisplayPort transports for this port (link rate, lanes, monitor EDID),
     /// matched by `portKey`. One entry per connected monitor: a dock can drive
     /// several through a single port (issue #271). Empty when none.
@@ -1131,6 +1136,7 @@ struct PortCard: View {
             usb3Transports: usb3Transports,
             trmTransports: trmTransports,
             cioCapability: cioCapability,
+            accessoryIdentity: accessoryIdentity,
             isConnectedOverride: isLive,
             chargerWattageSource: chargerWattageSource,
             batteryFullyCharged: batteryFullyCharged,

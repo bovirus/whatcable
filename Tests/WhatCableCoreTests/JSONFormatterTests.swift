@@ -1624,4 +1624,54 @@ struct JSONFormatterTests {
         #expect(cable["active"] as? [String: Any] != nil,
                 "a cable reported active must carry its active-cable block")
     }
+
+    // MARK: - Apple accessory identity (UVDM)
+
+    /// End-to-end through the top-level render, deliberately not through
+    /// `PortDTO`: the identities have to survive the `CableSnapshot` this
+    /// function rebuilds from its loose parameters, and a hand-built DTO
+    /// cannot prove that.
+    @Test("Accessory block carries the name and the serial exactly as read")
+    func accessoryBlockPresentWithSerialIntact() throws {
+        let identity = AppleAccessoryIdentity(
+            id: 700,
+            portKey: "2/1",
+            manufacturer: "Apple Inc.",
+            vendor: "Apple Inc.",
+            product: "iPhone",
+            userString: nil,
+            model: "D94AP",
+            serialNumber: "F2LX1234ABCD",
+            hardwareVersion: "1",
+            vendorID: 0x05AC,
+            productID: 0x12A8
+        )
+        let json = try JSONFormatter.render(
+            ports: [makePort()], sources: [], identities: [], showRaw: false,
+            accessoryIdentities: [identity]
+        )
+        // The rendered string, not just the parsed tree: this is the assertion
+        // that would have caught the name never reaching CLI output at all.
+        #expect(json.contains("iPhone"), "the accessory name must reach the rendered JSON")
+
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+        let accessory = try #require(portObj["accessory"] as? [String: Any])
+        #expect(accessory["name"] as? String == "iPhone")
+        #expect(accessory["model"] as? String == "D94AP")
+        #expect(accessory["hardwareVersion"] as? String == "1")
+        #expect(accessory["serialNumber"] as? String == "F2LX1234ABCD")
+        #expect(accessory["source"] as? String == "uvdm")
+    }
+
+    @Test("Accessory key omitted when the port publishes no UVDM identity")
+    func accessoryKeyOmittedWhenNoIdentity() throws {
+        let json = try JSONFormatter.render(
+            ports: [makePort()], sources: [], identities: [], showRaw: false
+        )
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+        #expect(portObj["accessory"] == nil,
+            "the accessory key must be absent, not null, when there is nothing to report")
+    }
 }

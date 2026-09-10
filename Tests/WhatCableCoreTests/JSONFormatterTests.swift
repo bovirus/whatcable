@@ -485,6 +485,81 @@ struct JSONFormatterTests {
         #expect(detail.contains("0xDEAD"), "detail should include hex VID, got: \(detail)")
     }
 
+    // MARK: - Trust tier: power axis (end-to-end contract -> JSONFormatter -> CableTrust)
+
+    /// End-to-end proof that a winning PD contract, rendered through
+    /// JSONFormatter, reaches CableTrust and produces a green tier confirmed
+    /// by power. CableTrustTests and CableTrustCorpusTests feed
+    /// `negotiatedWatts` straight into `CableTrust`; this is the only test
+    /// that goes through JSONFormatter's own computation of it (the "Cable
+    /// trust tier" block above `self.trust`).
+    ///
+    /// The cable e-marker rates 100 W here: current encoding 0b10 = 5 A,
+    /// non-EPR ceiling 20 V, 20 V x 5 A = 100 W (see the `maxWatts`
+    /// computation in USBPDVDO.swift). A 96 W-rated cable is unreachable --
+    /// `CableCurrent` only encodes 3 A or 5 A, so a passive 20 V cable rates
+    /// 60 W or 100 W -- so the power axis is driven by the source's winning
+    /// wattage relative to this 100 W rating instead.
+    ///
+    /// `makePort()` has no usb3Transports/thunderboltSwitches passed to
+    /// `render`, so `DataLinkDiagnostic` returns nil (no active speed to
+    /// resolve) and the data axis never confirms here: confirmedBy is power
+    /// alone, not both axes.
+    @Test("Winning PD contract at rated power reaches CableTrust as green, confirmedBy power")
+    func winningPDContractAtRatedPowerConfirmsPowerGreen() throws {
+        let port = makePort()
+        // 100 W-rated passive cable (same VDO shape as the "clean cable" trust test).
+        let id = cableIdentity(vendorID: 0x05AC, cableVDO: (0b10 << 5) | 0b011 | Self.validLatency)
+        let json = try JSONFormatter.render(
+            ports: [port], sources: [usbPD(maxW: 100, winningW: 100)],
+            identities: [id], showRaw: false
+        )
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+        let trust = try #require(portObj["trust"] as? [String: Any])
+        #expect(trust["tier"] as? String == "green")
+        #expect(trust["confirmedBy"] as? [String] == ["power"])
+    }
+
+    @Test("PD contract below rated power reaches CableTrust as amber, no confirmedBy")
+    func pdContractBelowRatedPowerStaysAmber() throws {
+        let port = makePort()
+        let id = cableIdentity(vendorID: 0x05AC, cableVDO: (0b10 << 5) | 0b011 | Self.validLatency)
+        let json = try JSONFormatter.render(
+            ports: [port], sources: [usbPD(maxW: 100, winningW: 60)],
+            identities: [id], showRaw: false
+        )
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+        let trust = try #require(portObj["trust"] as? [String: Any])
+        #expect(trust["tier"] as? String == "amber")
+        #expect(trust["confirmedBy"] == nil)
+    }
+
+    /// Pins the `.max()` in `JSONFormatter`'s `negotiatedWatts` selection: a
+    /// port can present more than one PD source, and the winning wattage
+    /// CableTrust sees has to be the highest of them, not whichever comes
+    /// first. The lower-winning source is placed first in the array on
+    /// purpose, so a selection that just returned `sources.first` would also
+    /// pass; only `.max()` across both sources produces green here. Mutating
+    /// `.max()` to `.min()` turns this red (amber instead of green): the
+    /// two prior tests each pass a single source, so neither exercises this.
+    @Test("Two PD sources on one port: CableTrust uses the highest winning contract, not the first")
+    func multipleSourcesUseHighestWinningContract() throws {
+        let port = makePort()
+        let id = cableIdentity(vendorID: 0x05AC, cableVDO: (0b10 << 5) | 0b011 | Self.validLatency)
+        let json = try JSONFormatter.render(
+            ports: [port],
+            sources: [usbPD(maxW: 60, winningW: 60), usbPD(maxW: 100, winningW: 100)],
+            identities: [id], showRaw: false
+        )
+        let obj = parse(json)
+        let portObj = (obj["ports"] as? [[String: Any]])?.first ?? [:]
+        let trust = try #require(portObj["trust"] as? [String: Any])
+        #expect(trust["tier"] as? String == "green")
+        #expect(trust["confirmedBy"] as? [String] == ["power"])
+    }
+
     // MARK: - Issue #573 part 2: MagSafe cable identity JSON shape
 
     private func magSafePort() -> USBCPort {

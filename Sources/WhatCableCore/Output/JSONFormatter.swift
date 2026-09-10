@@ -397,6 +397,9 @@ private struct PortDTO: Codable {
         // contract). Only when there's a cable e-marker to assess. The
         // negotiated wattage is the highest winning contract across sources,
         // matching how ChargingDiagnostic reads the live contract.
+        // No sessionVerdict is passed here: this is a one-shot render with no
+        // SessionMonitor to ask, so red (the only tier sessionVerdict can
+        // produce) can never appear in `--json` output.
         let negotiatedWatts: Int? = sources
             .compactMap { $0.winning.map { Int((Double($0.maxPowerMW) / 1000).rounded()) } }
             .max()

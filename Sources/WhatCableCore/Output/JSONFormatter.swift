@@ -102,7 +102,12 @@ public enum JSONFormatter {
                 )
             },
             thunderboltSwitches: thunderboltSwitches.enumerated().map { index, sw in
-                IOThunderboltSwitchDTO(sw: sw, index: index, switchIndexByUID: switchIndexByUID)
+                IOThunderboltSwitchDTO(
+                    sw: sw,
+                    index: index,
+                    switchIndexByUID: switchIndexByUID,
+                    switches: thunderboltSwitches
+                )
             },
             builtInDisplayPorts: builtInDisplayPorts.isEmpty ? nil : builtInDisplayPorts.map { hdmiPort in
                 BuiltInDisplayPortDTO(
@@ -774,7 +779,12 @@ private struct IOThunderboltSwitchDTO: Codable {
     let parentSwitchIndex: Int?
     let ports: [IOThunderboltPortDTO]
 
-    init(sw: IOThunderboltSwitch, index: Int, switchIndexByUID: [Int64: Int]) {
+    init(
+        sw: IOThunderboltSwitch,
+        index: Int,
+        switchIndexByUID: [Int64: Int],
+        switches: [IOThunderboltSwitch]
+    ) {
         self.index = index
         self.className = sw.className
         self.vendorID = sw.vendorID
@@ -787,7 +797,7 @@ private struct IOThunderboltSwitchDTO: Codable {
         self.maxPortNumber = sw.maxPortNumber
         self.supportedSpeedMask = Int(sw.supportedSpeed.rawValue)
         self.parentSwitchIndex = sw.parentSwitchUID.flatMap { switchIndexByUID[$0] }
-        self.ports = sw.ports.map { IOThunderboltPortDTO(port: $0) }
+        self.ports = sw.ports.map { IOThunderboltPortDTO(port: $0, on: sw, in: switches) }
     }
 }
 
@@ -806,12 +816,15 @@ private struct IOThunderboltPortDTO: Codable {
     let rawTargetSpeed: Int?
     let linkBandwidthRaw: Int?
 
-    init(port: IOThunderboltPort) {
+    init(port: IOThunderboltPort, on sw: IOThunderboltSwitch, in switches: [IOThunderboltSwitch]) {
         self.portNumber = port.portNumber
         self.socketID = port.socketID
         self.adapterType = Self.adapterTypeLabel(port.adapterType)
-        self.linkActive = port.hasActiveLink
-        self.linkLabel = ThunderboltLabels.linkLabel(for: port)
+        // A host root's idle lane still reports trained lanes, so the raw
+        // read would publish a link on an empty port.
+        let linked = ThunderboltTopology.isLinked(port: port, on: sw, in: switches)
+        self.linkActive = linked
+        self.linkLabel = linked ? ThunderboltLabels.linkLabel(for: port) : nil
         self.generation = port.currentSpeed.map { Self.generationLabel($0) }
         self.perLaneGbps = port.perLaneGbps
         self.txLanes = port.txLanes

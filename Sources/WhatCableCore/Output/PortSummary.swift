@@ -1190,7 +1190,7 @@ private func thunderboltBullets(
 
     // First-hop link state: the host root's downstream lane port describes
     // the cable's negotiated speed.
-    if let hostPort = ThunderboltTopology.activeDownstreamLanePort(root),
+    if let hostPort = ThunderboltTopology.trainedDownstreamLanePort(root),
        let label = ThunderboltLabels.linkLabel(for: hostPort) {
         // label is e.g. "Up to 20 Gb/s × 2" — replace the leading "Up"
         // with "up" for the bullet phrasing without lowercasing units.
@@ -1240,10 +1240,10 @@ private func thunderboltBullets(
     // (device N-1 -> device N) genuinely contrasts two distinct cables.
     if !isBranching,
        downstream.count >= 2,
-       let hostPort = ThunderboltTopology.activeDownstreamLanePort(root),
+       let hostPort = ThunderboltTopology.trainedDownstreamLanePort(root),
        let last = downstream.last,
-       let lastLeg = ThunderboltTopology.activeDownstreamLanePort(last)
-            ?? last.ports.first(where: { $0.adapterType.isLane && $0.hasActiveLink }),
+       let lastLeg = ThunderboltTopology.trainedDownstreamLanePort(last)
+            ?? last.ports.first(where: { $0.adapterType.isLane && $0.hasTrainedLanes }),
        let stepLabel = stepDownLabel(host: hostPort, lastLeg: lastLeg) {
         bullets.append(stepLabel)
     }

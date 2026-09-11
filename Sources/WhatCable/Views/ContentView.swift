@@ -1868,7 +1868,7 @@ struct AdvancedPortDetails: View {
                 ActiveCableVDO2Section(vdo2: v2)
             }
             if let root = thunderboltRoot, !thunderboltTree.isEmpty {
-                ThunderboltFabricSection(root: root, nodes: thunderboltTree)
+                ThunderboltFabricSection(root: root, nodes: thunderboltTree, switches: thunderboltSwitches)
             }
             if let root = thunderboltRoot {
                 // Bundle is Core's, not the app's: ActiveTunnelPresentation's
@@ -1987,6 +1987,9 @@ struct ActiveCableVDO2Section: View {
 struct ThunderboltFabricSection: View {
     let root: IOThunderboltSwitch
     let nodes: [IOThunderboltSwitchNode]
+    /// The flat switch list, needed to tell a linked lane from a host root's
+    /// idle-but-trained one.
+    let switches: [IOThunderboltSwitch]
     @State private var expanded = true
 
     var body: some View {
@@ -1996,14 +1999,14 @@ struct ThunderboltFabricSection: View {
                     depth: 0,
                     arrow: "",
                     name: String(localized: "Host (\(root.className))", bundle: _appLocalizedBundle),
-                    port: ThunderboltTopology.activeDownstreamLanePort(root)
+                    port: ThunderboltTopology.activeDownstreamLanePort(root, in: switches)
                 )
                 ForEach(ThunderboltTopology.flatten(nodes), id: \.id) { node in
                     row(
                         depth: node.depth + 1,
                         arrow: "↳ ",
                         name: ThunderboltLabels.deviceName(for: node.sw),
-                        port: ThunderboltTopology.connectionLanePort(node.sw)
+                        port: ThunderboltTopology.connectionLanePort(node.sw, in: switches)
                     )
                 }
             }

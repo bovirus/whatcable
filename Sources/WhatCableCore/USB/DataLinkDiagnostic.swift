@@ -401,15 +401,25 @@ extension DataLinkDiagnostic {
             .max { (Self.deviceGbps($0.speedRaw) ?? 0) < (Self.deviceGbps($1.speedRaw) ?? 0) }
         let usbDeviceGbps = Self.deviceGbps(fastestDevice?.speedRaw)
         let rawDeviceMaxGbps: Double?
+        // Where the figure came from. `active` is the FIRST HOP's rate
+        // (`activeTBGbps` reads the host's own downstream lane), so only a cap
+        // describing the direct partner is comparable to it at all. A terminal
+        // switch further down the chain, and a USB device tunnelled behind the
+        // partner, both describe a different link and are legitimately slower
+        // than the one carrying them.
+        let deviceCapIsDirectPartner: Bool
         if let terminal {
             rawDeviceMaxGbps = terminal.supportedSpeed.maxTotalGbps
                 ?? Self.terminalLegActiveGbps(terminal)
                 ?? Self.activeTBGbps(port: port, switches: thunderboltSwitches)
+            deviceCapIsDirectPartner = false
         } else if let partner {
             rawDeviceMaxGbps = partner.supportedSpeed.maxTotalGbps
                 ?? Self.activeTBGbps(port: port, switches: thunderboltSwitches)
+            deviceCapIsDirectPartner = true
         } else {
             rawDeviceMaxGbps = usbDeviceGbps
+            deviceCapIsDirectPartner = false
         }
         // TB1/TB2-era device cap (issue #515): the device figure comes from
         // the terminal switch when there is a genuine multi-hop chain,
@@ -423,6 +433,20 @@ extension DataLinkDiagnostic {
         } else {
             deviceMaxGbps = rawDeviceMaxGbps
         }
+
+        // A direct partner's cap that sits meaningfully below the rate the
+        // first hop demonstrably carried is self-refuting: the switch on the
+        // other end of this cable took part in that link. Such a figure is
+        // dropped from the comparison AND from the reported facts, so no
+        // consumer prints a capability the diagnostic decided not to trust.
+        let deviceCapDropped = deviceMaxGbps.map {
+            deviceCapIsDirectPartner && Self.capContradictsActive($0, active: active)
+        } ?? false
+        let reportedDeviceGbps = deviceCapDropped ? nil : deviceMaxGbps
+        // Known gap: when this fires, the cable-limit and host-limit details
+        // still say "the Mac and device can do N", naming a figure just
+        // discarded. It fires on zero of 1336 corpus machines; the verdict
+        // wording ticket owns the fix.
 
         // Capture the resolved figures for the Pro breakdown. Every
         // constructed instance flows through here (the only earlier return
@@ -441,7 +465,7 @@ extension DataLinkDiagnostic {
             cableEmarkerGbps: emarkerGbps,
             cableControllerGbps: cioGbps,
             cableGbps: cableMaxGbps,
-            deviceGbps: deviceMaxGbps,
+            deviceGbps: reportedDeviceGbps,
             deviceName: deviceLabel,
             activeGbps: active
         )
@@ -464,10 +488,15 @@ extension DataLinkDiagnostic {
 
         // Every capability we actually know about, tagged by party. The
         // link can never run faster than the slowest of these.
+        //
+        // The dropped direct-partner cap (see `deviceCapDropped` above) never
+        // enters the comparison, so it can neither become the floor nor be
+        // blamed. Cable and host caps are left alone here: the cable already
+        // has its own `cableContradictsActive` short-circuit above.
         var caps: [(party: String, value: Double)] = []
         if let c = cableMaxGbps         { caps.append((party: "cable",  value: c)) }
         if let h = resolvedHostMaxGbps  { caps.append((party: "host",   value: h)) }
-        if let d = deviceMaxGbps        { caps.append((party: "device", value: d)) }
+        if let d = reportedDeviceGbps   { caps.append((party: "device", value: d)) }
 
         guard let expected = caps.map(\.value).min() else {
             // We know the active speed but have nothing to compare it to:
@@ -571,6 +600,11 @@ extension DataLinkDiagnostic {
     /// downstream lane port). Returns `nil` when the port isn't on a TB
     /// link or no link is up.
     ///
+    /// Reads the lane port's width-aware `activeGbps` (per-lane Gbps times
+    /// trained TX lanes), not the generation's dual-lane headline: a link
+    /// trained down to one lane runs at half the headline, and the corpus
+    /// confirms the width-aware figure against `Link Bandwidth`.
+    ///
     /// Gated on `transportsActive.contains("CIO")`: on Apple Silicon the
     /// internal root-to-downstream-switch lane is always reported as
     /// active even when no user cable is plugged in, so reading the lane
@@ -587,13 +621,13 @@ extension DataLinkDiagnostic {
               !switches.isEmpty,
               let socketID = ThunderboltTopology.socketID(for: port),
               let root = ThunderboltTopology.hostRoot(forSocketID: socketID, in: switches),
-              let hostPort = ThunderboltTopology.activeDownstreamLanePort(root),
-              let gen = hostPort.currentSpeed,
-              let negotiated = gen.totalGbps else {
+              let hostPort = ThunderboltTopology.trainedDownstreamLanePort(root),
+              let negotiated = hostPort.activeGbps else {
             return nil
         }
         // TB1/TB2-era first-hop partner (issue #515): code 0x8 reads as a
-        // real TB3 40 Gbps link, but a TB1/TB2 device negotiates far less.
+        // real Gen 2 link at 10 Gb/s per trained lane, but a TB1/TB2 device
+        // negotiates less than even that.
         // Cap with the directly-connected partner's device-generation
         // ceiling, not the terminal device's: a dock's own link genuinely
         // runs at its rated speed even when a TB1 leaf hangs off it further
@@ -660,10 +694,23 @@ extension DataLinkDiagnostic {
               }) else {
             return nil
         }
-        return switches.first { sw in
-            sw.parentSwitchUID == root.id
-                && Int(sw.routeString & 0xFF) == hostLanePort.portNumber
+        // Both lanes of the socket. One physical socket is a pair of lane
+        // adapters sharing a Socket ID and only one of the pair carries the
+        // route byte, so resolving the socket to its first lane and stopping
+        // there would lose the partner whenever the byte names the other.
+        // `ThunderboltTopology.isLinked` reads the same socket the same way,
+        // through the same helper, so the two cannot disagree about whether
+        // there is a partner on this lane.
+        for lane in ThunderboltTopology.socketLanePorts(of: hostLanePort, on: root) {
+            if let partner = ThunderboltTopology.childSwitch(
+                below: root,
+                onPortNumber: lane.portNumber,
+                in: switches
+            ) {
+                return partner
+            }
         }
+        return nil
     }
 
     /// The switch at the far end of a genuine multi-hop Thunderbolt daisy
@@ -692,6 +739,35 @@ extension DataLinkDiagnostic {
     /// to two Thunderbolt devices) there's no single "last" device, so we
     /// bail and let the caller fall back to the direct partner (the dock
     /// itself is the right comparator there).
+    ///
+    /// Walks only past a passthrough. A dock with a display behind it has
+    /// the same two-hop shape as the adapter this was written for, but the
+    /// dock IS what the cable is plugged into, and naming the panel at the
+    /// end of the chain "the device on the cable" is wrong. The two are told
+    /// apart by what the direct partner publishes: a passthrough exposes
+    /// lane adapters only, while a dock, a display or a drive also exposes
+    /// PCIe, DisplayPort or USB (`exposesNonLaneAdapters`).
+    /// True when a switch publishes any adapter that is not a lane (physical
+    /// Thunderbolt port) and not inactive.
+    ///
+    /// A passthrough adapter forwards the fabric and tunnels nothing itself,
+    /// so it has lanes only. Anything that terminates a tunnel is a real
+    /// endpoint: a dock, a display, a drive. The test is deliberately "not a
+    /// lane" rather than a list of known protocol types, because an adapter
+    /// type the decoder has not learned yet lands in `.other` and would
+    /// otherwise read as a passthrough. TB5's USB Gen T adapter was exactly
+    /// that until issue #52 named it.
+    static func exposesNonLaneAdapters(_ sw: IOThunderboltSwitch) -> Bool {
+        sw.ports.contains { port in
+            switch port.adapterType {
+            case .lane, .inactive:
+                return false
+            default:
+                return true
+            }
+        }
+    }
+
     static func deepTerminalSwitch(
         port: AppleHPMInterface,
         switches: [IOThunderboltSwitch]
@@ -699,6 +775,14 @@ extension DataLinkDiagnostic {
         guard let partner = Self.partnerSwitch(port: port, switches: switches) else {
             return nil
         }
+        // A partner with no ports published is not evidence of a passthrough.
+        // A dock whose adapters failed to enumerate looks identical to a bare
+        // adapter here, and naming the leaf of the chain on that guess is the
+        // worse error, so the walk stops rather than proceeds.
+        guard !partner.ports.isEmpty else { return nil }
+        // A partner that tunnels a protocol of its own is the device on the
+        // cable, so the walk stops here.
+        guard !Self.exposesNonLaneAdapters(partner) else { return nil }
         let chain = ThunderboltTopology.chain(from: partner, in: switches)
         let downstream = Array(chain.dropFirst())
         guard !downstream.isEmpty else { return nil }
@@ -726,14 +810,13 @@ extension DataLinkDiagnostic {
     /// that one port anyway, so the fallback is usually a no-op).
     static func terminalLegActiveGbps(_ sw: IOThunderboltSwitch) -> Double? {
         let upstreamLeg = sw.ports.first {
-            $0.adapterType.isLane && $0.portNumber == sw.upstreamPortNumber && $0.hasActiveLink
+            $0.adapterType.isLane && $0.portNumber == sw.upstreamPortNumber && $0.hasTrainedLanes
         }
         guard let leg = upstreamLeg
-                ?? sw.ports.first(where: { $0.adapterType.isLane && $0.hasActiveLink }),
-              let gen = leg.currentSpeed else {
+                ?? sw.ports.first(where: { $0.adapterType.isLane && $0.hasTrainedLanes }) else {
             return nil
         }
-        return gen.totalGbps
+        return leg.activeGbps
     }
 
     /// USB 3 signaling generation to Gbps. 1 = Gen 1 (5), 2 = Gen 2 (10).
@@ -811,6 +894,17 @@ extension DataLinkDiagnostic {
     /// `a` is meaningfully slower than `b` (more than ~10% below it).
     static func meaningfullySlower(_ a: Double, than b: Double) -> Bool {
         a < b * 0.9
+    }
+
+    /// True when a resolved endpoint cap contradicts the rate the link
+    /// actually carried: the cap is meaningfully below `active`.
+    ///
+    /// An endpoint cannot be slower than a link it took part in, so such a
+    /// cap is wrong rather than binding. Callers drop it instead of letting
+    /// it set the floor and collect the blame. Uses `meaningfullySlower`, so
+    /// a cap inside the same tier as `active` still counts as agreeing.
+    static func capContradictsActive(_ cap: Double, active: Double) -> Bool {
+        Self.meaningfullySlower(cap, than: active)
     }
 
     /// Human-readable speed: sub-1-Gbps as Mbps, whole numbers without ".0".

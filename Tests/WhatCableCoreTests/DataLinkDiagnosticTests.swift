@@ -192,13 +192,14 @@ struct DataLinkDiagnosticTests {
             portTypeDescription: "MagSafe 3"
         )
 
+        let switches = [host]
         let usbDiag = DataLinkDiagnostic(
             port: usbC,
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps
             devices: [],
             usb3Transports: [],
             cio: nil,
-            thunderboltSwitches: [host]
+            thunderboltSwitches: switches
         )
         let magSafeDiag = DataLinkDiagnostic(
             port: magSafe,
@@ -206,7 +207,7 @@ struct DataLinkDiagnosticTests {
             devices: [],
             usb3Transports: [],
             cio: nil,
-            thunderboltSwitches: [host]
+            thunderboltSwitches: switches
         )
         #expect(usbDiag != nil,
             "USB-C port must still get a verdict despite sharing its socket suffix with MagSafe")
@@ -834,6 +835,7 @@ struct DataLinkDiagnosticTests {
     /// Build a host root TB switch with the given `supportedSpeed` mask and
     /// one active lane port matching `socketID`. Minimal fixture: just
     /// enough for `hostMaxGbpsFromSwitches` to walk to it.
+
     private func hostSwitch(socketID: String, supportedRaw: UInt8, activeSpeed: LinkGeneration) -> IOThunderboltSwitch {
         let lane = IOThunderboltPort(
             portNumber: 1,
@@ -978,6 +980,13 @@ struct DataLinkDiagnosticTests {
     /// never trigger `deviceGenerationCapGbps` (nil version, nil device
     /// id), so existing callers are unaffected; issue #515 tests pass real
     /// values to build a TB1/TB2-era partner or terminal switch.
+    /// `protocolAdapters` are the non-lane adapters the switch publishes
+    /// (PCIe, DisplayPort, USB). A passthrough adapter has none; a dock, a
+    /// display or a drive has at least one. `deepTerminalSwitch` reads
+    /// exactly that difference, so tests about the walk set it.
+    /// `modelName` names the switch for `facts.deviceName` assertions, and
+    /// `laneSpeed`/`laneWidthRaw` set the rate its own upstream leg reads at,
+    /// which is what `terminalLegActiveGbps` falls back to.
     private func partnerSwitch(
         parent: IOThunderboltSwitch,
         parentLanePortNumber: Int,
@@ -985,27 +994,39 @@ struct DataLinkDiagnosticTests {
         partnerOwnUpstreamPortNumber: Int = 3,
         thunderboltVersion: Int? = nil,
         deviceID: Int? = nil,
-        vendorID: Int = 9999
+        vendorID: Int = 9999,
+        modelName: String = "Partner Device",
+        protocolAdapters: [AdapterType] = [],
+        laneSpeed: LinkGeneration = .usb4Tb4,
+        laneWidthRaw: UInt8 = 0x2
     ) -> IOThunderboltSwitch {
         let upstream = IOThunderboltPort(
             portNumber: partnerOwnUpstreamPortNumber, socketID: nil, adapterType: .lane,
-            currentSpeed: .usb4Tb4, currentWidth: LinkWidth(rawValue: 0x2),
+            currentSpeed: laneSpeed, currentWidth: LinkWidth(rawValue: laneWidthRaw),
             targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil,
             supportedSpeed: SupportedSpeedMask(rawValue: supportedRaw)
         )
+        let adapters = protocolAdapters.enumerated().map { index, type in
+            IOThunderboltPort(
+                portNumber: 10 + index, socketID: nil, adapterType: type,
+                currentSpeed: nil, currentWidth: nil,
+                targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil,
+                supportedSpeed: nil
+            )
+        }
         return IOThunderboltSwitch(
             id: parent.id + Int64(parentLanePortNumber),
             className: "IOThunderboltSwitchType5",
             vendorID: vendorID,
             vendorName: "Partner",
-            modelName: "Partner Device",
+            modelName: modelName,
             routerID: 1,
             depth: 1,
             routeString: Int64(parentLanePortNumber),
             upstreamPortNumber: partnerOwnUpstreamPortNumber,
             maxPortNumber: 4,
             supportedSpeed: SupportedSpeedMask(rawValue: supportedRaw),
-            ports: [upstream],
+            ports: [upstream] + adapters,
             parentSwitchUID: parent.id,
             thunderboltVersion: thunderboltVersion,
             deviceID: deviceID
@@ -1019,8 +1040,13 @@ struct DataLinkDiagnosticTests {
         // partner-switch lookup the diagnostic had no device cap and
         // blamed the cable. With it: device = 40 from partner, cable = 40,
         // host = 80 → device limit, no cable blame.
+        //
+        // A real 40 Gbps TB3 device advertises both the Gen 2 and Gen 3
+        // bits (mask 0xC). Corpus-measured, a mask of 0x8 alone never
+        // carries more than 20 Gbps, so 0x8 would make this a 20 Gbps
+        // partner and lose the cable/device tie the scenario is about.
         let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
-        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0x8)   // TB3 only
+        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0xC)   // TB3, 40 Gbps
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps cable
@@ -1157,17 +1183,18 @@ struct DataLinkDiagnosticTests {
         // gap that was really the drive's own ceiling.
         //
         // Masks in this model only resolve to 40 or 80 Gbps
-        // (`SupportedSpeedMask.maxTotalGbps`: TB3/TB4 bits -> 40, TB5 bit
+        // (`SupportedSpeedMask.maxTotalGbps`: TB3+TB4 bits -> 40, TB5 bit
         // -> 80), so the fixture uses those two tiers to stand in for
         // "the adapter looks fast" (mid = 0x2, TB5 bit, 80 Gbps) vs "the
-        // real device is slower" (terminal = 0x8, TB3 bit, 40 Gbps). The
+        // real device is slower" (terminal = 0xC, TB3+TB4 bits, 40 Gbps).
+        // A 40 Gbps TB3 device sets both bits; 0x8 alone is 20 Gbps. The
         // arithmetic that matters is the priority walk below, not the
         // exact numbers: whichever tier is lowest becomes `expected`, and
         // whoever else shares that tier is named over a faster host.
         //
         //   host   = 0xE (TB3+TB4+TB5 bits) -> 80 Gbps, never the floor
         //   mid    = 0x2 (TB5 bit only)      -> 80 Gbps  (the adapter)
-        //   terminal = 0x8 (TB3 bit only)    -> 40 Gbps  (the real drive)
+        //   terminal = 0xC (TB3+TB4 bits)    -> 40 Gbps  (the real drive)
         //   cable  = 40 Gbps (e-marker code 3 + CIO code 3, agreeing)
         //   active = 40 Gbps
         //
@@ -1186,7 +1213,7 @@ struct DataLinkDiagnosticTests {
         //   blame; the 40 Gbps cable is exonerated.
         let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
         let mid = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0x2)      // adapter, TB5 bit -> 80
-        let terminal = partnerSwitch(parent: mid, parentLanePortNumber: 1, supportedRaw: 0x8)  // real drive, TB3 bit -> 40
+        let terminal = partnerSwitch(parent: mid, parentLanePortNumber: 1, supportedRaw: 0xC)  // real drive, TB3+TB4 bits -> 40
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps e-marker
@@ -1210,6 +1237,219 @@ struct DataLinkDiagnosticTests {
             return
         }
         #expect(d == 40)
+    }
+
+    // MARK: - A device cap below the active rate is self-refuting
+
+    @Test("An 80 Gbps link is not blamed on a 40 Gbps device cap")
+    func activeEightyIsNotBlamedOnFortyDeviceCap() {
+        // The lane-width fix made a speed-code 0x2 link on two lanes read as
+        // 80 Gbps. A terminal mask that resolves to 40 then sits below the
+        // rate the link demonstrably carried, which cannot be true of an
+        // endpoint that took part in it. The cap must be dropped, not made
+        // the floor and named as the limit.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .tb5)
+        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0xC)
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: nil,
+            thunderboltSwitches: [host, partner],
+            tbActiveGbps: 80
+        )
+        #expect(diag?.facts.activeGbps == 80)
+        #expect(diag?.facts.deviceGbps == nil,
+            "A discarded cap must not be reported as a capability. Got: \(String(describing: diag?.facts.deviceGbps))")
+        if case .deviceLimit(let d) = diag?.bottleneck {
+            Issue.record("A device cap of \(d) Gbps cannot limit a link measured at 80 Gbps")
+        }
+        #expect(diag?.summary.contains("40 Gbps") == false,
+            "Verdict must not quote 40 Gbps on an 80 Gbps link. Got: \(String(describing: diag?.summary))")
+    }
+
+    @Test("A 40 Gbps link is not blamed on a 20 Gbps direct partner")
+    func activeFortyIsNotBlamedOnTwentyDeviceCap() {
+        // The same shape one tier down. The partner is directly attached, so
+        // its mask and `active` describe the same link, and a mask saying 20
+        // on a link that ran at 40 is the contradiction.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0x8)
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [],
+            devices: [],
+            usb3Transports: [],
+            cio: nil,
+            thunderboltSwitches: [host, partner],
+            tbActiveGbps: 40
+        )
+        #expect(diag?.facts.activeGbps == 40)
+        #expect(diag?.facts.deviceGbps == nil,
+            "A discarded cap must not be reported as a capability. Got: \(String(describing: diag?.facts.deviceGbps))")
+        if case .deviceLimit(let d) = diag?.bottleneck {
+            Issue.record("A device cap of \(d) Gbps cannot limit a link measured at 40 Gbps")
+        }
+    }
+
+    @Test("A slow USB device tunnelled over a fast link is still the device figure")
+    func tunnelledUSBDeviceKeepsItsFigure() {
+        // The other side of the same line. A USB 2.0 keyboard behind a
+        // Thunderbolt dock really is 480 Mbps and the link really does run
+        // at 40 Gbps: the two do not contradict, because the keyboard is
+        // tunnelled rather than being the link's endpoint. Only a cap read
+        // off a Thunderbolt switch is guarded.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],
+            devices: [device(speedRaw: 2)],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),
+            thunderboltSwitches: [host],
+            tbActiveGbps: 40
+        )
+        guard case .deviceLimit(let d) = diag?.bottleneck else {
+            Issue.record("expected .deviceLimit from the USB fallback, got \(String(describing: diag?.bottleneck))")
+            return
+        }
+        #expect(d == 0.48)
+    }
+
+    @Test("A 20 Gbps link on a Thunderbolt 3 device reads as running at full speed")
+    func twentyGbpsLinkReadsAsFullSpeed() {
+        // Speed code 0x8 is 10 Gbps per lane, so two trained lanes are a
+        // 20 Gbps link, and a 20 Gbps mask on both ends means nothing is
+        // being held back.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0x8, activeSpeed: .tb3)
+        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0x8)
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 2)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 2),
+            thunderboltSwitches: [host, partner]
+        )
+        #expect(diag?.facts.activeGbps == 20,
+            "0x8 on two lanes is a 20 Gbps link. Got: \(String(describing: diag?.facts.activeGbps))")
+        guard case .fine = diag?.bottleneck else {
+            Issue.record("expected .fine, got \(String(describing: diag?.bottleneck))")
+            return
+        }
+        #expect(diag?.summary == "Running at full data speed (20 Gbps)",
+            "Got: \(String(describing: diag?.summary))")
+    }
+
+    // MARK: - Which switch is "the device on the cable" (issue #507 boundary)
+
+    @Test("A dock with a display behind it names the dock, not the display")
+    func dockWithDisplayBehindNamesTheDock() {
+        // A dock publishes a DisplayPort adapter of its own, so it is the
+        // device on the cable. The panel behind it is a second hop, not the
+        // thing the cable is plugged into.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let dock = partnerSwitch(
+            parent: host, parentLanePortNumber: 1, supportedRaw: 0xC,
+            modelName: "Dock", protocolAdapters: [.dpOut, .pcieDown, .usb3Down]
+        )
+        let display = partnerSwitch(
+            parent: dock, parentLanePortNumber: 1, supportedRaw: 0xC,
+            modelName: "Display", protocolAdapters: [.dpIn]
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),
+            thunderboltSwitches: [host, dock, display],
+            tbActiveGbps: 40
+        )
+        #expect(diag?.facts.deviceName == "Dock",
+            "The device on the cable is the dock. Got: \(String(describing: diag?.facts.deviceName))")
+    }
+
+    @Test("A lane-only passthrough adapter is still walked past (issue #507 pin)")
+    func laneOnlyAdapterIsStillWalkedPast() {
+        // The regression pin for the walk itself. A Thunderbolt 2 to
+        // Thunderbolt 3 adapter publishes lane adapters only, so it is a
+        // middleman: the drive at the end of the chain is the device on the
+        // cable, and the walk must still reach it.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let adapter = partnerSwitch(
+            parent: host, parentLanePortNumber: 1, supportedRaw: 0x2,
+            modelName: "TB2 to TB3 Adapter"
+        )
+        let drive = partnerSwitch(
+            parent: adapter, parentLanePortNumber: 1, supportedRaw: 0xC,
+            modelName: "Rugged THB"
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),
+            thunderboltSwitches: [host, adapter, drive],
+            tbActiveGbps: 40
+        )
+        #expect(diag?.facts.deviceName == "Rugged THB",
+            "The walk past a lane-only adapter must still happen. Got: \(String(describing: diag?.facts.deviceName))")
+    }
+
+    // MARK: - Reporter fixture: TS5 chain on an M5 Pro
+
+    @Test("TS5 chain on an 80 Gbps link reports neither 40 Gbps nor the display")
+    func ts5ChainOnEightyGbpsLink() {
+        // Numbers here come from a reporter's paste-back, not from the
+        // corpus: no corpus folder holds a TS5 on an M5 Pro or a 1big Dock
+        // v2. M5 Pro on macOS 27.0 beta, CalDigit TS5 over an active
+        // Thunderbolt 5 cable, chained TS5 to LaCie 1big Dock v2 to Studio
+        // Display. The link bullet read "Linked at up to 40 Gb/s x 2" (the
+        // per-lane form, correct) while the Data verdict said "Device runs
+        // at 40 Gbps", which is the link rate halved and the wrong device
+        // named. The TS5 publishes an 80 Gbps mask, as every TB5 dock in the
+        // corpus does; the 40 in the verdict is the Studio Display's mask,
+        // reached by walking to the end of the chain.
+        // Ref: darrylmorley/whatcable#607
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .tb5)
+        let ts5 = partnerSwitch(
+            parent: host, parentLanePortNumber: 1, supportedRaw: 0xE,
+            modelName: "CalDigit TS5", protocolAdapters: [.pcieDown, .dpOut, .usb3Down]
+        )
+        let bigDock = partnerSwitch(
+            parent: ts5, parentLanePortNumber: 1, supportedRaw: 0xC,
+            modelName: "1big Dock v2", protocolAdapters: [.pcieDown, .dpOut]
+        )
+        let studioDisplay = partnerSwitch(
+            parent: bigDock, parentLanePortNumber: 1, supportedRaw: 0xC,
+            modelName: "Studio Display", protocolAdapters: [.dpIn]
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 4)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 4),
+            thunderboltSwitches: [host, ts5, bigDock, studioDisplay]
+        )
+        guard let diag else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        #expect(diag.facts.activeGbps == 80,
+            "40 Gb/s per lane on two lanes is an 80 Gbps link. Got: \(diag.facts.activeGbps)")
+        #expect(diag.summary.contains("40 Gbps") == false,
+            "Verdict must not quote 40 Gbps. Got: \(diag.summary)")
+        #expect(diag.detail.contains("40 Gbps") == false,
+            "Verdict detail must not quote 40 Gbps. Got: \(diag.detail)")
+        #expect(diag.facts.deviceName == "CalDigit TS5",
+            "The device on the cable is the TS5. Got: \(String(describing: diag.facts.deviceName))")
+        if case .deviceLimit = diag.bottleneck {
+            Issue.record("Must not report a device limit on this chain: \(diag.bottleneck)")
+        }
     }
 
     @Test("Branching tree keeps the direct partner as the device cap (unchanged)")
@@ -1393,7 +1633,7 @@ struct DataLinkDiagnosticTests {
             id: 502, className: "IOThunderboltSwitchType5", vendorID: 9999,
             vendorName: "Partner", modelName: "B", routerID: 3, depth: 3,
             routeString: 1, upstreamPortNumber: 3, maxPortNumber: 4,
-            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),   // 40, must be used (b is the real terminal)
+            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),   // 20, must be used (b is the real terminal)
             ports: [bPort], parentSwitchUID: a.id
         )
         // Same id as `a` (501), but claims its parent is `b`: closes the cycle.
@@ -1423,8 +1663,10 @@ struct DataLinkDiagnosticTests {
             Issue.record("expected a diagnostic with facts even with a cyclic subtree, got nil")
             return
         }
-        #expect(facts.deviceGbps == 40,
-            "Expected b's mask (40) to drive the verdict. Got: \(String(describing: facts.deviceGbps))")
+        // 20 is b's own mask and 80 is aAgain's: the value proves the walk
+        // stopped at b rather than following the forged cycle.
+        #expect(facts.deviceGbps == 20,
+            "Expected b's mask (20) to drive the verdict. Got: \(String(describing: facts.deviceGbps))")
     }
 
     @Test("Terminal switch with no supportedSpeed mask falls back to its active lane speed")
@@ -1611,9 +1853,13 @@ struct DataLinkDiagnosticTests {
         // others). Capping on version 2 alone would wrongly flag genuine
         // TB3 hardware as TB1/TB2. Figures must stay at their uncapped
         // 40 Gbps.
+        // A real 40 Gbps TB3 link trains at speed code 0x4 on two lanes and
+        // advertises mask 0xC; code 0x8 is 10 Gb/s per lane, so the old
+        // single-code fixture described a 20 Gbps link, not the 40 Gbps
+        // Alpine Ridge dock the regression is about.
         let hostLane = IOThunderboltPort(
             portNumber: 1, socketID: "1", adapterType: .lane,
-            currentSpeed: .tb3, currentWidth: LinkWidth(rawValue: 0x2),   // dual lane
+            currentSpeed: .usb4Tb4, currentWidth: LinkWidth(rawValue: 0x2),   // dual lane
             targetWidth: nil, rawTargetSpeed: nil, linkBandwidthRaw: nil
         )
         let host = IOThunderboltSwitch(
@@ -1642,7 +1888,7 @@ struct DataLinkDiagnosticTests {
             routeString: 1,
             upstreamPortNumber: 3,
             maxPortNumber: 4,
-            supportedSpeed: SupportedSpeedMask(rawValue: 0x8),
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xC),
             ports: [],
             parentSwitchUID: host.id,
             thunderboltVersion: 2,
@@ -1702,6 +1948,43 @@ struct DataLinkDiagnosticTests {
             "The dock's own link must not be dragged down by a downstream TB1 leaf. Got: \(facts.activeGbps)")
         #expect(facts.deviceGbps == 10,
             "The terminal TB1 leaf's cap must still apply to the device figure. Got: \(String(describing: facts.deviceGbps))")
+    }
+
+    @Test("A dock with a Thunderbolt 1 leaf keeps its device verdict (issue #515 pin)")
+    func tb4DockWithTB1LeafStaysDeviceLimit() {
+        // The bottleneck case the numbers-only fixture above never asserted.
+        // The 10 Gbps figure describes the leaf, two hops down, not the dock
+        // on the other end of this cable, so it is not comparable to the
+        // first hop's 40 Gbps rate and must not be discarded. Blaming the
+        // cable here is the false advice issue #515 was raised to remove.
+        let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
+        let dock = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0xC)
+        let leaf = partnerSwitch(
+            parent: dock, parentLanePortNumber: 1, supportedRaw: 0x8,
+            thunderboltVersion: 1, deviceID: 0x1549
+        )
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),
+            thunderboltSwitches: [host, dock, leaf]
+        )
+        guard let diag else {
+            Issue.record("expected a diagnostic, got nil")
+            return
+        }
+        if case .cableLimit = diag.bottleneck {
+            Issue.record("Must not blame the cable for a downstream Thunderbolt 1 leaf: \(diag.detail)")
+        }
+        guard case .deviceLimit(let d) = diag.bottleneck else {
+            Issue.record("expected .deviceLimit, got \(diag.bottleneck)")
+            return
+        }
+        #expect(d == 10)
+        #expect(diag.facts.deviceGbps == 10,
+            "A cap describing a switch further down the chain is kept, not discarded")
     }
 
     @Test("Direct-attached Falcon Ridge TB2 device caps both negotiated and device figures at 20 Gbps")
@@ -1854,7 +2137,9 @@ struct DataLinkDiagnosticTests {
         // unlock more speed because the device caps there too. The verdict
         // must be device-side, not "cable is limiting."
         let host = hostSwitch(socketID: "1", supportedRaw: 0xE, activeSpeed: .usb4Tb4)
-        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0x8)   // TB3
+        // 0xC, not 0x8: a 40 Gbps TB3 device sets the Gen 3 bit too, and
+        // the tie this test is about only exists at 40.
+        let partner = partnerSwitch(parent: host, parentLanePortNumber: 1, supportedRaw: 0xC)   // TB3, 40 Gbps
         let diag = DataLinkDiagnostic(
             port: makePort(),
             identities: [cableEmarker(speedCode: 3)],   // 40 Gbps cable
@@ -1885,7 +2170,7 @@ struct DataLinkDiagnosticTests {
         let partner = partnerSwitch(
             parent: host,
             parentLanePortNumber: 1,                 // parent's downstream port is 1
-            supportedRaw: 0x8,                        // TB3-class partner
+            supportedRaw: 0x8,                        // Gen 2 partner, 20 Gbps
             partnerOwnUpstreamPortNumber: 3          // partner's own upstream is 3 (Samsung pattern)
         )
         let diag = DataLinkDiagnostic(
@@ -1895,10 +2180,100 @@ struct DataLinkDiagnosticTests {
             usb3Transports: [],
             cio: cio(negotiatedLinkSpeed: 3),
             thunderboltSwitches: [host, partner],
+            tbActiveGbps: 20
+        )
+        // 20 comes only from the partner's own mask: with no partner found
+        // and no USB devices the device figure is nil, so this value proves
+        // the lookup succeeded.
+        //
+        // The active rate matches the partner's mask on purpose. A mask below
+        // the rate the same link ran at is discarded as self-refuting, and a
+        // discarded figure reads as nil, which is what "not found" reads as
+        // too. Keeping the two consistent leaves this test proving the one
+        // thing it is about.
+        #expect(diag?.facts.deviceGbps == 20,
+            "Partner must be found by routeString (low byte == parent port number), not by upstreamPortNumber. Got: \(String(describing: diag?.facts.deviceGbps))")
+    }
+
+    @Test("Partner switch is found when the route byte names the dual-link sibling")
+    func partnerFoundThroughDualLinkSibling() {
+        // Apple Silicon exposes one physical socket as a PAIR of lane
+        // adapters sharing a Socket ID, and only one of the pair carries the
+        // route byte. `partnerSwitch` resolves the socket to the first of the
+        // pair, so when the byte names the other one it has to follow the
+        // sibling or the diagnostic loses its device cap and falls back to
+        // the USB device list or to nothing.
+        //
+        // `ThunderboltTopology.isLinked` already reads this socket as linked.
+        // Two functions answering "is there a partner on this lane" must not
+        // disagree, and after this both go through
+        // `ThunderboltTopology.socketLanePorts`.
+        //
+        // Measured over the corpus with ports in production order (ascending
+        // by port number): zero CIO-active ports are in this state today,
+        // because the route byte names the lower-numbered lane every time.
+        // It is a consistency fix, not a bug fix, and the shape below is a
+        // fixture rather than a corpus folder for that reason.
+        let laneOne = IOThunderboltPort(
+            portNumber: 1,
+            socketID: "1",
+            adapterType: .lane,
+            currentSpeed: .usb4Tb4,
+            currentWidth: LinkWidth(rawValue: 0x2),
+            targetWidth: nil,
+            rawTargetSpeed: nil,
+            linkBandwidthRaw: nil,
+            dualLinkPort: 2
+        )
+        let laneTwo = IOThunderboltPort(
+            portNumber: 2,
+            socketID: "1",
+            adapterType: .lane,
+            currentSpeed: .usb4Tb4,
+            currentWidth: LinkWidth(rawValue: 0x2),
+            targetWidth: nil,
+            rawTargetSpeed: nil,
+            linkBandwidthRaw: nil,
+            dualLinkPort: 1
+        )
+        let host = IOThunderboltSwitch(
+            id: 100,
+            className: "IOIOThunderboltSwitchType5",
+            vendorID: 1452,
+            vendorName: "Apple Inc.",
+            modelName: "Mac",
+            routerID: 0,
+            depth: 0,
+            routeString: 0,
+            upstreamPortNumber: 0,
+            maxPortNumber: 8,
+            supportedSpeed: SupportedSpeedMask(rawValue: 0xE),
+            ports: [laneOne, laneTwo],
+            parentSwitchUID: nil
+        )
+        // Route byte 2: the partner hangs off lane 2, the sibling of the lane
+        // the socket resolves to.
+        let partner = partnerSwitch(
+            parent: host,
+            parentLanePortNumber: 2,
+            supportedRaw: 0xC
+        )
+        #expect(ThunderboltTopology.isLinked(port: laneOne, on: host, in: [host, partner]),
+            "isLinked already reads this socket as linked")
+
+        let diag = DataLinkDiagnostic(
+            port: makePort(),
+            identities: [cableEmarker(speedCode: 3)],
+            devices: [],
+            usb3Transports: [],
+            cio: cio(negotiatedLinkSpeed: 3),
+            thunderboltSwitches: [host, partner],
             tbActiveGbps: 40
         )
+        // 40 is the partner's own mask and nothing else supplies it, so the
+        // figure proves the lookup followed the sibling.
         #expect(diag?.facts.deviceGbps == 40,
-            "Partner must be found by routeString (low byte == parent port number), not by upstreamPortNumber. Got: \(String(describing: diag?.facts.deviceGbps))")
+            "Partner must be found through the socket's dual-link sibling. Got: \(String(describing: diag?.facts.deviceGbps))")
     }
 
     @Test("Partner with empty supportedSpeed mask uses active TB rate")

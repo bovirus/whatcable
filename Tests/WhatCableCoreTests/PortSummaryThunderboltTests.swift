@@ -62,6 +62,7 @@ struct PortSummaryThunderboltTests {
         uid: Int64,
         depth: Int,
         parent: Int64?,
+        routeString: Int64 = 0,
         upstreamPort: Int = 0,
         vendor: String,
         model: String,
@@ -75,7 +76,7 @@ struct PortSummaryThunderboltTests {
             modelName: model,
             routerID: 0,
             depth: depth,
-            routeString: 0,
+            routeString: routeString,
             upstreamPortNumber: upstreamPort,
             maxPortNumber: 8,
             supportedSpeed: SupportedSpeedMask(rawValue: 12),
@@ -95,7 +96,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x2)]
         )
         let device = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "ASUS-Display", model: "PA32QCV",
             ports: [lanePort(portNumber: 1, socketID: nil, speed: .usb4Tb4, widthRaw: 0x2)]
         )
@@ -126,15 +127,24 @@ struct PortSummaryThunderboltTests {
             vendor: "Apple Inc.", model: "iOS",
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .tb3, widthRaw: 0x2)]
         )
+        // The device is what makes the host lane a link: a host root reports
+        // trained lanes on an empty socket too.
+        let device = sw(
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
+            vendor: "CalDigit, Inc.", model: "TS3 Plus",
+            ports: [lanePort(portNumber: 1, socketID: nil, speed: .tb3, widthRaw: 0x2)]
+        )
 
-        let summary = PortSummary(port: port, thunderboltSwitches: [host])
+        let summary = PortSummary(port: port, thunderboltSwitches: [host, device])
         #expect(summary.bullets.contains("Linked at up to 10 Gb/s × 2"))
-        // The badge uses the published TB3 headline rate (40 Gbps), the same
-        // figure DataLinkDiagnostic treats as the active TB rate and the real
-        // TS3 dock confirms (CableSpeed=3). The per-lane bullet is a separate
-        // representation; the badge intentionally shows the recognisable rate.
-        #expect(summary.linkSpeed?.tier == .tb40)
-        #expect(summary.linkSpeed?.badge == "40G")
+        // Speed code 0x8 is 10 Gb/s per lane, so two lanes carry 20 Gbps,
+        // corpus-confirmed against Link Bandwidth. The badge follows the
+        // active rate and so agrees with the bullet above; a real 40 Gbps
+        // TB3 link trains at code 0x4 and is covered by the USB4/TB4 test.
+        // There is no Thunderbolt tier below 40 Gbps, so the resolver
+        // reuses the 20G tier (see LinkSpeed resolution in PortSummary).
+        #expect(summary.linkSpeed?.tier == .usb20g)
+        #expect(summary.linkSpeed?.badge == "20G")
     }
 
     // MARK: - TB1/TB2-era device generation cap (issue #515)
@@ -203,7 +213,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x2)]
         )
         let asus = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "ASUS-Display", model: "PA32QCV",
             ports: [
                 lanePort(portNumber: 1, socketID: nil, speed: .usb4Tb4, widthRaw: 0x2),
@@ -251,7 +261,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x1)] // single-lane
         )
         let first = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "Dock Co.", model: "Middle Dock",
             ports: [
                 lanePort(portNumber: 1, socketID: nil, speed: .usb4Tb4, widthRaw: 0x1),
@@ -288,7 +298,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x2)]
         )
         let middle = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "Dock Co.", model: "USB4 Dock",
             ports: [
                 lanePort(portNumber: 1, socketID: nil, speed: .usb4Tb4, widthRaw: 0x2),
@@ -325,7 +335,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .tb3, widthRaw: 0x1)]
         )
         let middle = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "Dock Co.", model: "Dock",
             ports: [
                 lanePort(portNumber: 1, socketID: nil, speed: .tb3, widthRaw: 0x1),
@@ -368,7 +378,7 @@ struct PortSummaryThunderboltTests {
         // Samsung-style single device: upstream port reports the same
         // link from the device side with a different width value.
         let samsung = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "SAMSUNG ELECTRONICS CO.,LTD", model: "C34J79x",
             ports: [lanePort(portNumber: 1, socketID: nil, speed: .tb3, widthRaw: 0x1)]
         )
@@ -398,7 +408,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x2)]
         )
         let caldigit = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "CalDigit, Inc.", model: "Thunderbolt 4 Pro Dock",
             ports: [lanePort(portNumber: 2, socketID: nil, speed: .usb4Tb4, widthRaw: 0x2)]
         )
@@ -477,7 +487,7 @@ struct PortSummaryThunderboltTests {
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .usb4Tb4, widthRaw: 0x2)]
         )
         let dock = sw(
-            uid: 200, depth: 1, parent: 100, upstreamPort: 1,
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
             vendor: "CalDigit, Inc.", model: "TS4",
             ports: [lanePort(portNumber: 2, socketID: nil, speed: .usb4Tb4, widthRaw: 0x2)]
         )
@@ -535,7 +545,13 @@ struct PortSummaryThunderboltTests {
             vendor: "Apple Inc.", model: "iOS",
             ports: [lanePort(portNumber: 1, socketID: "1", speed: .tb5, widthRaw: 0x2)]
         )
-        let summary = PortSummary(port: port, thunderboltSwitches: [host])
+        // See the TB3 test: the attached device is what makes it a link.
+        let dock = sw(
+            uid: 200, depth: 1, parent: 100, routeString: 1, upstreamPort: 1,
+            vendor: "UGreen", model: "JHL9580",
+            ports: [lanePort(portNumber: 1, socketID: nil, speed: .tb5, widthRaw: 0x2)]
+        )
+        let summary = PortSummary(port: port, thunderboltSwitches: [host, dock])
         #expect(
             summary.bullets.contains { $0.contains("40 Gb/s") },
             "TB5 should report per-lane 40 Gb/s; got: \(summary.bullets)"

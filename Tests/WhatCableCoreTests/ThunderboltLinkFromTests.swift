@@ -293,7 +293,7 @@ struct ThunderboltLinkFromTests {
         #expect(port?.txLanes == 2)
         #expect(port?.targetWidth == .dual)
         #expect(port?.linkBandwidthRaw == 200)
-        #expect(port?.hasActiveLink ?? false)
+        #expect(port?.hasTrainedLanes ?? false)
     }
 
     // MARK: - Joe's daisy-chain (USB4 + TB3 step-down)
@@ -428,7 +428,7 @@ struct ThunderboltLinkFromTests {
         let port = IOThunderboltPort.from(read: { dict[$0] })
         #expect(port?.currentSpeed == nil)
         #expect(port?.currentWidth?.isActive == false)
-        #expect((port?.hasActiveLink ?? true) == false)
+        #expect((port?.hasTrainedLanes ?? true) == false)
     }
 
     @Test("Protocol adapter port has no link state")
@@ -445,7 +445,7 @@ struct ThunderboltLinkFromTests {
         #expect(port?.adapterType == .pcieDown)
         #expect(port?.currentSpeed == nil)
         #expect(port?.currentWidth == nil)
-        #expect((port?.hasActiveLink ?? true) == false)
+        #expect((port?.hasTrainedLanes ?? true) == false)
     }
 
     // MARK: - Missing fields
@@ -573,5 +573,107 @@ struct ThunderboltLinkFromTests {
         // be capped: the match is Intel-scoped on purpose.
         let sw = switchWith(thunderboltVersion: 2, deviceID: 0x156d, vendorID: 0x1234)
         #expect(sw.deviceGenerationCapGbps == nil)
+    }
+
+    // MARK: - Lane-width-aware link rate (Link Bandwidth = per-lane Gbps x lanes x 10)
+
+    private func lanePortDict(speed: Int, width: Int?) -> [String: Any] {
+        var dict: [String: Any] = [
+            "Adapter Type": NSNumber(value: 1),
+            "Port Number": NSNumber(value: 1),
+            "Current Link Speed": NSNumber(value: speed)
+        ]
+        if let width {
+            dict["Current Link Width"] = NSNumber(value: width)
+        }
+        return dict
+    }
+
+    @Test("LinkGeneration.tb3.totalGbps is the per-lane dual-lane headline, 20, not 40")
+    func linkGenerationTb3TotalGbpsIsTwentyNotForty() {
+        #expect(LinkGeneration.tb3.totalGbps == 20)
+    }
+
+    @Test("SupportedSpeedMask.maxTotalGbps: TB3 bit alone is 20")
+    func supportedSpeedMaskTb3AloneIsTwenty() {
+        #expect(SupportedSpeedMask(rawValue: 0x8).maxTotalGbps == 20)
+    }
+
+    @Test("SupportedSpeedMask.maxTotalGbps: TB4/USB4 mask (0xC) stays 40")
+    func supportedSpeedMaskTb4ClassStaysForty() {
+        #expect(SupportedSpeedMask(rawValue: 0xC).maxTotalGbps == 40)
+    }
+
+    @Test("SupportedSpeedMask.maxTotalGbps: TB5 mask (0xE) stays 80")
+    func supportedSpeedMaskTb5ClassStaysEighty() {
+        #expect(SupportedSpeedMask(rawValue: 0xE).maxTotalGbps == 80)
+    }
+
+    @Test("activeGbps: TB3 dual lane (speed 8, width 2) is 20")
+    func activeGbpsTb3DualLaneIsTwenty() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 8, width: 2)[$0] })
+        #expect(port?.activeGbps == 20)
+    }
+
+    @Test("activeGbps: USB4/TB4 dual lane (speed 4, width 2) is 40")
+    func activeGbpsUsb4DualLaneIsForty() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 4, width: 2)[$0] })
+        #expect(port?.activeGbps == 40)
+    }
+
+    @Test("activeGbps: USB4/TB4 single lane (speed 4, width 1) is 20")
+    func activeGbpsUsb4SingleLaneIsTwenty() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 4, width: 1)[$0] })
+        #expect(port?.activeGbps == 20)
+    }
+
+    @Test("activeGbps: TB5 dual lane (speed 2, width 2) is 80")
+    func activeGbpsTb5DualLaneIsEighty() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 2, width: 2)[$0] })
+        #expect(port?.activeGbps == 80)
+    }
+
+    @Test("activeGbps: no adapter/width data gives nil")
+    func activeGbpsNoWidthGivesNil() {
+        // No "Adapter Type" key, so the factory parses this as a non-lane
+        // adapter: currentSpeed and currentWidth both come back nil even
+        // though a stray "Current Link Speed" value is present in the dict.
+        let dict: [String: Any] = [
+            "Port Number": NSNumber(value: 1),
+            "Current Link Speed": NSNumber(value: 8)
+        ]
+        let port = IOThunderboltPort.from(read: { dict[$0] })
+        #expect(port?.activeGbps == nil)
+    }
+
+    @Test("activeGbps: unknown speed code gives nil")
+    func activeGbpsUnknownSpeedGivesNil() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 1, width: 2)[$0] })
+        #expect(port?.activeGbps == nil)
+    }
+
+    @Test("activeGbps: valid speed with no trained lane (width 0) gives nil")
+    func activeGbpsWidthZeroGivesNil() {
+        // Six corpus records read a real speed code with Current Link
+        // Width 0. No lane is trained, so there is no rate to report;
+        // zero would read as a measured 0 Gb/s link.
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 8, width: 0)[$0] })
+        #expect(port?.currentSpeed == .tb3)
+        #expect(port?.activeGbps == nil)
+    }
+
+    @Test("activeGbps: TB5 asymmetric TX (speed 2, width 4) reads the 3 TX lane figure, 120")
+    func activeGbpsTb5AsymmetricTxIsOneTwenty() {
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 2, width: 4)[$0] })
+        #expect(port?.activeGbps == 120)
+    }
+
+    @Test("activeGbps: TB5 asymmetric RX (speed 2, width 8) reads the 1 TX lane figure, 40")
+    func activeGbpsTb5AsymmetricRxIsForty() {
+        // Link Bandwidth on this shape of record tracks the RX side
+        // instead (see the doc comment on activeGbps), so it does not
+        // agree with this figure; that disagreement is expected.
+        let port = IOThunderboltPort.from(read: { self.lanePortDict(speed: 2, width: 8)[$0] })
+        #expect(port?.activeGbps == 40)
     }
 }

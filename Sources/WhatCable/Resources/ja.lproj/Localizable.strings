@@ -86,6 +86,8 @@
 "COMMUNITY" = "コミュニティ";
 "Contribute Diagnostic Data" = "診断データを提供";
 "Contribute Diagnostic Data…" = "診断データを提供…";
+"Before you start" = "開始する前に";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "含めたいケーブルやデバイスを接続し、完了するまですべて接続したままにしてください。実行中に抜き差しすると、結果に抜けが生じることがあります。";
 "Privacy" = "プライバシー";
 "Pro" = "Pro";
 "Proceed" = "続行";

@@ -1193,23 +1193,22 @@
 
 <h3>What is sent</h3>
 <ul>
-  <li>Hardware data from your Mac's USB-C ports (the same data the app reads, in raw form).</li>
-  <li>Your macOS version and chip type (e.g. Apple M3 Pro).</li>
+  <li>Raw IOKit registry properties: a snapshot of the hardware data macOS publishes about your Mac (the same kind of data the app reads, in raw form), plus a list of the driver classes present.</li>
+  <li>Your macOS version, chip type and Mac model identifier (for example, Mac14,3).</li>
   <li>A scrambled version of your Mac's ID, used only to group the data together. The actual ID is never stored.</li>
 </ul>
 
 <h3>What is not sent</h3>
 <ul>
   <li>No names, email addresses, your Mac's serial number, or personal data.</li>
-  <li>No analytics or background tracking. The only network request WhatCable makes on its own is a six-hourly update check.</li>
-  <li>Running it again from the same Mac replaces your previous submission rather than adding to it.</li>
+  <li>No analytics or background tracking. On its own, WhatCable only checks GitHub for updates, and with Pro, checks your licence when it starts.</li>
 </ul>
 </section>
 
 <section class="doc-card">
 <h2 id="good-to-know">Good to know</h2>
 <ul>
-  <li>WhatCable checks for updates once every six hours. No analytics, no tracking. See the <a href="/privacy">privacy policy</a>.</li>
+  <li>WhatCable checks GitHub for a newer version when it starts, every six hours, and when you open the menu if it hasn't checked in the last 30 minutes. No analytics, no tracking. See the <a href="/privacy">privacy policy</a>.</li>
   <li>WhatCable reads data from the Mac's USB-C port, the connected device or charger, and the cable itself, so it can cross-check what each part of the chain reports. If a cable claims high specs but the negotiated result is lower, WhatCable will show you where the mismatch is.</li>
   <li>The <a href="/cables">cable database</a> is built from community-reported cables. If yours isn't listed, use "Report this cable" in the app to contribute.</li>
   <li>WhatCable includes a <a href="/cli">command-line tool</a> for developers. It ships inside the app and is on your PATH automatically if you installed via Homebrew.</li>

@@ -86,6 +86,8 @@
 "COMMUNITY" = "社区";
 "Contribute Diagnostic Data" = "贡献诊断数据";
 "Contribute Diagnostic Data…" = "贡献诊断数据…";
+"Before you start" = "开始之前";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "请插好你想纳入的线缆和设备，并在运行结束前保持全部连接。运行期间插拔可能会让结果出现缺漏。";
 "Privacy" = "隐私";
 "Pro" = "Pro";
 "Proceed" = "继续";

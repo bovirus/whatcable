@@ -86,6 +86,8 @@
 "COMMUNITY" = "ՀԱՄԱՅՆՔ";
 "Contribute Diagnostic Data" = "Տրամադրել ախտորոշիչ տվյալներ";
 "Contribute Diagnostic Data…" = "Տրամադրել ախտորոշիչ տվյալներ…";
+"Before you start" = "Սկսելուց առաջ";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Միացրեք այն մալուխներն ու սարքերը, որոնք ցանկանում եք ներառել, ապա թողեք ամեն ինչ միացված, մինչև ավարտվի։ Աշխատանքի ընթացքում միացնելը կամ անջատելը կարող է բացեր թողնել արդյունքներում։";
 "Privacy" = "Գաղտնիություն";
 "Pro" = "Pro";
 "Proceed" = "Շարունակել";

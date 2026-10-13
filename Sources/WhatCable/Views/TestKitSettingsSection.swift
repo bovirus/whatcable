@@ -135,6 +135,12 @@ struct TestKitConsentView: View {
                 )
 
                 infoRow(
+                    icon: "cable.connector",
+                    title: String(localized: "Before you start", bundle: _appLocalizedBundle),
+                    detail: String(localized: "Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results.", bundle: _appLocalizedBundle)
+                )
+
+                infoRow(
                     icon: "list.clipboard",
                     title: String(localized: "What is collected", bundle: _appLocalizedBundle),
                     detail: String(localized: "Raw IOKit registry properties, a list of the driver classes present on your Mac, plus your macOS version, chip type and Mac model identifier (for example, Mac14,3). This is data macOS already exposes on your Mac.", bundle: _appLocalizedBundle)

@@ -85,6 +85,8 @@
 "COMMUNITY" = "СПІЛЬНОТА";
 "Contribute Diagnostic Data" = "Надати діагностичні дані";
 "Contribute Diagnostic Data…" = "Надати діагностичні дані…";
+"Before you start" = "Перед початком";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Підключіть кабелі та пристрої, які хочете включити, і залишайте все підключеним до завершення. Підключення або відключення під час запуску може залишити прогалини в результатах.";
 "Privacy" = "Конфіденційність";
 "Pro" = "Pro";
 "Proceed" = "Продовжити";

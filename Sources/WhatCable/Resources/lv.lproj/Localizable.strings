@@ -85,6 +85,8 @@
 "COMMUNITY" = "KOPIENA";
 "Contribute Diagnostic Data" = "Sniegt diagnostikas datus";
 "Contribute Diagnostic Data…" = "Sniegt diagnostikas datus…";
+"Before you start" = "Pirms sākat";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Pievienojiet kabeļus un ierīces, kuras vēlaties iekļaut, un atstājiet visu pievienotu, līdz darbība beidzas. Pievienošana vai atvienošana darbības laikā var atstāt robus rezultātos.";
 "Privacy" = "Privātums";
 "Pro" = "Pro";
 "Proceed" = "Turpināt";

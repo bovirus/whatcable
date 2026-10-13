@@ -85,6 +85,8 @@
 "COMMUNITY" = "커뮤니티";
 "Contribute Diagnostic Data" = "진단 데이터 제공";
 "Contribute Diagnostic Data…" = "진단 데이터 제공…";
+"Before you start" = "시작하기 전에";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "포함하고 싶은 케이블과 기기를 연결하고, 끝날 때까지 모두 연결해 두세요. 실행 중에 연결하거나 분리하면 결과에 빈틈이 생길 수 있어요.";
 "Privacy" = "개인정보 보호";
 "Pro" = "Pro";
 "Proceed" = "계속";

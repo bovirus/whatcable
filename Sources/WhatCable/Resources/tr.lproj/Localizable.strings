@@ -85,6 +85,8 @@
 "COMMUNITY" = "TOPLULUK";
 "Contribute Diagnostic Data" = "Tanılama Verisi Gönder";
 "Contribute Diagnostic Data…" = "Tanılama Verisi Gönder…";
+"Before you start" = "Başlamadan önce";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Dahil etmek istediğiniz kabloları ve cihazları takın, ardından işlem bitene kadar her şeyi bağlı bırakın. Çalışma sırasında takıp çıkarmak sonuçlarda boşluklara yol açabilir.";
 "Privacy" = "Gizlilik";
 "Pro" = "Pro";
 "Proceed" = "Devam Et";

@@ -31,8 +31,7 @@ twitterCard: summary
 <h2>What WhatCable sends</h2>
 <p>
   WhatCable checks the public
-  GitHub Releases API once every six hours to see if a newer version is
-  available. That request includes a <code>User-Agent</code> header
+  GitHub Releases API for a newer version when it starts, every six hours, and when you open the menu if it hasn't checked in the last 30 minutes. That request includes a <code>User-Agent</code> header
   naming the app and your installed version (for example,
   <code>WhatCable/{{ site.softwareVersion }}</code>). It does not include any personal
   information, and no analytics, telemetry, or identifiers are sent.
@@ -57,18 +56,20 @@ twitterCard: summary
   display detection. The submission contains:
 </p>
 <ul>
-  <li>Raw IOKit registry properties for your USB-C and Thunderbolt ports,
-    power delivery state, Thunderbolt topology, and any connected
-    accessories.</li>
-  <li>The model and capabilities of any connected display, read from its
-    EDID.</li>
-  <li>Battery and power-adapter readings from your Mac's own power
-    reporting, including what the attached charger advertises, and
-    per-port statistics from any connected USB hub.</li>
-  <li>Your macOS version and Mac chip type.</li>
+  <li>Raw IOKit registry properties: a snapshot of the hardware data macOS
+    publishes about your Mac, including its ports, power, displays and
+    connected accessories.</li>
+  <li>A list of the driver classes present on your Mac.</li>
+  <li>Readings macOS publishes about battery and power, including what the
+    attached charger advertises.</li>
+  <li>Your macOS version, chip type and Mac model identifier (for example,
+    Mac14,3).</li>
   <li>A one-way SHA-256 hash of your Mac's hardware UUID, used only to
     group submissions from the same machine. The original UUID is never
     sent and cannot be recovered from the hash.</li>
+  <li>Your Mac's own identifiers are left out before anything is sent: its
+    serial numbers, hardware UUID, chip ID, its own network and Bluetooth
+    addresses, your home folder path and your user name.</li>
 </ul>
 <p>
   No names, accounts, your Mac's serial number, or personal data are included.
@@ -106,12 +107,13 @@ twitterCard: summary
     address you bought it with.</li>
   <li><strong>Activation and validation.</strong> When you activate a key,
     and once each time the app launches afterwards, WhatCable sends your
-    licence key and your Mac's hardware UUID to WhatCable's licensing server
+    licence key, your Mac's hardware UUID and its model (for example,
+    Mac14,3) to WhatCable's licensing server
     to confirm the licence and enforce the two-Mac limit. If the server
     can't be reached, Pro keeps working offline for up to 30 days.</li>
   <li><strong>What the licence server stores.</strong> Your licence key,
-    the email you bought it with, and the hardware UUID of each Mac the key
-    has been activated on (up to two), so one key can't be used on more
+    the email you bought it with, and the hardware UUID and model of each
+    Mac the key has been activated on (up to two), so one key can't be used on more
     machines than allowed.</li>
   <li><strong>Support.</strong> If you use the support form on the website,
     it collects the email address and the licence key or Stripe transaction

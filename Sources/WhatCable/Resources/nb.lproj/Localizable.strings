@@ -86,6 +86,8 @@
 "COMMUNITY" = "FELLESSKAP";
 "Contribute Diagnostic Data" = "Bidra med diagnostikkdata";
 "Contribute Diagnostic Data…" = "Bidra med diagnostikkdata…";
+"Before you start" = "Før du starter";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Koble til kablene og enhetene du vil ha med, og la alt stå tilkoblet til kjøringen er ferdig. Hvis du kobler til eller fra underveis, kan det bli hull i resultatene.";
 "Privacy" = "Personvern";
 "Pro" = "Pro";
 "Proceed" = "Fortsett";

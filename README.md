@@ -265,9 +265,9 @@ WhatCable reads USB-C port state directly from IOKit on your Mac. All of that ha
 
 **Cable reports:** If you use the "Report this cable" button on an e-marked cable, WhatCable builds a pre-filled GitHub issue containing the cable's vendor ID, product ID, and capability flags (VDOs). Your browser opens with that data in the issue form. Nothing is submitted until you click the button in GitHub yourself. Once submitted, the issue is public.
 
-**Update checks:** WhatCable checks the GitHub Releases API about once every six hours to see if a newer version is available. No personal data or hardware info is included in that request.
+**Update checks:** WhatCable checks the GitHub Releases API for a newer version when it starts, every six hours, and when you open the menu if it hasn't checked in the last 30 minutes. No personal data or hardware info is included in that request.
 
-**Diagnostic data:** Settings has an opt-in **Contribute Diagnostic Data** button. When you press it, WhatCable collects anonymised USB-C port and power IOKit details from your Mac and submits them to help improve hardware coverage. It only runs when you click it; nothing is collected or sent unless you choose to.
+**Diagnostic data:** Settings has an opt-in **Contribute Diagnostic Data** button. When you press it, WhatCable collects raw IOKit registry properties about your Mac's USB ports, power and connected hardware, a list of the driver classes present, and your macOS version, chip type and Mac model identifier, then submits them to help improve hardware coverage. Your Mac's own identifiers are left out. It only runs when you click it; nothing is collected or sent unless you choose to.
 
 ## Contributing
 
@@ -304,7 +304,7 @@ The Settings language picker builds itself from the bundled `.lproj` resources, 
 
 ### Diagnostic data
 
-The single most helpful thing you can do is hit **Contribute Diagnostic Data** in Settings. It runs a short set of C probes that gather anonymised port and power data from your Mac, then submits the results. The whole process takes a few seconds, nothing is sent without your explicit click, and no personal information is included.
+The single most helpful thing you can do is hit **Contribute Diagnostic Data** in Settings. It runs a short set of probes that read the hardware data macOS already publishes about your Mac's ports, power and connected devices, then submits the results. The whole process takes a few seconds, nothing is sent without your explicit click, and no personal information is included.
 
 More device data means better hardware coverage, fewer edge-case bugs, and more accurate diagnostics for everyone. If you have unusual hardware (docks, hubs, TB5 gear, high-wattage chargers), your report is especially valuable.
 

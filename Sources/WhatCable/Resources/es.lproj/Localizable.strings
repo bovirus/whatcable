@@ -86,6 +86,8 @@
 "COMMUNITY" = "COMUNIDAD";
 "Contribute Diagnostic Data" = "Contribuir con datos de diagnóstico";
 "Contribute Diagnostic Data…" = "Contribuir con datos de diagnóstico…";
+"Before you start" = "Antes de empezar";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Conecta los cables y dispositivos que quieras incluir y déjalos conectados hasta que termine. Conectar o desconectar algo durante la ejecución puede dejar huecos en los resultados.";
 "Privacy" = "Privacidad";
 "Pro" = "Pro";
 "Proceed" = "Continuar";

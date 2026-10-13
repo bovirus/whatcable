@@ -85,6 +85,8 @@
 "COMMUNITY" = "СООБЩЕСТВО";
 "Contribute Diagnostic Data" = "Передать диагностические данные";
 "Contribute Diagnostic Data…" = "Передать диагностические данные…";
+"Before you start" = "Перед началом";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "Подключите кабели и устройства, которые хотите включить, и оставьте всё подключённым до завершения. Подключение или отключение во время запуска может оставить пробелы в результатах.";
 "Privacy" = "Конфиденциальность";
 "Pro" = "Pro";
 "Proceed" = "Продолжить";

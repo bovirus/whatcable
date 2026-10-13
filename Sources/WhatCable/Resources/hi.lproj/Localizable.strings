@@ -85,6 +85,8 @@
 "COMMUNITY" = "समुदाय";
 "Contribute Diagnostic Data" = "डायग्नोस्टिक डेटा योगदान करें";
 "Contribute Diagnostic Data…" = "डायग्नोस्टिक डेटा योगदान करें…";
+"Before you start" = "शुरू करने से पहले";
+"Plug in the cables and devices you want included, then leave everything connected until it finishes. Plugging or unplugging during the run can leave gaps in the results." = "जिन केबल और डिवाइस को शामिल करना चाहते हैं, उन्हें प्लग इन करें, फिर पूरा होने तक सब कुछ जुड़ा रहने दें। रन के दौरान प्लग इन या अनप्लग करने से नतीजों में कमी रह सकती है।";
 "Privacy" = "गोपनीयता";
 "Pro" = "Pro";
 "Proceed" = "आगे बढ़ें";

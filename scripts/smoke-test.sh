@@ -24,8 +24,8 @@ fi
 
 APP_NAME="WhatCable"
 BUNDLE_ID="uk.whatcable.whatcable"
-VERSION="1.5.0-beta.10"
-BUILD_NUMBER="139"
+VERSION="1.5.0"
+BUILD_NUMBER="140"
 MIN_OS="14.0"
 CLI_PRODUCT="whatcable-cli"
 CLI_BIN_NAME="whatcable"
